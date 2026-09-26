@@ -1,0 +1,206 @@
+import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { SimulationEngine } from '../../src/engine/engine';
+import { SaveStore } from '../../electron/persistence';
+let app: ElectronApplication;
+test('desktop launch, missions, manual controls, viewport layouts and saved restart', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'frontier-e2e-'));
+  const launch = () =>
+    electron.launch({
+      args: [resolve('.')],
+      env: { ...process.env, FRONTIER_USER_DATA: userData, FRONTIER_HEADLESS: '1' },
+    });
+  app = await launch();
+  const page = await app.firstWindow();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await expect(page.getByRole('heading', { name: 'FRONTIER COMMAND', exact: true })).toBeVisible();
+  await expect(page.locator('.fleet-chip')).toHaveCount(3);
+  for (const [width, height] of [
+    [1280, 720],
+    [1440, 900],
+    [1920, 1080],
+  ]) {
+    await app.evaluate(
+      ({ BrowserWindow }, size) => {
+        BrowserWindow.getAllWindows()[0].setContentSize(size[0], size[1]);
+      },
+      [width, height],
+    );
+    await expect(page.locator('.tactical-canvas')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    const geometry = await page.evaluate(() => ({
+      rail: document.querySelector('.upper-rail')!.getBoundingClientRect().width,
+      bar: document.querySelector('.upper-bars')!.getBoundingClientRect().height,
+      radius: getComputedStyle(document.querySelector('.upper-rail')!).borderBottomLeftRadius,
+    }));
+    expect(geometry).toEqual({
+      rail: width === 1280 ? 180 : width === 1440 ? 200 : 240,
+      bar: width === 1280 ? 20 : width === 1440 ? 24 : 28,
+      radius: width === 1280 ? '100px' : width === 1440 ? '130px' : '160px',
+    });
+    await page.screenshot({ path: `test-results/overview-${width}.png` });
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
+  await page.getByRole('button', { name: '02 任务中心 OPERATIONS' }).click();
+  await expect(page.locator('.mission-card')).toHaveCount(6);
+  await page.screenshot({ path: 'test-results/missions.png' });
+  await page.locator('.mission-card').filter({ hasText: '琥珀星云' }).click();
+  await page.getByRole('button', { name: '授权派遣 →' }).click();
+  await expect(page.locator('.assignment')).toContainText('前往任务区');
+  await page.getByRole('button', { name: '继续模拟' }).click();
+  await expect
+    .poll(async () => (await page.evaluate(() => window.frontier.getState())).state.time)
+    .toBeGreaterThan(0);
+  await page.getByRole('button', { name: '直接操舰', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '直接操舰', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '4×', exact: true })).toBeDisabled();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setContentSize(1280, 720),
+  );
+  await expect(page.getByRole('button', { name: 'W 推进', exact: true })).toBeInViewport();
+  await expect(
+    page.getByRole('button', { name: 'SPACE / 发射相位武器', exact: true }),
+  ).toBeInViewport();
+  await expect(page.getByRole('button', { name: '释放 · 恢复任务' })).toBeInViewport();
+  await page.screenshot({ path: 'test-results/manual-1280.png' });
+  const before = await page.evaluate(async () => (await window.frontier.getState()).state.ships[0]);
+  await page.keyboard.down('w');
+  await page.waitForTimeout(1200);
+  await page.keyboard.up('w');
+  const after = await page.evaluate(async () => (await window.frontier.getState()).state.ships[0]);
+  expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(0.1);
+  await page.getByRole('button', { name: '释放 · 恢复任务' }).click();
+  await page.getByRole('button', { name: '暂停模拟' }).click();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setContentSize(1440, 900),
+  );
+  await page.getByRole('button', { name: '03 舰队管理 STARBASE' }).click();
+  await expect(page.locator('.berth')).toHaveCount(3);
+  await page.screenshot({ path: 'test-results/starbase.png' });
+  await page.getByRole('button', { name: '05 星区档案 ARCHIVES' }).click();
+  await expect(page.locator('.document')).toContainText('克拉斯家族');
+  await page.getByRole('button', { name: '06 系统 SYSTEM / SAVE' }).click();
+  await page.getByRole('button', { name: '立即保存' }).click();
+  await expect(page.getByRole('status')).toContainText('已保存');
+  const saved = await page.evaluate(async () => (await window.frontier.getState()).state);
+  expect(errors).toEqual([]);
+  await app.close();
+  app = await launch();
+  const next = await app.firstWindow();
+  await expect(next.locator('.fleet-chip')).toHaveCount(3);
+  const restored = await next.evaluate(async () => (await window.frontier.getState()).state);
+  expect(restored.time).toBe(saved.time);
+  expect(restored.paused).toBe(true);
+  expect(restored.ships[0].missionId).toBe('amber');
+  await app.close();
+});
+
+test('decision, settlement and corrupt-save recovery screens remain usable', async () => {
+  test.setTimeout(120000);
+  const engine = new SimulationEngine();
+  engine.dispatchCommand({ type: 'dispatch', shipId: 'verity', missionId: 'amber', route: 'safe' });
+  engine.state.paused = false;
+  while (engine.state.missions[0].phase === 'outbound') engine.step();
+  engine.state.paused = true;
+  const decisionData = mkdtempSync(join(tmpdir(), 'frontier-decision-'));
+  new SaveStore(decisionData).write(engine.state);
+  app = await electron.launch({
+    args: [resolve('.')],
+    env: { ...process.env, FRONTIER_USER_DATA: decisionData, FRONTIER_HEADLESS: '1' },
+  });
+  let page = await app.firstWindow();
+  await expect(page.locator('.decision-box')).toBeVisible();
+  await page.locator('.decision-box').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/exploration-decision.png' });
+  await page.getByRole('button', { name: '近距调查 · 高收益 / 损伤' }).click();
+  expect((await page.evaluate(() => window.frontier.getState())).state.missions[0].phase).toBe(
+    'working',
+  );
+  await app.close();
+  engine.dispatchCommand({ type: 'investigate', shipId: 'verity', choice: 'close' });
+  engine.state.paused = false;
+  while (!engine.state.missions[0].settled) engine.step();
+  engine.state.paused = true;
+  const settledData = mkdtempSync(join(tmpdir(), 'frontier-settled-'));
+  new SaveStore(settledData).write(engine.state);
+  app = await electron.launch({
+    args: [resolve('.')],
+    env: { ...process.env, FRONTIER_USER_DATA: settledData, FRONTIER_HEADLESS: '1' },
+  });
+  page = await app.firstWindow();
+  await page.getByRole('button', { name: '02 任务中心 OPERATIONS' }).click();
+  await page.locator('.mission-card').filter({ hasText: '琥珀星云' }).click();
+  await expect(page.locator('.result-box')).toBeVisible();
+  await page.locator('.result-box').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/settlement.png' });
+  await app.close();
+  const corruptData = mkdtempSync(join(tmpdir(), 'frontier-corrupt-ui-'));
+  writeFileSync(join(corruptData, 'world-v1.json'), '{broken');
+  writeFileSync(join(corruptData, 'world-v1.json.bak'), '{broken');
+  app = await electron.launch({
+    args: [resolve('.')],
+    env: { ...process.env, FRONTIER_USER_DATA: corruptData, FRONTIER_HEADLESS: '1' },
+  });
+  page = await app.firstWindow();
+  await page.getByRole('button', { name: '06 系统 SYSTEM / SAVE' }).click();
+  await page.getByRole('button', { name: '立即保存' }).click();
+  await expect(page.getByRole('status')).toBeVisible();
+  expect((await page.evaluate(() => window.frontier.getState())).saveBlocked).toBe(true);
+  await page.screenshot({ path: 'test-results/corrupt-save.png' });
+  await page.getByRole('button', { name: '归档旧存档并重置' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.screenshot({ path: 'test-results/reset-dialog.png' });
+  await page.getByRole('button', { name: '归档并重置', exact: true }).click();
+  await expect
+    .poll(async () => (await page.evaluate(() => window.frontier.getState())).saveBlocked)
+    .toBe(false);
+  await app.close();
+});
+test.afterEach(async () => {
+  if (app) await app.close().catch(() => {});
+});
+
+test('tactical encounter: scanning, targeting, phaser fire, warning and focus pause', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'frontier-tactical-'));
+  const engine = new SimulationEngine();
+  engine.dispatchCommand({ type: 'dispatch', shipId: 'vigil', missionId: 'k7', route: 'safe' });
+  engine.state.paused = false;
+  while (engine.state.missions[4].phase === 'outbound') engine.step();
+  engine.state.paused = true;
+  new SaveStore(userData).write(engine.state);
+  app = await electron.launch({
+    args: [resolve('.')],
+    env: { ...process.env, FRONTIER_USER_DATA: userData, FRONTIER_HEADLESS: '1' },
+  });
+  const page = await app.firstWindow();
+  await page.locator('.fleet-chip.vigil').click();
+  await page.getByRole('button', { name: '直接操舰', exact: true }).click();
+  await page.getByRole('button', { name: '扫描接触', exact: true }).click();
+  await page.locator('.contact-row>button').first().click();
+  await page.getByRole('button', { name: '继续模拟' }).click();
+  await page.getByRole('button', { name: 'SPACE / 发射相位武器', exact: true }).click();
+  await expect
+    .poll(
+      async () => (await page.evaluate(() => window.frontier.getState())).state.contacts[0].shield,
+    )
+    .toBeLessThan(65);
+  await page.screenshot({ path: 'test-results/tactical-contact.png' });
+  await page.getByRole('button', { name: '警告驱离', exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.frontier.getState())).state.contacts[0].retreating,
+    )
+    .toBe(true);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('blur'));
+  await expect(page.getByRole('button', { name: '继续模拟' })).toBeVisible();
+  const state = (await page.evaluate(() => window.frontier.getState())).state;
+  expect(state.paused).toBe(true);
+  expect(state.ships[2].helm).toEqual({ turn: 0, throttle: 0 });
+  await app.close();
+});

@@ -1,6 +1,9 @@
 import { FACTIONS } from './definitions/factions';
 import { RESOURCE_DEFINITIONS } from './definitions/resources';
-import { BASE, createWorld, WORLD_HEIGHT } from './data';
+import { createWorld, WORLD_HEIGHT } from './data';
+import { FEDERATION_FRONTIER } from './definitions/locations';
+import { FIXED_DELTA, TICKS_PER_DAY, gameCalendar } from './clock';
+export { FIXED_DELTA } from './clock';
 import { commandSchema } from './commands';
 import type {
   AgentControllerPort,
@@ -14,9 +17,10 @@ import type {
   Ship,
   Snapshot,
   WorldState,
+  CriticalReason,
+  SimulationEvent,
 } from './types';
 
-export const FIXED_DELTA = 0.1;
 export const RANGE = 145;
 export const SCAN_RANGE = 220;
 export const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -27,6 +31,57 @@ const no = (reason: string): CommandResult => ({ ok: false, reason });
 
 export class SimulationEngine {
   state: WorldState;
+  private pendingReasons: CriticalReason[] = [];
+  private get base(): Point {
+    const base = this.state.locations.find((location) => location.id === 'base');
+    if (!base) throw new Error('World base is missing');
+    return { x: base.x, y: base.y };
+  }
+  private critical(kind: CriticalReason['kind'], entityId: string, message: string) {
+    this.pendingReasons.push({
+      kind,
+      entityId,
+      message,
+      tick: this.state.tick,
+      time: this.state.time,
+    });
+  }
+  private finishCritical(): SimulationEvent[] {
+    if (!this.pendingReasons.length) return [];
+    const reasons = this.pendingReasons;
+    this.pendingReasons = [];
+    this.state.paused = true;
+    for (const reason of reasons) {
+      if (
+        !this.state.pauseReasons.some(
+          (existing) => existing.kind === reason.kind && existing.entityId === reason.entityId,
+        )
+      )
+        this.state.pauseReasons.push(reason);
+    }
+    this.clearInputs();
+    return [{ type: 'criticalPause', reasons: structuredClone(reasons) }];
+  }
+  private detect(t: Contact) {
+    if (!t.detected)
+      this.critical(
+        'contactDetected',
+        t.id,
+        '发现新的接触：' + (t.identified ? t.name : '未识别接触'),
+      );
+    t.detected = true;
+  }
+  private makeHostile(t: Contact) {
+    if (!t.hostile) this.critical('hostility', t.id, '接触转为敌对：' + t.name);
+    t.hostile = true;
+  }
+  /** A nominal 100ms host pulse. Speed changes step count, never the fixed delta. */
+  advanceFrame(): SimulationEvent[] {
+    const events: SimulationEvent[] = [];
+    const speed = this.state.speed;
+    for (let i = 0; i < speed && !this.state.paused; i++) events.push(...this.step());
+    return events;
+  }
   constructor(world = createWorld()) {
     this.state = structuredClone(world);
   }
@@ -138,7 +193,7 @@ export class SimulationEngine {
       if (mission.kind === 'explore' && s.science < 40) return no('科学能力不足');
       if (mission.cargoRequired > s.capacity) return no('货舱容量不足');
       if (mission.cargoRequired > w.resources.supplies)
-        return no('基地补给库存不足；每 180 秒获得常规补给');
+        return no('基地补给库存不足；每 180 游戏分钟获得常规补给');
     }
     if (
       c.type === 'repair' &&
@@ -194,6 +249,7 @@ export class SimulationEngine {
       w = this.state;
     if (c.type === 'pause') {
       w.paused = c.paused;
+      if (!c.paused) w.pauseReasons = [];
       if (c.paused) this.clearInputs();
       return ok(c.paused ? '模拟已暂停' : '模拟已继续');
     }
@@ -324,6 +380,7 @@ export class SimulationEngine {
         s.helm = { turn: c.turn, throttle: c.throttle };
         break;
     }
+    this.finishCritical();
     return ok();
   }
   clearInputs() {
@@ -347,13 +404,13 @@ export class SimulationEngine {
     s.order = 'return';
     s.status = 'returning';
     s.targetId = null;
-    s.path = [{ ...BASE }];
+    s.path = [{ ...this.base }];
   }
   private scan(s: Ship) {
     let count = 0;
     for (const t of this.state.contacts) {
       if (!t.retreating && dist(s, t) <= SCAN_RANGE && !t.identified) {
-        t.detected = true;
+        this.detect(t);
         t.identified = true;
         count++;
         this.state.resources.intel += FACTIONS[t.faction].scanIntel;
@@ -363,7 +420,7 @@ export class SimulationEngine {
     if (!count) this.log(`${s.name} 扫描完成，未发现新的身份信息。`);
   }
   private hail(s: Ship, t: Contact) {
-    t.detected = true;
+    this.detect(t);
     if (FACTIONS[t.faction].retreatOnWarning || s.power >= 12 || t.shield < 15 || t.hull < 60) {
       t.retreating = true;
       t.hostile = false;
@@ -373,13 +430,13 @@ export class SimulationEngine {
       );
       this.resolveContact(t, '通过识别与警告完成驱离');
     } else {
-      t.hostile = true;
+      this.makeHostile(t);
       this.log(`${t.name} 拒绝弱势舰船的警告并转为敌对。可以撤离或请求巡逻舰支援。`, 'danger');
     }
   }
   private fire(s: Ship, t: Contact) {
     s.cooldown = 3;
-    t.hostile = true;
+    this.makeHostile(t);
     const shieldHit = Math.min(t.shield, s.power);
     t.shield -= shieldHit;
     t.hull = Math.max(0, t.hull - (s.power - shieldHit));
@@ -442,6 +499,7 @@ export class SimulationEngine {
   private settle(s: Ship, m: Mission, success: boolean, reason: string) {
     if (m.settled) return;
     m.settled = true;
+    if (!success) this.critical('missionFailed', m.id, m.name + '：' + reason);
     const r = this.state.resources;
     let gain = '';
     if (success) {
@@ -474,17 +532,20 @@ export class SimulationEngine {
     this.returnHome(s);
   }
   private damage(s: Ship, amount: number, bypass = false) {
+    const previousHull = s.hull;
     const absorbed = bypass ? 0 : Math.min(s.shield, amount);
     s.shield -= absorbed;
     s.hull = Math.max(0, s.hull - amount + absorbed);
+    if (previousHull >= 30 && s.hull < 30) this.critical('lowHull', s.id, s.name + ' 舰体低于 30%');
     if (s.hull <= 0 && s.status !== 'disabled') {
       const m = this.state.missions.find((m) => m.id === s.missionId);
       if (m && !m.settled) this.settle(s, m, false, '舰船失能，启动应急拖航');
       this.clearManual(s);
       s.status = 'disabled';
+      this.critical('disabled', s.id, s.name + ' 已失能，等待应急拖航');
       s.path = [];
       s.tow = 35;
-      this.log(`${s.name} 已失能，应急拖航将在 35 秒后将其送回基地。`, 'danger');
+      this.log(`${s.name} 已失能，应急拖航将在 35 游戏分钟后将其送回基地。`, 'danger');
     }
   }
   private move(s: Ship, dest: Point, dt: number, multiplier = 1) {
@@ -515,12 +576,17 @@ export class SimulationEngine {
       'success',
     );
   }
-  step(fixedDelta = FIXED_DELTA) {
-    if (fixedDelta !== FIXED_DELTA) throw new Error('Simulation requires fixed 0.1 second steps');
+  step(fixedDelta = FIXED_DELTA): SimulationEvent[] {
+    if (fixedDelta !== FIXED_DELTA)
+      throw new Error('Simulation requires fixed 0.1 game-minute steps');
     const w = this.state;
-    if (w.paused) return;
+    if (w.paused) return [];
     w.tick++;
     w.time = w.tick / 10;
+    const events: SimulationEvent[] =
+      w.tick % TICKS_PER_DAY === 0
+        ? [{ type: 'dayBoundary', day: gameCalendar(w.tick).day, tick: w.tick, time: w.time }]
+        : [];
     w.beams = w.beams.filter((b) => b.expires > w.time);
     if (w.tick % 1800 === 0) {
       w.resources.supplies = Math.min(
@@ -545,8 +611,8 @@ export class SimulationEngine {
       if (s.status === 'disabled') {
         s.tow -= fixedDelta;
         if (s.tow <= 0) {
-          s.x = BASE.x;
-          s.y = BASE.y;
+          s.x = this.base.x;
+          s.y = this.base.y;
           s.hull = 1;
           this.dock(s);
         }
@@ -572,7 +638,11 @@ export class SimulationEngine {
       if (w.manualShipId === s.id) {
         s.heading += s.helm.turn * 1.7 * fixedDelta;
         s.throttle = clamp(s.throttle + s.helm.throttle * fixedDelta * 0.7, 0, 1);
-        s.x = clamp(s.x + Math.cos(s.heading) * s.speed * 2 * s.throttle * fixedDelta, 35, 1040);
+        s.x = clamp(
+          s.x + Math.cos(s.heading) * s.speed * 2 * s.throttle * fixedDelta,
+          35,
+          FEDERATION_FRONTIER,
+        );
         s.y = clamp(
           s.y + Math.sin(s.heading) * s.speed * 2 * s.throttle * fixedDelta,
           35,
@@ -596,13 +666,13 @@ export class SimulationEngine {
         s.trail.push({ x: s.x, y: s.y });
         if (s.trail.length > 40) s.trail.shift();
       }
-      if (s.order === 'return' && w.manualShipId !== s.id && dist(s, BASE) < 2) {
+      if (s.order === 'return' && w.manualShipId !== s.id && dist(s, this.base) < 2) {
         this.dock(s);
         continue;
       }
       for (const t of w.contacts)
         if (!t.detected && dist(s, t) < FACTIONS[t.faction].detectionRange) {
-          t.detected = true;
+          this.detect(t);
           this.log(`${s.name} 发现未识别接触。`, 'warning');
         }
       if (m && !m.settled && s.order !== 'hold') this.advanceMission(s, m, fixedDelta);
@@ -651,16 +721,18 @@ export class SimulationEngine {
       }
     }
     w.contacts = w.contacts.filter((t) => t.x < 1250);
+    return [...events, ...this.finishCritical()];
   }
   private advanceMission(s: Ship, m: Mission, dt: number) {
     const w = this.state,
       loc = w.locations.find((l) => l.id === m.locationId)!;
     if (m.phase === 'outbound' && dist(s, loc) < 18) {
       m.phase = m.kind === 'explore' ? 'decision' : 'working';
+      if (m.phase === 'decision') this.critical('investigation', m.id, s.name + ' 等待调查决策');
       m.decisionAt = w.time;
       m.work = 0;
       this.log(
-        `${s.name} 抵达 ${loc.name}。${m.kind === 'explore' ? '等待调查决策，20 秒后采用远距扫描。' : '开始执行任务。'}`,
+        `${s.name} 抵达 ${loc.name}。${m.kind === 'explore' ? '等待调查决策，20 游戏分钟后采用远距扫描。' : '开始执行任务。'}`,
       );
       if (m.kind === 'patrol') {
         const t = this.spawnContact(
@@ -670,7 +742,7 @@ export class SimulationEngine {
         );
         if (t) {
           m.contactId = t.id;
-          t.detected = true;
+          this.detect(t);
         }
       }
       if (m.kind === 'supply' && m.route === 'fast') {
@@ -692,7 +764,7 @@ export class SimulationEngine {
         );
         if (t) {
           m.contactId = t.id;
-          t.detected = true;
+          this.detect(t);
         }
       }
       const t = w.contacts.find((t) => t.id === m.contactId);
@@ -710,7 +782,7 @@ export class SimulationEngine {
           ? m.choice === 'close'
             ? '近距调查完成，样本精度提高'
             : '远距调查完成，保持安全距离'
-          : `货物在 ${Math.round(w.time - m.started)} 秒内抵达，航线：${m.route === 'safe' ? '安全' : '快速'}`,
+          : `货物在 ${Math.round(w.time - m.started)} 游戏分钟内抵达，航线：${m.route === 'safe' ? '安全' : '快速'}`,
       );
   }
 }

@@ -36,8 +36,8 @@ export function FleetPage({ world, selectShip, command }: Props) {
         </div>
       </div>
       <p className="info-line">
-        常规补给每 180 秒抵达：45 补给 / 15 材料。下一批：
-        {180 - Math.floor(world.time % 180)} 秒。
+        常规补给每 180 游戏分钟抵达：45 补给 / 15 材料。下一批：
+        {180 - Math.floor(world.time % 180)} 游戏分钟。
       </p>
       <Bar code="BERTHS 01—03">舰船状态与维修</Bar>
       <div className="berths">
@@ -63,7 +63,7 @@ export function FleetPage({ world, selectShip, command }: Props) {
               </button>
               {s.status === 'repairing' && (
                 <small>
-                  {s.emergency ? '基础抢修' : '标准维修'} · {Math.ceil(s.repair)} 秒
+                  {s.emergency ? '基础抢修' : '标准维修'} · {Math.ceil(s.repair)} 游戏分钟
                 </small>
               )}
             </div>

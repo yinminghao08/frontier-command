@@ -1,3 +1,5 @@
+import { CRITICAL_KINDS } from './types';
+import { regionAt, WORLD_WIDTH, WORLD_HEIGHT } from './definitions/locations';
 import { FACTIONS } from './definitions/factions';
 import { SHIP_CLASSES } from './definitions/ships';
 import { LOCATIONS } from './definitions/locations';
@@ -78,13 +80,22 @@ const mission = z.object({
 });
 export const worldSchema = z
   .object({
-    version: z.literal(2),
+    version: z.literal(3),
     tick: nonnegative.int(),
     time: nonnegative,
     seed: nonnegative.int().max(4294967295),
     initialSeed: nonnegative.int().max(4294967295),
     paused: z.boolean(),
-    speed: z.union([z.literal(1), z.literal(2), z.literal(4)]),
+    pauseReasons: z.array(
+      z.object({
+        kind: z.enum(CRITICAL_KINDS),
+        entityId: id,
+        tick: nonnegative.int(),
+        time: nonnegative,
+        message: z.string(),
+      }),
+    ),
+    speed: z.union([z.literal(1), z.literal(4), z.literal(16)]),
     manualShipId: nullableId,
     commander: z.object({ id, name: z.string(), rank: z.string() }),
     operators: z
@@ -98,7 +109,8 @@ export const worldSchema = z
           id,
           name: z.string(),
           label: z.string(),
-          kind: z.enum(['base', 'colony', 'outpost', 'anomaly', 'border']),
+          kind: z.enum(['base', 'colony', 'outpost', 'anomaly', 'border', 'mine', 'planet']),
+          regionId: z.enum(['federation', 'neutral', 'romulan']),
           supply: nonnegative.max(100),
         }),
       )
@@ -165,6 +177,20 @@ export const worldSchema = z
       fail('Multiple operators assigned to one ship');
     for (const o of w.operators)
       if (!w.ships.some((s) => s.id === o.shipId)) fail('Operator ship missing');
+    if (!w.locations.some((l) => l.id === 'base' && l.kind === 'base')) fail('Base missing');
+    if (!w.paused && w.pauseReasons.length) fail('Active world has pause reasons');
+    for (const reason of w.pauseReasons)
+      if (reason.time !== reason.tick / 10 || reason.tick > w.tick) fail('Invalid pause timestamp');
+    for (const location of w.locations) {
+      if (
+        location.regionId !== regionAt(location.x) ||
+        location.x < 0 ||
+        location.x > WORLD_WIDTH ||
+        location.y < 0 ||
+        location.y > WORLD_HEIGHT
+      )
+        fail('Invalid location geography');
+    }
     for (const location of w.locations)
       if (!LOCATIONS.some((definition) => definition.id === location.id))
         fail('Unknown location definition');

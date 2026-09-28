@@ -1,15 +1,55 @@
 import type { Location } from '../types';
 import { freezeDefinitions } from './freeze';
-export const WORLD_WIDTH = 1200;
+export const WORLD_WIDTH = 1600;
 export const WORLD_HEIGHT = 800;
-export const BASE = Object.freeze({ x: 260, y: 430 });
+export const BASE = Object.freeze({ x: 880, y: 430 });
+export const FEDERATION_FRONTIER = 1040;
+export const ROMULAN_FRONTIER = 1280;
+export const REGIONS = freezeDefinitions([
+  {
+    id: 'federation',
+    label: 'FEDERATION SPACE',
+    name: '联邦空间',
+    from: 0,
+    to: FEDERATION_FRONTIER,
+    color: '#29465a',
+  },
+  {
+    id: 'neutral',
+    label: 'NEUTRAL ZONE',
+    name: '中立区',
+    from: FEDERATION_FRONTIER,
+    to: ROMULAN_FRONTIER,
+    color: '#ba945c',
+  },
+  {
+    id: 'romulan',
+    label: 'ROMULAN SPACE',
+    name: '罗慕兰空间',
+    from: ROMULAN_FRONTIER,
+    to: WORLD_WIDTH,
+    color: '#a55555',
+  },
+]);
+export function regionAt(x: number): Location['regionId'] {
+  return x < FEDERATION_FRONTIER ? 'federation' : x < ROMULAN_FRONTIER ? 'neutral' : 'romulan';
+}
 export const LOCATIONS = freezeDefinitions([
-  { id: 'base', name: '曙光基地', label: 'DAWN STARBASE', kind: 'base', ...BASE, supply: 100 },
+  {
+    id: 'base',
+    name: '曙光基地',
+    label: 'DAWN STARBASE',
+    kind: 'base',
+    regionId: 'federation',
+    ...BASE,
+    supply: 100,
+  },
   {
     id: 'colony',
     name: '新曙殖民地',
     label: 'NEW HORIZON',
     kind: 'colony',
+    regionId: 'federation',
     x: 440,
     y: 660,
     supply: 30,
@@ -19,6 +59,7 @@ export const LOCATIONS = freezeDefinitions([
     name: '信标科研前哨',
     label: 'BEACON OUTPOST',
     kind: 'outpost',
+    regionId: 'federation',
     x: 780,
     y: 310,
     supply: 20,
@@ -28,6 +69,7 @@ export const LOCATIONS = freezeDefinitions([
     name: '中继补给站',
     label: 'RELAY STATION',
     kind: 'outpost',
+    regionId: 'federation',
     x: 490,
     y: 430,
     supply: 80,
@@ -37,6 +79,7 @@ export const LOCATIONS = freezeDefinitions([
     name: '琥珀星云',
     label: 'AMBER NEBULA',
     kind: 'anomaly',
+    regionId: 'federation',
     x: 460,
     y: 200,
     supply: 0,
@@ -46,6 +89,7 @@ export const LOCATIONS = freezeDefinitions([
     name: '回声异常',
     label: 'ECHO ANOMALY',
     kind: 'anomaly',
+    regionId: 'federation',
     x: 750,
     y: 120,
     supply: 0,
@@ -55,6 +99,7 @@ export const LOCATIONS = freezeDefinitions([
     name: '边境哨线 K-7',
     label: 'PATROL K-7',
     kind: 'border',
+    regionId: 'federation',
     x: 850,
     y: 550,
     supply: 0,
@@ -64,8 +109,49 @@ export const LOCATIONS = freezeDefinitions([
     name: '静默走廊 R-3',
     label: 'SILENT CORRIDOR',
     kind: 'border',
+    regionId: 'federation',
     x: 930,
     y: 240,
+    supply: 0,
+  },
+  {
+    id: 'mine',
+    name: '赫利俄斯矿场',
+    label: 'HELIOS MINE',
+    kind: 'mine',
+    regionId: 'federation',
+    x: 650,
+    y: 600,
+    supply: 0,
+  },
+  {
+    id: 'planet',
+    name: '翠绿星 · M级',
+    label: 'VERDANT / M-CLASS',
+    kind: 'planet',
+    regionId: 'federation',
+    x: 620,
+    y: 100,
+    supply: 0,
+  },
+  {
+    id: 'neutral-border',
+    name: '中立区界标',
+    label: 'NEUTRAL WAYPOINT',
+    kind: 'border',
+    regionId: 'neutral',
+    x: 1160,
+    y: 630,
+    supply: 0,
+  },
+  {
+    id: 'romulan-colony',
+    name: '罗慕兰殖民地',
+    label: 'ROMULAN COLONY',
+    kind: 'colony',
+    regionId: 'romulan',
+    x: 1430,
+    y: 400,
     supply: 0,
   },
 ] satisfies Location[]);

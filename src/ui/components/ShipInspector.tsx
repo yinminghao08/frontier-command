@@ -56,7 +56,8 @@ export function ShipInspector({
           {assignment.deadline > 0 && !assignment.settled && (
             <small>
               剩余时限{' '}
-              {Math.max(0, Math.ceil(assignment.deadline - world.time + assignment.started))} 秒
+              {Math.max(0, Math.ceil(assignment.deadline - world.time + assignment.started))}{' '}
+              游戏分钟
             </small>
           )}
           {assignment.phase === 'working' && (

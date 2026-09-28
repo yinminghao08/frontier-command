@@ -14,12 +14,15 @@ export class SaveStore {
   readonly path: string;
   constructor(readonly directory: string) {
     mkdirSync(directory, { recursive: true });
-    this.path = join(directory, 'world-v2.json');
+    this.path = join(directory, 'world-v3.json');
   }
   read(): { world: WorldState | null; message: string; blocked: boolean } {
-    const legacyPath = join(this.directory, 'world-v1.json');
     const selectedPath =
-      existsSync(this.path) || existsSync(this.path + '.bak') ? this.path : legacyPath;
+      [
+        this.path,
+        join(this.directory, 'world-v2.json'),
+        join(this.directory, 'world-v1.json'),
+      ].find((path) => existsSync(path) || existsSync(path + '.bak')) ?? this.path;
     if (!existsSync(selectedPath) && !existsSync(selectedPath + '.bak'))
       return { world: null, message: '新世界已就绪', blocked: false };
     for (const path of [selectedPath, selectedPath + '.bak']) {
@@ -30,7 +33,7 @@ export class SaveStore {
         return {
           world,
           message:
-            selectedPath === legacyPath
+            selectedPath !== this.path
               ? path === selectedPath
                 ? '已迁移旧版本地存档，模拟处于暂停状态；旧版文件保持不变'
                 : '旧版主存档损坏，已从备份迁移；旧版文件保持不变'
@@ -79,7 +82,11 @@ export class SaveStore {
   }
   archive() {
     const stamp = Date.now();
-    for (const path of [this.path, join(this.directory, 'world-v1.json')])
+    for (const path of [
+      this.path,
+      join(this.directory, 'world-v2.json'),
+      join(this.directory, 'world-v1.json'),
+    ])
       for (const suffix of ['', '.bak'])
         if (existsSync(path + suffix))
           renameSync(path + suffix, path + suffix + `.archived-${stamp}`);

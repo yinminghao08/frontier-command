@@ -18,6 +18,14 @@ test('desktop launch, missions, manual controls, viewport layouts and saved rest
   page.on('pageerror', (e) => errors.push(e.message));
   await expect(page.getByRole('heading', { name: 'FRONTIER COMMAND', exact: true })).toBeVisible();
   await expect(page.locator('.fleet-chip')).toHaveCount(3);
+  await expect(page.locator('.mission-clock b')).toHaveText('Day 1 00:00');
+  await expect(page.getByRole('button', { name: '16×', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '2×', exact: true })).toHaveCount(0);
+  await expect(page.locator('.tactical-canvas')).toHaveAttribute(
+    'aria-label',
+    /Federation Space.*Neutral Zone.*Romulan Space/,
+  );
+  await expect(page.getByLabel('星图图例')).toContainText('M级行星');
   for (const [width, height] of [
     [1280, 720],
     [1440, 900],
@@ -104,8 +112,9 @@ test('decision, settlement and corrupt-save recovery screens remain usable', asy
   test.setTimeout(120000);
   const engine = new SimulationEngine();
   engine.dispatchCommand({ type: 'dispatch', shipId: 'verity', missionId: 'amber', route: 'safe' });
-  engine.state.paused = false;
-  while (engine.state.missions[0].phase === 'outbound') engine.step();
+  engine.dispatchCommand({ type: 'pause', paused: false });
+  for (let i = 0; i < 5000 && engine.state.missions[0].phase === 'outbound'; i++) engine.step();
+  expect(engine.state.missions[0].phase).toBe('decision');
   engine.state.paused = true;
   const decisionData = mkdtempSync(join(tmpdir(), 'frontier-decision-'));
   new SaveStore(decisionData).write(engine.state);
@@ -124,7 +133,11 @@ test('decision, settlement and corrupt-save recovery screens remain usable', asy
   await app.close();
   engine.dispatchCommand({ type: 'investigate', shipId: 'verity', choice: 'close' });
   engine.state.paused = false;
-  while (!engine.state.missions[0].settled) engine.step();
+  for (let i = 0; i < 5000 && !engine.state.missions[0].settled; i++) {
+    if (engine.state.paused) engine.dispatchCommand({ type: 'pause', paused: false });
+    engine.step();
+  }
+  expect(engine.state.missions[0].settled).toBe(true);
   engine.state.paused = true;
   const settledData = mkdtempSync(join(tmpdir(), 'frontier-settled-'));
   new SaveStore(settledData).write(engine.state);
@@ -140,8 +153,8 @@ test('decision, settlement and corrupt-save recovery screens remain usable', asy
   await page.screenshot({ path: 'test-results/settlement.png' });
   await app.close();
   const corruptData = mkdtempSync(join(tmpdir(), 'frontier-corrupt-ui-'));
-  writeFileSync(join(corruptData, 'world-v2.json'), '{broken');
-  writeFileSync(join(corruptData, 'world-v2.json.bak'), '{broken');
+  writeFileSync(join(corruptData, 'world-v3.json'), '{broken');
+  writeFileSync(join(corruptData, 'world-v3.json.bak'), '{broken');
   app = await electron.launch({
     args: [resolve('.')],
     env: { ...process.env, FRONTIER_USER_DATA: corruptData, FRONTIER_HEADLESS: '1' },
@@ -170,7 +183,12 @@ test('tactical encounter: scanning, targeting, phaser fire, warning and focus pa
   const engine = new SimulationEngine();
   engine.dispatchCommand({ type: 'dispatch', shipId: 'vigil', missionId: 'k7', route: 'safe' });
   engine.state.paused = false;
-  while (engine.state.missions[4].phase === 'outbound') engine.step();
+  for (let i = 0; i < 5000 && engine.state.missions[4].phase === 'outbound'; i++) engine.step();
+  expect(engine.state.missions[4].phase).toBe('working');
+  // The new base approaches K-7 from the north. Aim at the spawned target for this firing fixture.
+  const patrol = engine.state.ships[2],
+    target = engine.state.contacts[0];
+  patrol.heading = Math.atan2(target.y - patrol.y, target.x - patrol.x);
   engine.state.paused = true;
   new SaveStore(userData).write(engine.state);
   app = await electron.launch({
@@ -205,7 +223,7 @@ test('tactical encounter: scanning, targeting, phaser fire, warning and focus pa
   await app.close();
 });
 
-test('legacy manual save migrates, navigation keeps selection and v2 restarts paused', async () => {
+test('legacy manual save migrates, navigation keeps selection and v3 restarts paused', async () => {
   const userData = mkdtempSync(join(tmpdir(), 'frontier-v1-e2e-'));
   const legacy = readFileSync('tests/fixtures/lv1/manual.json', 'utf8');
   const legacyPath = join(userData, 'world-v1.json');
@@ -219,7 +237,7 @@ test('legacy manual save migrates, navigation keeps selection and v2 restarts pa
   let page = await app.firstWindow();
   await expect(page.getByRole('heading', { name: '直接操舰', exact: true })).toBeVisible();
   const loaded = (await page.evaluate(() => window.frontier.getState())).state;
-  expect(loaded.version).toBe(2);
+  expect(loaded.version).toBe(3);
   expect(loaded.paused).toBe(true);
   expect(loaded.time).toBe(30);
   expect(loaded.ships[0].helm).toEqual({ turn: 0, throttle: 0 });
@@ -244,7 +262,7 @@ test('legacy manual save migrates, navigation keeps selection and v2 restarts pa
   const saved = (await page.evaluate(() => window.frontier.getState())).state;
   await app.close();
   expect(readFileSync(legacyPath, 'utf8')).toBe(legacy);
-  expect(existsSync(join(userData, 'world-v2.json'))).toBe(true);
+  expect(existsSync(join(userData, 'world-v3.json'))).toBe(true);
   app = await launch();
   page = await app.firstWindow();
   await expect(page.locator('.fleet-chip')).toHaveCount(3);
@@ -254,4 +272,67 @@ test('legacy manual save migrates, navigation keeps selection and v2 restarts pa
   expect(restored.ships).toEqual(saved.ships);
   expect(restored.resources).toEqual(saved.resources);
   expect(readFileSync(legacyPath, 'utf8')).toBe(legacy);
+});
+
+test('strategic clock crosses midnight, pauses critically, supports map selection and persists', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'frontier-clock-e2e-'));
+  const engine = new SimulationEngine();
+  engine.dispatchCommand({ type: 'dispatch', shipId: 'verity', missionId: 'amber', route: 'safe' });
+  const location = engine.state.locations.find((l) => l.id === 'anomaly1')!;
+  Object.assign(engine.state.ships[0], { x: location.x, y: location.y, path: [] });
+  engine.state.tick = 14399;
+  engine.state.time = 1439.9;
+  engine.state.nextIncursion = 1e9;
+  new SaveStore(userData).write(engine.state);
+  const launch = () =>
+    electron.launch({
+      args: [resolve('.')],
+      env: { ...process.env, FRONTIER_USER_DATA: userData, FRONTIER_HEADLESS: '1' },
+    });
+  app = await launch();
+  let page = await app.firstWindow();
+  await expect(page.locator('.mission-clock b')).toHaveText('Day 1 23:59');
+  for (const speed of [4, 1, 16]) {
+    await page.getByRole('button', { name: speed + '×', exact: true }).click();
+    const state = (await page.evaluate(() => window.frontier.getState())).state;
+    expect(state.speed).toBe(speed);
+    expect(state.paused).toBe(true);
+    expect(state.tick).toBe(14399);
+  }
+  await page.getByRole('button', { name: '继续模拟' }).click();
+  await expect(page.getByRole('alert', { name: '自动暂停原因' })).toContainText('等待调查决策');
+  await expect(page.locator('.mission-clock b')).toHaveText('Day 2 00:00');
+  let state = (await page.evaluate(() => window.frontier.getState())).state;
+  expect(state.tick).toBe(14400);
+  expect(state.paused).toBe(true);
+  expect(state.speed).toBe(16);
+  // Verify the expanded-map coordinate transform selects a ship at its saved world position.
+  const meridian = state.ships.find((s) => s.id === 'meridian')!;
+  const canvas = page.locator('.tactical-canvas');
+  const bounds = (await canvas.boundingBox())!;
+  await canvas.click({
+    position: { x: (meridian.x / 1600) * bounds.width, y: (meridian.y / 800) * bounds.height },
+  });
+  await expect(page.locator('.ship-name')).toHaveText('USS MERIDIAN');
+  await page.locator('.fleet-chip.verity').click();
+  await page.getByRole('button', { name: '远距调查 · 安全' }).click();
+  state = (await page.evaluate(() => window.frontier.getState())).state;
+  expect(state.paused).toBe(true);
+  expect(state.tick).toBe(14400);
+  await page.screenshot({ path: 'test-results/strategic-clock-pause.png' });
+  await app.close();
+  app = await launch();
+  page = await app.firstWindow();
+  await expect(page.locator('.mission-clock b')).toHaveText('Day 2 00:00');
+  await expect(page.getByRole('alert', { name: '自动暂停原因' })).toBeVisible();
+  state = (await page.evaluate(() => window.frontier.getState())).state;
+  expect(state.tick).toBe(14400);
+  expect(state.paused).toBe(true);
+  expect(state.speed).toBe(16);
+  await page.getByRole('button', { name: '继续模拟' }).click();
+  await expect(page.getByRole('alert', { name: '自动暂停原因' })).toHaveCount(0);
+  await expect
+    .poll(async () => (await page.evaluate(() => window.frontier.getState())).state.tick)
+    .toBeGreaterThan(14400);
+  await app.close();
 });

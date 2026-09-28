@@ -17,7 +17,7 @@ export function SystemPage({ save, setConfirmReset }: Props) {
       <Bar code="LOCAL STATE">世界存档</Bar>
       <p>
         本地自动保存：重要命令、事件结算、每 10
-        秒模拟时间及正常退出。关闭程序期间世界不推进。重新打开始终暂停。
+        游戏分钟模拟时间及正常退出。关闭程序期间世界不推进。重新打开始终暂停。
       </p>
       <div className="button-row">
         <button className="primary" onClick={save}>
@@ -25,6 +25,11 @@ export function SystemPage({ save, setConfirmReset }: Props) {
         </button>
         <button onClick={() => setConfirmReset(true)}>归档旧存档并重置</button>
       </div>
+      <Bar code="GAME TIME">战略时间</Bar>
+      <p>Day + HH:MM 持续记录世界时间。支持暂停、1×、4×、16×；1×时约1真实秒等于1游戏分钟。</p>
+      <p>
+        调查决策、新接触、敌对转变、舰体跌破30%、失能和任务失败会自动暂停。处置后点击“继续”；选择方案不会自动继续。
+      </p>
       <Bar code="CONTROL REFERENCE">指挥与操舰</Bar>
       <div className="help-grid">
         <div>
@@ -38,13 +43,14 @@ export function SystemPage({ save, setConfirmReset }: Props) {
           <h3>直接操舰</h3>
           <p>W/S 增减推进，A/D 转向，点击已识别目标，Space 开火。先扫描再警告，往往无需战斗。</p>
           <p>
-            相位射程 145，舰艏 ±60°，冷却 3 秒。接管后速度固定1×，其他舰继续运行。失焦自动暂停。
+            相位射程 145，舰艏 ±60°，冷却 3
+            游戏分钟。接管后速度固定1×，其他舰继续运行。失焦自动暂停。
           </p>
         </div>
         <div>
           <h3>资源与保障</h3>
           <p>科研数据、情报和行动配额在 LV1 中记录成果，尚不提供升级。补给与材料用于交付和维修。</p>
-          <p>失能后 35 秒拖回基地。材料不足时基础抢修免费，但速度更慢。</p>
+          <p>失能后 35 游戏分钟拖回基地。材料不足时基础抢修免费，但速度更慢。</p>
         </div>
         <div>
           <h3>项目边界</h3>

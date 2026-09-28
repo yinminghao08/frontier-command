@@ -1,3 +1,4 @@
+import { gameCalendar, TICKS_PER_MINUTE } from '../engine/clock';
 export const PHASE: Record<string, string> = {
   available: '等待派遣',
   outbound: '前往任务区',
@@ -16,5 +17,8 @@ export const STATUS: Record<string, string> = {
   repairing: '维修中',
 };
 export const KIND = { explore: '科学探索', supply: '后勤补给', patrol: '边境巡逻' };
-export const time = (t: number) =>
-  `${String(Math.floor(t / 3600)).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}:${String(Math.floor(t) % 60).padStart(2, '0')}`;
+/** Format a simulation-minute timestamp without rounding into the next minute. */
+export const time = (minutes: number) => {
+  const { day, hour, minute } = gameCalendar(Math.round(minutes * TICKS_PER_MINUTE));
+  return `Day ${day} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+};

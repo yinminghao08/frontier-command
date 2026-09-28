@@ -47,7 +47,7 @@ export function LcarsShell({
             <div className="mission-clock">
               <span>DAWN SECTOR / 曙光边区</span>
               <b>{time(world.time)}</b>
-              <small>MISSION ELAPSED · 规则模拟</small>
+              <small>GAME TIME · 游戏时间</small>
             </div>
             <nav className="primary-nav" aria-label="主导航">
               {(
@@ -132,6 +132,16 @@ export function LcarsShell({
             <i />
           </div>
           <ResourceStrip world={world} command={command} />
+          {world.pauseReasons.length > 0 && (
+            <div className="critical-pause" role="alert" aria-label="自动暂停原因">
+              <strong>自动暂停 · 请处置后继续</strong>
+              <ul>
+                {world.pauseReasons.map((reason) => (
+                  <li key={reason.kind + reason.entityId}>{reason.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="work-area">
             <main className="main-view">{children}</main>
             <aside className="inspector">{inspector}</aside>

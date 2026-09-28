@@ -5,8 +5,11 @@ import { worldSchema } from '../src/engine/save-schema';
 import type { Command, Contact } from '../src/engine/types';
 
 const run = (e: SimulationEngine, seconds: number) => {
-  e.state.paused = false;
-  for (let i = 0; i < seconds * 10; i++) e.step();
+  // This mission-regression driver explicitly acknowledges each critical pause.
+  for (let i = 0; i < seconds * 10; i++) {
+    if (e.state.paused) e.dispatchCommand({ type: 'pause', paused: false });
+    e.step();
+  }
 };
 const dispatch = (
   e: SimulationEngine,
@@ -135,11 +138,12 @@ describe('mission loops', () => {
     const play = (shipId: string, choice: 'remote' | 'close') => {
       const e = new SimulationEngine();
       dispatch(e, 'amber', shipId);
-      run(e, 65);
+      e.dispatchCommand({ type: 'pause', paused: false });
+      for (let i = 0; i < 5000 && e.state.missions[0].phase === 'outbound'; i++) e.step();
       const m = e.state.missions[0];
       expect(m.phase).toBe('decision');
       expect(e.dispatchCommand({ type: 'investigate', shipId, choice }).ok).toBe(true);
-      run(e, 140);
+      run(e, 250);
       return e;
     };
     const safe = play('verity', 'remote'),
@@ -204,10 +208,10 @@ describe('mission loops', () => {
     dispatch(e, 'amber', 'verity');
     run(e, 130);
     expect(e.dispatchCommand({ type: 'renew', missionId: 'amber' }).ok).toBe(false);
-    run(e, 100);
+    run(e, 150);
     expect(e.dispatchCommand({ type: 'renew', missionId: 'amber' }).ok).toBe(true);
     dispatch(e, 'amber', 'verity');
-    run(e, 230);
+    run(e, 350);
     expect(e.state.missions[0].run).toBe(1);
     expect(e.state.resources.science).toBeGreaterThan(60);
   });
@@ -233,7 +237,7 @@ describe('tactical control', () => {
     e.clearInputs();
     expect(e.state.ships[0].helm.turn).toBe(0);
     e.dispatchCommand({ type: 'releaseControl', shipId: 'verity', resume: true });
-    run(e, 220);
+    run(e, 350);
     expect(e.state.missions[0].phase).toBe('complete');
   });
   it('firing validates identification, arc, range and cooldown, then applies shield damage', () => {
@@ -283,7 +287,7 @@ describe('tactical control', () => {
     e.dispatchCommand({ type: 'hold', shipId: 'verity' });
     expect(e.state.manualShipId).toBeNull();
     expect(e.dispatchCommand({ type: 'resume', shipId: 'verity' }).ok).toBe(true);
-    run(e, 220);
+    run(e, 350);
     expect(e.state.missions[0].phase).toBe('complete');
   });
   it('operator commands cannot override a direct commander takeover', () => {

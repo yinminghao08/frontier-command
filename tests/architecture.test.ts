@@ -15,13 +15,16 @@ import type { WorldState } from '../src/engine/types';
 const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(join('tests/fixtures/lv1', `${name}.json`), 'utf8'));
 const run = (engine: SimulationEngine, seconds: number) => {
-  engine.state.paused = false;
-  for (let i = 0; i < seconds * 10; i++) engine.step();
+  // Replay the historical command stream with explicit acknowledgement of new pauses.
+  for (let i = 0; i < seconds * 10; i++) {
+    if (engine.state.paused) engine.dispatchCommand({ type: 'pause', paused: false });
+    engine.step();
+  }
 };
 
 describe('LV1 architecture compatibility', () => {
-  it('matches the pre-refactor world and every deterministic checkpoint', () => {
-    const engine = new SimulationEngine();
+  it('preserves legacy geography and deterministic checkpoints when pauses are acknowledged', () => {
+    const engine = new SimulationEngine(migrateV1(fixture('initial')));
     expect(engine.state).toEqual(migrateV1(fixture('initial')));
     for (const [shipId, missionId, route] of [
       ['verity', 'amber', 'safe'],
@@ -40,7 +43,7 @@ describe('LV1 architecture compatibility', () => {
     expect(engine.state).toEqual(migrateV1(fixture('continued')));
   });
 
-  it('continues a migrated manual-control save identically to the original engine', () => {
+  it('continues legacy rules identically with explicit pause acknowledgements', () => {
     const engine = new SimulationEngine(parseSave(fixture('manual')));
     engine.dispatchCommand({ type: 'releaseControl', shipId: 'verity', resume: true });
     run(engine, 500);
@@ -56,11 +59,39 @@ describe('LV1 architecture compatibility', () => {
       input.locations[1].supply = 67;
       const before = structuredClone(input);
       const migrated = parseSave(input);
-      const { version: _version, ships, ...rest } = migrated;
-      expect(rest).toEqual((({ version: _v, ships: _s, ...rest }) => rest)(input));
+      const {
+        version: _version,
+        ships,
+        locations,
+        pauseReasons,
+        missions,
+        logs,
+        ...rest
+      } = migrated;
+      expect(rest).toEqual(
+        (({ version: _v, ships: _s, locations: _l, missions: _m, logs: _logs, ...rest }) => rest)(
+          input,
+        ),
+      );
       expect(ships.map(({ classId: _class, factionId: _faction, ...ship }) => ship)).toEqual(
         input.ships.map(({ operatorId: _operator, ...ship }) => ship),
       );
+      expect(
+        locations
+          .slice(0, input.locations.length)
+          .map(({ regionId: _region, ...location }) => location),
+      ).toEqual(input.locations);
+      expect(missions).toEqual(
+        input.missions.map((m) => ({
+          ...m,
+          requirement: m.requirement.replaceAll('秒', '游戏分钟'),
+          result: m.result.replaceAll('秒', '游戏分钟'),
+        })),
+      );
+      expect(logs).toEqual(
+        input.logs.map((l) => ({ ...l, text: l.text.replaceAll('秒', '游戏分钟') })),
+      );
+      expect(pauseReasons).toEqual([]);
       expect(input).toEqual(before);
       expect(parseSave(JSON.parse(JSON.stringify(migrated)))).toEqual(migrated);
     },

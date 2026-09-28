@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { SimulationEngine } from '../src/engine/engine';
 import { createWorld } from '../src/engine/data';
+import { HOST_FRAME_MS } from '../src/engine/clock';
 import { SaveStore } from './persistence';
 
 protocol.registerSchemesAsPrivileged([
@@ -100,12 +101,14 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('world:command', (event, command: unknown) => {
     trusted(event);
+    const previousReasons = engine.state.pauseReasons.length;
     const result = engine.dispatchCommand(command);
     if (
       result.ok &&
       typeof command === 'object' &&
       command &&
-      !['helm', 'target', 'fire', 'speed', 'pause'].includes((command as { type: string }).type)
+      (engine.state.pauseReasons.length > previousReasons ||
+        !['helm', 'target', 'fire', 'speed', 'pause'].includes((command as { type: string }).type))
     ) {
       const saved = save();
       if (!saved.ok) engine.log(saved.reason, 'danger');
@@ -143,8 +146,14 @@ app.whenReady().then(async () => {
   await window.loadURL(process.env.VITE_DEV_SERVER_URL ?? 'frontier://app/index.html');
   timer = setInterval(() => {
     const previousLog = engine.state.nextLog;
-    for (let i = 0; i < engine.state.speed; i++) engine.step();
-    if (engine.state.tick - lastAutoSave >= 100 || engine.state.nextLog !== previousLog) {
+    const events = engine.advanceFrame();
+    // Critical pauses are world events even when they do not add a log entry.
+    // dayBoundary remains available for a future daily-autosave policy.
+    if (
+      engine.state.tick - lastAutoSave >= 100 ||
+      engine.state.nextLog !== previousLog ||
+      events.some((event) => event.type === 'criticalPause')
+    ) {
       const result = save();
       if (!result.ok && !saveBlocked) {
         engine.state.paused = true;
@@ -153,7 +162,7 @@ app.whenReady().then(async () => {
       }
     }
     send();
-  }, 100);
+  }, HOST_FRAME_MS);
 });
 app.on('second-instance', () => {
   if (window) {

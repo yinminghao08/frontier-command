@@ -1,6 +1,18 @@
-# STEP 0 architecture
+# STEP 1 architecture
 
-This refactor preserves LV1 rules, content, timing, randomness, controls and LCARS presentation. It adds no gameplay or model integration.
+The strategic world uses a persistent accelerated calendar and explicit critical-event pauses. Existing rule automation and controller ownership remain; no model integration or Agent AI is added.
+
+## Simulation time and critical boundaries
+
+All engine durations, rates, deadlines, cooldowns and timestamps use game minutes. Integer ticks are authoritative: one step is 0.1 game minute. The host calls advanceFrame every nominal 100ms; 1x/4x/16x execute 1/4/16 fixed steps. Host delays never produce offline catch-up. Rendering, input sampling, notifications and filesystem timestamps may use host clocks without affecting gameplay calculations.
+
+step and advanceFrame return typed events. dayBoundary contains the entered day, tick and simulation time and is emitted exactly once at each multiple of 14,400 ticks. It is independent of the bounded log and is not replayed on loading. Daily autosave integration is intentionally deferred; existing save triggers remain.
+
+Explicit transition sites collect investigation, first detection, hostility, hull below 30%, disablement and mission failure reasons. A command or fixed step completes atomically, then pauses and clears helm input. The host batch stops before another step. Reasons persist in snapshots/saves until explicit resume, and continued conditions do not retrigger. Logs alone never trigger a pause.
+
+## Geography
+
+The map is 1600x800: Federation x<1040, Neutral Zone 1040<=x<1280, Romulan x>=1280. New Dawn is at (880,430); migrated worlds retain their saved base. Docking, return routing and towing resolve the base from the world instance. Mines, M-class planets and additional border/colony landmarks have region IDs but no new economic or AI mechanics. Manual fleet movement remains capped at x=1040.
 
 ## Authority and identities
 
@@ -26,16 +38,12 @@ Effective ship attributes and location state remain serialized. Loading never re
 
 ## Save evolution
 
-The frozen v1 validator lives in `save-v1.ts`. `save-schema.ts` validates the v2 runtime shape; `saves.ts` dispatches versions and performs pure v1 migration. Migration maps the three known legacy ship IDs to their class/faction definitions, removes the redundant ship-side operator ID and preserves all other effective state. Unrecognized legacy ship identities are rejected rather than assigned invented classes.
+Frozen v1 and v2 validators read legacy files; the runtime schema validates v3. Pure migration preserves integer ticks, numerical timers, effective stats, positions, routes, resources and PRNG state, adds region metadata and missing landmarks, translates old timer labels, and maps 2x to 1x. Existing locations are not moved.
 
-The v2 schema validates unique IDs, definition references, one-to-one operator assignments and existing simulation/mission invariants. It does not hardcode the LV1 counts of three ships, six missions and eight locations. This is schema preparation, not support for arbitrary new gameplay entities.
-
-Read precedence is v2 primary → v2 backup if either v2 file exists; otherwise v1 primary → v1 backup. A recognized future/unsupported version blocks recovery from an older generation and cannot be overwritten. Invalid current-format data retains the original corruption-recovery behavior.
-
-Writes validate the current schema, rotate a valid v2 primary to backup, archive a corrupt v2 primary and replace the file through a temporary write. Legacy files are untouched during migration and ordinary saving. Explicit reset archives both generations and their backups. Startup still pauses and clears helm input; migration itself does neither, allowing deterministic continuation tests.
+Read precedence selects the newest generation present (v3, then v2, then v1) and tries its primary then backup. Corruption never causes rollback to an earlier generation; unsupported versions block loading/writing. Normal saves write world-v3.json and preserve all legacy files. Explicit reset archives all three generations and backups. Startup pauses and clears helm inputs without advancing simulation time.
 
 ## Regression evidence
 
-`tests/fixtures/lv1` holds snapshots captured from the original engine, with a documented seed and command sequence. Tests compare complete migrated states at initial, underway, manual-control and continued checkpoints, not just two executions of the refactored engine.
+The original LV1 fixtures remain unchanged. Historical replay tests start from migrated geography and explicitly acknowledge new critical pauses while retaining the original fixed-step checkpoints. Dedicated tests cover clock progression, all pause transitions, frame-batch stopping, midnight delivery, geography, versioned migration and recovery. Electron tests verify the rendered controls, strategic map, pause reasons and saved-world restart.
 
-Run `npm test`, `npm run test:e2e` and `npm run build`. Electron tests use isolated temporary user-data directories and exercise existing layouts/controls plus legacy migration, v2 restart and cross-page selection/filter preservation.
+Run npm test and npm run test:e2e (which includes the production build). Electron tests use isolated temporary user-data directories.

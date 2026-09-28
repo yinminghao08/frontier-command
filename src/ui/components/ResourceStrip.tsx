@@ -1,3 +1,4 @@
+import { SIMULATION_SPEEDS } from '../../engine/clock';
 import type { Snapshot } from '../../engine/types';
 import type { CommandSender } from '../types';
 
@@ -46,7 +47,7 @@ export function ResourceStrip({ world, command }: Props) {
           {world.paused ? '▶ 继续' : 'Ⅱ 暂停'}
         </button>
         <div>
-          {([1, 2, 4] as const).map((speed) => (
+          {SIMULATION_SPEEDS.map((speed) => (
             <button
               key={speed}
               disabled={!!world.manualShipId && speed !== 1}

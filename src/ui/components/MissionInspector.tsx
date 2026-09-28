@@ -44,7 +44,7 @@ export function MissionInspector({
         </div>
         <div>
           <dt>现场工作</dt>
-          <dd>{inspected.duration} 秒</dd>
+          <dd>{inspected.duration} 游戏分钟</dd>
         </div>
         <div>
           <dt>注意力</dt>

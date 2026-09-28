@@ -33,7 +33,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('speed'),
-      speed: z.union([z.literal(1), z.literal(2), z.literal(4)]),
+      speed: z.union([z.literal(1), z.literal(4), z.literal(16)]),
     })
     .strict(),
   z.object({ type: z.literal('renew'), missionId: id }).strict(),

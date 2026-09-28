@@ -37,7 +37,7 @@ describe('SaveStore', () => {
     expect(store.read().world).toBeNull();
   });
 
-  it('migrates v1 without altering the legacy primary or backup, then prefers v2', () => {
+  it('migrates v1 without altering the legacy primary or backup, then prefers v3', () => {
     const dir = mkdtempSync(join(tmpdir(), 'frontier-migration-'));
     const store = new SaveStore(dir);
     const legacy = readFileSync('tests/fixtures/lv1/in-progress.json', 'utf8');
@@ -50,9 +50,9 @@ describe('SaveStore', () => {
     expect(existsSync(store.path)).toBe(false);
     loaded.world!.resources.science = 123;
     store.write(loaded.world!);
-    expect(store.path).toBe(join(dir, 'world-v2.json'));
+    expect(store.path).toBe(join(dir, 'world-v3.json'));
     expect(store.read().world?.resources.science).toBe(123);
-    expect(JSON.parse(readFileSync(store.path, 'utf8')).version).toBe(2);
+    expect(JSON.parse(readFileSync(store.path, 'utf8')).version).toBe(3);
     expect(readFileSync(legacyPath, 'utf8')).toBe(legacy);
     expect(readFileSync(legacyPath + '.bak', 'utf8')).toBe(legacy);
   });
@@ -73,7 +73,7 @@ describe('SaveStore', () => {
   });
 
   it.each(['', '.bak'])(
-    'does not roll back to v1 when a v2%s file exists but is corrupt',
+    'does not roll back to v1 when a v3%s file exists but is corrupt',
     (suffix) => {
       const dir = mkdtempSync(join(tmpdir(), 'frontier-no-rollback-'));
       const store = new SaveStore(dir);
@@ -83,7 +83,7 @@ describe('SaveStore', () => {
     },
   );
 
-  it.each(['', '.bak'])('never overwrites an unsupported v2%s save', (suffix) => {
+  it.each(['', '.bak'])('never overwrites an unsupported v3%s save', (suffix) => {
     const store = new SaveStore(mkdtempSync(join(tmpdir(), 'frontier-future-')));
     const future = JSON.stringify({ ...createWorld(), version: 9 });
     writeFileSync(store.path + suffix, future);
@@ -99,13 +99,20 @@ describe('SaveStore', () => {
     expect(store.read()).toMatchObject({ world: null, blocked: true });
   });
 
-  it('explicit reset archives both save generations and their backups', () => {
+  it('explicit reset archives all three save generations and their backups', () => {
     const dir = mkdtempSync(join(tmpdir(), 'frontier-reset-all-'));
     const store = new SaveStore(dir);
-    for (const file of ['world-v1.json', 'world-v1.json.bak', 'world-v2.json', 'world-v2.json.bak'])
+    for (const file of [
+      'world-v1.json',
+      'world-v1.json.bak',
+      'world-v2.json',
+      'world-v2.json.bak',
+      'world-v3.json',
+      'world-v3.json.bak',
+    ])
       writeFileSync(join(dir, file), file);
     store.archive();
-    expect(readdirSync(dir).filter((file) => file.includes('.archived-'))).toHaveLength(4);
+    expect(readdirSync(dir).filter((file) => file.includes('.archived-'))).toHaveLength(6);
     expect(store.read()).toMatchObject({ world: null, blocked: false });
     store.write(createWorld());
     expect(store.read().world).toEqual(createWorld());

@@ -683,3 +683,29 @@
     transition: none !important;
   }
 }
+
+.critical-pause {
+  border-left: 4px solid #ff9966;
+  background: #281a18;
+  color: #ffccaa;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  max-height: 120px;
+  overflow: auto;
+}
+.critical-pause ul {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+.mission-clock b {
+  white-space: nowrap;
+  font-size: clamp(23px, 2.6vw, 38px);
+}
+.map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: #a1abbc;
+  font-size: 12px;
+  padding: 8px 0;
+}

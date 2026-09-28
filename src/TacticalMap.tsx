@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { WORLD_WIDTH, WORLD_HEIGHT, REGIONS } from './engine/definitions/locations';
 import type { Point, Ship, Snapshot } from './engine/types';
 
 export function TacticalMap({
@@ -37,9 +38,9 @@ export function TacticalMap({
         el.width = Math.round(rect.width * dpr);
         el.height = Math.round(rect.height * dpr);
       }
-      ctx.setTransform(el.width / 1200, 0, 0, el.height / 800, 0, 0);
-      const scaleX = rect.width / 1200,
-        scaleY = rect.height / 800;
+      ctx.setTransform(el.width / WORLD_WIDTH, 0, 0, el.height / WORLD_HEIGHT, 0, 0);
+      const scaleX = rect.width / WORLD_WIDTH,
+        scaleY = rect.height / WORLD_HEIGHT;
       const label = (
         text: string,
         x: number,
@@ -60,41 +61,47 @@ export function TacticalMap({
       };
       const w = latest.current;
       ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, 1200, 800);
+      ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
       ctx.strokeStyle = '#142028';
       ctx.lineWidth = 1;
-      for (let x = 0; x <= 1200; x += 100) {
+      for (let x = 0; x <= WORLD_WIDTH; x += 100) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
-        ctx.lineTo(x, 800);
+        ctx.lineTo(x, WORLD_HEIGHT);
         ctx.stroke();
       }
-      for (let y = 0; y <= 800; y += 100) {
+      for (let y = 0; y <= WORLD_HEIGHT; y += 100) {
         ctx.beginPath();
         ctx.moveTo(0, y);
-        ctx.lineTo(1200, y);
+        ctx.lineTo(WORLD_WIDTH, y);
         ctx.stroke();
       }
       for (let i = 0; i < 130; i++) {
-        const x = (i * 137.31) % 1200,
-          y = (i * i * 19.77) % 800;
+        const x = (i * 137.31) % WORLD_WIDTH,
+          y = (i * i * 19.77) % WORLD_HEIGHT;
         ctx.fillStyle = i % 5 === 0 ? '#67848a' : '#293841';
         ctx.fillRect(x, y, i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
       }
-      ctx.fillStyle = '#aa55330e';
-      ctx.fillRect(1040, 0, 160, 800);
-      ctx.strokeStyle = '#c47d6977';
-      ctx.setLineDash([12, 8]);
-      ctx.beginPath();
-      ctx.moveTo(1040, 0);
-      ctx.lineTo(1040, 800);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      label('BOUNDARY', 1060, 46, 10, '#ad7761');
-      label('禁入区域', 1060, 84, 9, '#ad7761', true);
-      label('FEDERATION SPACE', 32, 46, 10, '#64798b');
+      for (const region of REGIONS) {
+        ctx.fillStyle = region.color + '18';
+        ctx.fillRect(region.from, 0, region.to - region.from, WORLD_HEIGHT);
+        if (region.from > 0) {
+          ctx.strokeStyle = region.color + '99';
+          ctx.setLineDash([12, 8]);
+          ctx.beginPath();
+          ctx.moveTo(region.from, 0);
+          ctx.lineTo(region.from, WORLD_HEIGHT);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        const labelX = region.id === 'federation' ? 32 : (region.from + region.to) / 2;
+        const align = region.id === 'federation' ? 'left' : 'center';
+        label(region.label, labelX, 38, 10, region.color, false, align);
+        label(region.name, labelX, 67, 9, '#a1abbc', true, align);
+      }
       ctx.font = '12px Antonio';
-      for (let i = 1; i < 12; i++) ctx.fillText(String(i).padStart(2, '0'), i * 100 + 5, 788);
+      for (let i = 1; i < WORLD_WIDTH / 100; i++)
+        ctx.fillText(String(i).padStart(2, '0'), i * 100 + 5, 788);
       for (const loc of w.locations) {
         const selectedMission = w.missions.find(
           (m) => m.shipId === selected && !m.settled && m.locationId === loc.id,
@@ -112,6 +119,27 @@ export function TacticalMap({
           ctx.strokeStyle = '#baa4e5';
           ctx.beginPath();
           ctx.arc(loc.x, loc.y, 7, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (loc.kind === 'mine') {
+          ctx.strokeStyle = '#edb378';
+          ctx.beginPath();
+          ctx.moveTo(loc.x, loc.y - 10);
+          ctx.lineTo(loc.x + 10, loc.y);
+          ctx.lineTo(loc.x, loc.y + 10);
+          ctx.lineTo(loc.x - 10, loc.y);
+          ctx.closePath();
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(loc.x - 4, loc.y);
+          ctx.lineTo(loc.x + 4, loc.y);
+          ctx.stroke();
+        } else if (loc.kind === 'planet') {
+          ctx.strokeStyle = '#83ba99';
+          ctx.beginPath();
+          ctx.arc(loc.x, loc.y, 11, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.ellipse(loc.x, loc.y, 11, 4, -0.4, 0, Math.PI * 2);
           ctx.stroke();
         } else if (loc.kind === 'base') {
           ctx.strokeStyle = '#fcc19f';
@@ -144,11 +172,27 @@ export function TacticalMap({
           ctx.fill();
           ctx.stroke();
         }
-        const right = loc.x > 700,
+        const right = loc.x > 700 || loc.kind === 'planet',
           labelX = loc.x + (right ? -22 : 25),
           color = loc.kind === 'base' ? '#fcc19f' : '#a1abbc';
-        label(loc.label, labelX, loc.y - 32, 11, color, false, right ? 'right' : 'left');
-        label(loc.name, labelX, loc.y + 7, 9, color, true, right ? 'right' : 'left');
+        label(
+          loc.label,
+          labelX,
+          loc.y + (loc.kind === 'mine' ? 35 : -32),
+          11,
+          color,
+          false,
+          right ? 'right' : 'left',
+        );
+        label(
+          loc.name,
+          labelX,
+          loc.y + (loc.kind === 'mine' ? 80 : 7),
+          9,
+          color,
+          true,
+          right ? 'right' : 'left',
+        );
       }
       for (const s of w.ships) {
         const active = s.id === selected;
@@ -235,8 +279,8 @@ export function TacticalMap({
   const click = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const p = {
-      x: ((e.clientX - rect.left) / rect.width) * 1200,
-      y: ((e.clientY - rect.top) / rect.height) * 800,
+      x: ((e.clientX - rect.left) / rect.width) * WORLD_WIDTH,
+      y: ((e.clientY - rect.top) / rect.height) * WORLD_HEIGHT,
     };
     const nearest = <T extends Point>(items: T[]) =>
       [...items]
@@ -251,12 +295,23 @@ export function TacticalMap({
     if (ship && !manual) onShip(ship.id);
   };
   return (
-    <canvas
-      ref={canvas}
-      onClick={click}
-      className="tactical-canvas"
-      aria-label="曙光边区战术星图。可点击己方舰船或敌方接触；同样操作可通过右侧按钮完成。"
-    />
+    <>
+      <canvas
+        ref={canvas}
+        onClick={click}
+        className="tactical-canvas"
+        aria-label="曙光边区战略星图：Federation Space、Neutral Zone、Romulan Space。可点击己方舰船或接触；同样操作可通过右侧按钮完成。"
+      />
+      <div className="map-legend" aria-label="星图图例">
+        <span>◎ 曙光基地</span>
+        <span>○ 殖民地 / 前哨</span>
+        <span>◇ 矿场</span>
+        <span>⊕ M级行星</span>
+        <span>≈ 异常区</span>
+        <span>⊞ 边境地点</span>
+        <span>虚线以东：中立区 / 罗慕兰空间（暂未开放）</span>
+      </div>
+    </>
   );
 }
 function drawShip(

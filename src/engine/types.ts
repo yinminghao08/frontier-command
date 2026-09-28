@@ -1,3 +1,4 @@
+import type { SimulationSpeed } from './clock';
 import type { FactionId, ContactFactionId } from './definitions/factions';
 import type { ShipClassId } from './definitions/ships';
 import type { ResourceId } from './definitions/resources';
@@ -29,7 +30,8 @@ export interface Location extends Point {
   id: string;
   name: string;
   label: string;
-  kind: 'base' | 'colony' | 'outpost' | 'anomaly' | 'border';
+  kind: 'base' | 'colony' | 'outpost' | 'anomaly' | 'border' | 'mine' | 'planet';
+  regionId: 'federation' | 'neutral' | 'romulan';
   supply: number;
 }
 export interface Ship extends Point {
@@ -113,14 +115,33 @@ export interface Beam {
   enemy: boolean;
   expires: number;
 }
+export const CRITICAL_KINDS = [
+  'investigation',
+  'contactDetected',
+  'hostility',
+  'lowHull',
+  'disabled',
+  'missionFailed',
+] as const;
+export interface CriticalReason {
+  kind: (typeof CRITICAL_KINDS)[number];
+  entityId: string;
+  tick: number;
+  time: number;
+  message: string;
+}
+export type SimulationEvent =
+  | { type: 'dayBoundary'; day: number; tick: number; time: number }
+  | { type: 'criticalPause'; reasons: CriticalReason[] };
 export interface WorldState {
-  version: 2;
+  version: 3;
   tick: number;
   time: number;
   seed: number;
   initialSeed: number;
   paused: boolean;
-  speed: 1 | 2 | 4;
+  pauseReasons: CriticalReason[];
+  speed: SimulationSpeed;
   manualShipId: string | null;
   commander: Commander;
   operators: Operator[];
@@ -148,7 +169,7 @@ export type Command =
   | { type: 'releaseControl'; shipId: string; resume: boolean }
   | { type: 'helm'; shipId: string; turn: number; throttle: number }
   | { type: 'pause'; paused: boolean }
-  | { type: 'speed'; speed: 1 | 2 | 4 }
+  | { type: 'speed'; speed: SimulationSpeed }
   | { type: 'renew'; missionId: string };
 export type CommandResult = { ok: boolean; reason: string };
 export type Snapshot = Omit<WorldState, 'contacts' | 'seed' | 'nextIncursion'> & {

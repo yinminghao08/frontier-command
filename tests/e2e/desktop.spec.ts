@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SimulationEngine } from '../../src/engine/engine';
@@ -140,8 +140,8 @@ test('decision, settlement and corrupt-save recovery screens remain usable', asy
   await page.screenshot({ path: 'test-results/settlement.png' });
   await app.close();
   const corruptData = mkdtempSync(join(tmpdir(), 'frontier-corrupt-ui-'));
-  writeFileSync(join(corruptData, 'world-v1.json'), '{broken');
-  writeFileSync(join(corruptData, 'world-v1.json.bak'), '{broken');
+  writeFileSync(join(corruptData, 'world-v2.json'), '{broken');
+  writeFileSync(join(corruptData, 'world-v2.json.bak'), '{broken');
   app = await electron.launch({
     args: [resolve('.')],
     env: { ...process.env, FRONTIER_USER_DATA: corruptData, FRONTIER_HEADLESS: '1' },
@@ -203,4 +203,55 @@ test('tactical encounter: scanning, targeting, phaser fire, warning and focus pa
   expect(state.paused).toBe(true);
   expect(state.ships[2].helm).toEqual({ turn: 0, throttle: 0 });
   await app.close();
+});
+
+test('legacy manual save migrates, navigation keeps selection and v2 restarts paused', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'frontier-v1-e2e-'));
+  const legacy = readFileSync('tests/fixtures/lv1/manual.json', 'utf8');
+  const legacyPath = join(userData, 'world-v1.json');
+  writeFileSync(legacyPath, legacy);
+  const launch = () =>
+    electron.launch({
+      args: [resolve('.')],
+      env: { ...process.env, FRONTIER_USER_DATA: userData, FRONTIER_HEADLESS: '1' },
+    });
+  app = await launch();
+  let page = await app.firstWindow();
+  await expect(page.getByRole('heading', { name: '直接操舰', exact: true })).toBeVisible();
+  const loaded = (await page.evaluate(() => window.frontier.getState())).state;
+  expect(loaded.version).toBe(2);
+  expect(loaded.paused).toBe(true);
+  expect(loaded.time).toBe(30);
+  expect(loaded.ships[0].helm).toEqual({ turn: 0, throttle: 0 });
+  expect(loaded.ships[0].missionId).toBe('amber');
+  await page.getByRole('button', { name: '释放 · 恢复任务' }).click();
+  await page.locator('.fleet-chip.meridian').click();
+  await page.getByRole('button', { name: '02 任务中心 OPERATIONS' }).click();
+  await page.getByRole('button', { name: '补给', exact: true }).click();
+  await expect(page.locator('.mission-card')).toHaveCount(2);
+  await page.locator('.mission-card').filter({ hasText: '信标前哨' }).click();
+  await expect(page.locator('#assign-ship')).toHaveValue('meridian');
+  await page.getByRole('button', { name: '03 舰队管理 STARBASE' }).click();
+  await expect(page.locator('.ship-name')).toHaveText('USS MERIDIAN');
+  await page.getByRole('button', { name: '02 任务中心 OPERATIONS' }).click();
+  await expect(page.locator('.mission-card')).toHaveCount(2);
+  await expect(page.locator('.filter-row .selected')).toHaveText('补给');
+  await page.getByRole('button', { name: '04 行动日志 RECORDS' }).click();
+  await expect(page.locator('.full-logs')).toBeVisible();
+  await page.getByRole('button', { name: '06 系统 SYSTEM / SAVE' }).click();
+  await page.getByRole('button', { name: '立即保存' }).click();
+  await expect(page.getByRole('status')).toContainText('已保存');
+  const saved = (await page.evaluate(() => window.frontier.getState())).state;
+  await app.close();
+  expect(readFileSync(legacyPath, 'utf8')).toBe(legacy);
+  expect(existsSync(join(userData, 'world-v2.json'))).toBe(true);
+  app = await launch();
+  page = await app.firstWindow();
+  await expect(page.locator('.fleet-chip')).toHaveCount(3);
+  const restored = (await page.evaluate(() => window.frontier.getState())).state;
+  expect(restored.paused).toBe(true);
+  expect(restored.time).toBe(saved.time);
+  expect(restored.ships).toEqual(saved.ships);
+  expect(restored.resources).toEqual(saved.resources);
+  expect(readFileSync(legacyPath, 'utf8')).toBe(legacy);
 });

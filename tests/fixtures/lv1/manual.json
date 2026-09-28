@@ -1,0 +1,611 @@
+{
+  "version": 1,
+  "tick": 300,
+  "time": 30,
+  "seed": 236807,
+  "initialSeed": 236807,
+  "paused": false,
+  "speed": 1,
+  "manualShipId": "verity",
+  "commander": {
+    "id": "commander",
+    "name": "舰队指挥官",
+    "rank": "COMMODORE"
+  },
+  "operators": [
+    {
+      "id": "ops-verity",
+      "shipId": "verity",
+      "kind": "rules",
+      "name": "USS VERITY 规则驾驶系统"
+    },
+    {
+      "id": "ops-meridian",
+      "shipId": "meridian",
+      "kind": "rules",
+      "name": "USS MERIDIAN 规则驾驶系统"
+    },
+    {
+      "id": "ops-vigil",
+      "shipId": "vigil",
+      "kind": "rules",
+      "name": "USS VIGIL 规则驾驶系统"
+    }
+  ],
+  "ships": [
+    {
+      "id": "verity",
+      "name": "USS VERITY",
+      "registry": "NCC-78231",
+      "role": "探索舰 · 明理号",
+      "science": 90,
+      "capacity": 20,
+      "power": 9,
+      "speed": 5.4,
+      "maxShield": 80,
+      "x": 304.00322004590623,
+      "y": 399.2969406520913,
+      "operatorId": "ops-verity",
+      "hull": 100,
+      "shield": 80,
+      "heading": 4.236206570135453,
+      "throttle": 1,
+      "status": "mission",
+      "order": "mission",
+      "missionId": "amber",
+      "targetId": null,
+      "path": [
+        {
+          "x": 460,
+          "y": 200
+        }
+      ],
+      "trail": [
+        {
+          "x": 250.01522594780727,
+          "y": 445.7886295357471
+        },
+        {
+          "x": 257.03045189561453,
+          "y": 437.57725907149415
+        },
+        {
+          "x": 264.0456778434218,
+          "y": 429.365888607241
+        },
+        {
+          "x": 271.06090379122907,
+          "y": 421.1545181429873
+        },
+        {
+          "x": 278.07612973903633,
+          "y": 412.94314767873357
+        },
+        {
+          "x": 285.0913556868436,
+          "y": 404.73177721447985
+        },
+        {
+          "x": 292.10658163465087,
+          "y": 396.5204067502261
+        },
+        {
+          "x": 299.12180758245813,
+          "y": 388.30903628597235
+        },
+        {
+          "x": 306.1370335302654,
+          "y": 380.0976658217186
+        },
+        {
+          "x": 313.15225947807266,
+          "y": 371.88629535746486
+        },
+        {
+          "x": 326.89446645476636,
+          "y": 369.2418017257316
+        },
+        {
+          "x": 342.81979292873666,
+          "y": 382.431303717618
+        },
+        {
+          "x": 339.9156861149759,
+          "y": 402.9043384147697
+        },
+        {
+          "x": 320.9505383907649,
+          "y": 411.1446149814493
+        },
+        {
+          "x": 304.00322004590623,
+          "y": 399.2969406520913
+        }
+      ],
+      "cooldown": 0,
+      "cargo": 0,
+      "repair": 0,
+      "tow": 0,
+      "emergency": false,
+      "helm": {
+        "turn": 0.3,
+        "throttle": 1
+      }
+    },
+    {
+      "id": "meridian",
+      "name": "USS MERIDIAN",
+      "registry": "NCC-78232",
+      "role": "补给舰 · 子午号",
+      "science": 45,
+      "capacity": 60,
+      "power": 7,
+      "speed": 4.7,
+      "maxShield": 100,
+      "x": 375.97018437056477,
+      "y": 586.7214332240949,
+      "operatorId": "ops-meridian",
+      "hull": 100,
+      "shield": 100,
+      "heading": 0.852654084974022,
+      "throttle": 0,
+      "status": "mission",
+      "order": "mission",
+      "missionId": "colony-run",
+      "targetId": null,
+      "path": [
+        {
+          "x": 440,
+          "y": 660
+        }
+      ],
+      "trail": [
+        {
+          "x": 267.7313456247043,
+          "y": 462.84809554827257
+        },
+        {
+          "x": 275.46269124940864,
+          "y": 471.69619109654514
+        },
+        {
+          "x": 283.19403687411295,
+          "y": 480.5442866448177
+        },
+        {
+          "x": 290.92538249881727,
+          "y": 489.39238219309027
+        },
+        {
+          "x": 298.6567281235216,
+          "y": 498.24047774136284
+        },
+        {
+          "x": 306.3880737482259,
+          "y": 507.0885732896354
+        },
+        {
+          "x": 314.1194193729302,
+          "y": 515.9366688379084
+        },
+        {
+          "x": 321.85076499763454,
+          "y": 524.7847643861821
+        },
+        {
+          "x": 329.58211062233886,
+          "y": 533.6328599344558
+        },
+        {
+          "x": 337.3134562470432,
+          "y": 542.4809554827295
+        },
+        {
+          "x": 345.0448018717475,
+          "y": 551.3290510310032
+        },
+        {
+          "x": 352.7761474964518,
+          "y": 560.177146579277
+        },
+        {
+          "x": 360.50749312115613,
+          "y": 569.0252421275504
+        },
+        {
+          "x": 368.23883874586045,
+          "y": 577.8733376758227
+        },
+        {
+          "x": 375.97018437056477,
+          "y": 586.7214332240949
+        }
+      ],
+      "cooldown": 0,
+      "cargo": 20,
+      "repair": 0,
+      "tow": 0,
+      "emergency": false,
+      "helm": {
+        "turn": 0,
+        "throttle": 0
+      }
+    },
+    {
+      "id": "vigil",
+      "name": "USS VIGIL",
+      "registry": "NCC-78233",
+      "role": "巡逻舰 · 守望号",
+      "science": 60,
+      "capacity": 25,
+      "power": 18,
+      "speed": 6.3,
+      "maxShield": 140,
+      "x": 456.601390524698,
+      "y": 395.1413513441232,
+      "operatorId": "ops-vigil",
+      "hull": 100,
+      "shield": 140,
+      "heading": -0.31668847154220925,
+      "throttle": 0,
+      "status": "mission",
+      "order": "mission",
+      "missionId": "r3",
+      "targetId": null,
+      "path": [
+        {
+          "x": 930,
+          "y": 240
+        }
+      ],
+      "trail": [
+        {
+          "x": 288.97342603497987,
+          "y": 450.0760900896082
+        },
+        {
+          "x": 300.94685206995973,
+          "y": 446.15218017921643
+        },
+        {
+          "x": 312.9202781049396,
+          "y": 442.22827026882464
+        },
+        {
+          "x": 324.89370413991946,
+          "y": 438.30436035843286
+        },
+        {
+          "x": 336.86713017489933,
+          "y": 434.3804504480411
+        },
+        {
+          "x": 348.8405562098792,
+          "y": 430.4565405376493
+        },
+        {
+          "x": 360.81398224485906,
+          "y": 426.5326306272575
+        },
+        {
+          "x": 372.7874082798389,
+          "y": 422.6087207168657
+        },
+        {
+          "x": 384.7608343148188,
+          "y": 418.68481080647393
+        },
+        {
+          "x": 396.73426034979866,
+          "y": 414.76090089608215
+        },
+        {
+          "x": 408.7076863847785,
+          "y": 410.83699098569036
+        },
+        {
+          "x": 420.6811124197584,
+          "y": 406.9130810752986
+        },
+        {
+          "x": 432.65453845473826,
+          "y": 402.9891711649068
+        },
+        {
+          "x": 444.6279644897181,
+          "y": 399.065261254515
+        },
+        {
+          "x": 456.601390524698,
+          "y": 395.1413513441232
+        }
+      ],
+      "cooldown": 0,
+      "cargo": 0,
+      "repair": 0,
+      "tow": 0,
+      "emergency": false,
+      "helm": {
+        "turn": 0,
+        "throttle": 0
+      }
+    }
+  ],
+  "missions": [
+    {
+      "id": "amber",
+      "name": "琥珀星云 · 光谱调查",
+      "kind": "explore",
+      "locationId": "anomaly1",
+      "brief": "星云出现周期性辐射。分析扫描线索，决定远距采样或深入调查。",
+      "requirement": "科学能力 ≥ 40；高科学能力可识别异常性质",
+      "attention": "阶段性判断",
+      "risk": "低—中",
+      "duration": 42,
+      "cargoRequired": 0,
+      "reward": 45,
+      "phase": "outbound",
+      "shipId": "verity",
+      "route": "safe",
+      "started": 0,
+      "work": 0,
+      "decisionAt": 0,
+      "choice": null,
+      "deadline": 0,
+      "settled": false,
+      "run": 0,
+      "result": "",
+      "contactId": null,
+      "damage": 0
+    },
+    {
+      "id": "echo",
+      "name": "回声异常 · 深空测绘",
+      "kind": "explore",
+      "locationId": "anomaly2",
+      "brief": "远端回波与恒星背景不一致，需要更长时间采样。",
+      "requirement": "科学能力 ≥ 40；建议明理号",
+      "attention": "阶段性判断",
+      "risk": "中",
+      "duration": 65,
+      "cargoRequired": 0,
+      "reward": 70,
+      "phase": "available",
+      "shipId": null,
+      "route": "safe",
+      "started": 0,
+      "work": 0,
+      "decisionAt": 0,
+      "choice": null,
+      "deadline": 0,
+      "settled": false,
+      "run": 0,
+      "result": "",
+      "contactId": null,
+      "damage": 0
+    },
+    {
+      "id": "colony-run",
+      "name": "新曙殖民地 · 医疗补给",
+      "kind": "supply",
+      "locationId": "colony",
+      "brief": "将医疗物资送达殖民地。安全航线更慢，快速航线需要接受运输风险。",
+      "requirement": "货舱 ≥ 20；时限 240 秒",
+      "attention": "低 · 可自动执行",
+      "risk": "低",
+      "duration": 15,
+      "cargoRequired": 20,
+      "reward": 35,
+      "phase": "outbound",
+      "shipId": "meridian",
+      "route": "fast",
+      "started": 0,
+      "work": 0,
+      "decisionAt": 0,
+      "choice": null,
+      "deadline": 240,
+      "settled": false,
+      "run": 0,
+      "result": "",
+      "contactId": null,
+      "damage": 0
+    },
+    {
+      "id": "outpost-run",
+      "name": "信标前哨 · 物资接续",
+      "kind": "supply",
+      "locationId": "outpost",
+      "brief": "前哨储备偏低。运送大型补给批次，维持边境科研行动。",
+      "requirement": "货舱 ≥ 45；时限 300 秒",
+      "attention": "低 · 航线决策",
+      "risk": "低—中",
+      "duration": 20,
+      "cargoRequired": 45,
+      "reward": 60,
+      "phase": "available",
+      "shipId": null,
+      "route": "safe",
+      "started": 0,
+      "work": 0,
+      "decisionAt": 0,
+      "choice": null,
+      "deadline": 300,
+      "settled": false,
+      "run": 0,
+      "result": "",
+      "contactId": null,
+      "damage": 0
+    },
+    {
+      "id": "k7",
+      "name": "K-7 哨线 · 边境巡逻",
+      "kind": "patrol",
+      "locationId": "border1",
+      "brief": "Klingon 家族舰船正在越界。识别、警告或拦截，恢复航道安全。",
+      "requirement": "武器功率 ≥ 7；建议守望号",
+      "attention": "高 · 接触处置",
+      "risk": "中—高",
+      "duration": 28,
+      "cargoRequired": 0,
+      "reward": 65,
+      "phase": "available",
+      "shipId": null,
+      "route": "safe",
+      "started": 0,
+      "work": 0,
+      "decisionAt": 0,
+      "choice": null,
+      "deadline": 0,
+      "settled": false,
+      "run": 0,
+      "result": "",
+      "contactId": null,
+      "damage": 0
+    },
+    {
+      "id": "r3",
+      "name": "R-3 走廊 · 隐蔽接触",
+      "kind": "patrol",
+      "locationId": "border2",
+      "brief": "出现短暂的亚空间扰动。扫描可能的 Romulan 侦察舰，保留证据并驱离。",
+      "requirement": "科学能力 ≥ 40；保持探测距离",
+      "attention": "高 · 扫描与判断",
+      "risk": "中—高",
+      "duration": 35,
+      "cargoRequired": 0,
+      "reward": 75,
+      "phase": "outbound",
+      "shipId": "vigil",
+      "route": "safe",
+      "started": 0,
+      "work": 0,
+      "decisionAt": 0,
+      "choice": null,
+      "deadline": 0,
+      "settled": false,
+      "run": 0,
+      "result": "",
+      "contactId": null,
+      "damage": 0
+    }
+  ],
+  "locations": [
+    {
+      "id": "base",
+      "name": "曙光基地",
+      "label": "DAWN STARBASE",
+      "kind": "base",
+      "x": 260,
+      "y": 430,
+      "supply": 100
+    },
+    {
+      "id": "colony",
+      "name": "新曙殖民地",
+      "label": "NEW HORIZON",
+      "kind": "colony",
+      "x": 440,
+      "y": 660,
+      "supply": 30
+    },
+    {
+      "id": "outpost",
+      "name": "信标科研前哨",
+      "label": "BEACON OUTPOST",
+      "kind": "outpost",
+      "x": 780,
+      "y": 310,
+      "supply": 20
+    },
+    {
+      "id": "depot",
+      "name": "中继补给站",
+      "label": "RELAY STATION",
+      "kind": "outpost",
+      "x": 490,
+      "y": 430,
+      "supply": 80
+    },
+    {
+      "id": "anomaly1",
+      "name": "琥珀星云",
+      "label": "AMBER NEBULA",
+      "kind": "anomaly",
+      "x": 460,
+      "y": 200,
+      "supply": 0
+    },
+    {
+      "id": "anomaly2",
+      "name": "回声异常",
+      "label": "ECHO ANOMALY",
+      "kind": "anomaly",
+      "x": 750,
+      "y": 120,
+      "supply": 0
+    },
+    {
+      "id": "border1",
+      "name": "边境哨线 K-7",
+      "label": "PATROL K-7",
+      "kind": "border",
+      "x": 850,
+      "y": 550,
+      "supply": 0
+    },
+    {
+      "id": "border2",
+      "name": "静默走廊 R-3",
+      "label": "SILENT CORRIDOR",
+      "kind": "border",
+      "x": 930,
+      "y": 240,
+      "supply": 0
+    }
+  ],
+  "contacts": [],
+  "resources": {
+    "materials": 100,
+    "supplies": 120,
+    "science": 0,
+    "allocation": 120,
+    "intel": 0
+  },
+  "threat": 32,
+  "logs": [
+    {
+      "id": 1,
+      "time": 0,
+      "level": "info",
+      "text": "曙光基地指挥权已移交。三舰就绪，六项行动待命。世界已暂停，请派遣舰船后启动。"
+    },
+    {
+      "id": 2,
+      "time": 0,
+      "level": "info",
+      "text": "USS VERITY 接受 琥珀星云 · 光谱调查；安全航线。"
+    },
+    {
+      "id": 3,
+      "time": 0,
+      "level": "info",
+      "text": "USS MERIDIAN 接受 新曙殖民地 · 医疗补给；快速航线。"
+    },
+    {
+      "id": 4,
+      "time": 0,
+      "level": "info",
+      "text": "USS VIGIL 接受 R-3 走廊 · 隐蔽接触；安全航线。"
+    },
+    {
+      "id": 5,
+      "time": 20,
+      "level": "info",
+      "text": "指挥官直接接管 USS VERITY。自动驾驶暂停。"
+    }
+  ],
+  "nextLog": 6,
+  "nextContact": 1,
+  "nextIncursion": 210,
+  "beams": []
+}

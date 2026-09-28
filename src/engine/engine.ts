@@ -1,6 +1,9 @@
+import { FACTIONS } from './definitions/factions';
+import { RESOURCE_DEFINITIONS } from './definitions/resources';
 import { BASE, createWorld, WORLD_HEIGHT } from './data';
 import { commandSchema } from './commands';
 import type {
+  AgentControllerPort,
   Command,
   CommandResult,
   Contact,
@@ -43,8 +46,18 @@ export class SimulationEngine {
       .map((c) => (c.identified ? c : { ...c, name: '未识别亚空间接触' }));
     return view;
   }
+  controllerPort(operatorId: string): AgentControllerPort {
+    return Object.freeze({
+      getObservation: () => this.getObservation(operatorId),
+      dispatchCommand: (command: Command) =>
+        this.state.operators.some((operator) => operator.id === operatorId)
+          ? this.dispatchCommand(command, operatorId)
+          : no('操作者不存在'),
+    });
+  }
   getObservation(operatorId: string): Observation | null {
-    const ship = this.state.ships.find((s) => s.operatorId === operatorId);
+    const operator = this.state.operators.find((o) => o.id === operatorId);
+    const ship = operator && this.state.ships.find((s) => s.id === operator.shipId);
     if (!ship) return null;
     const candidates: Command[] = [
       { type: 'recall', shipId: ship.id },
@@ -343,22 +356,19 @@ export class SimulationEngine {
         t.detected = true;
         t.identified = true;
         count++;
-        this.state.resources.intel += t.faction === 'romulan' ? 8 : 3;
-        this.log(
-          `${s.name} 识别：${t.name}。${t.faction === 'romulan' ? '隐蔽航迹已记录。' : '越界证据已记录。'}`,
-          'warning',
-        );
+        this.state.resources.intel += FACTIONS[t.faction].scanIntel;
+        this.log(`${s.name} 识别：${t.name}。${FACTIONS[t.faction].scanMessage}`, 'warning');
       }
     }
     if (!count) this.log(`${s.name} 扫描完成，未发现新的身份信息。`);
   }
   private hail(s: Ship, t: Contact) {
     t.detected = true;
-    if (t.faction === 'romulan' || s.power >= 12 || t.shield < 15 || t.hull < 60) {
+    if (FACTIONS[t.faction].retreatOnWarning || s.power >= 12 || t.shield < 15 || t.hull < 60) {
       t.retreating = true;
       t.hostile = false;
       this.log(
-        `${t.name} 接受警告，正在撤出边境。${t.faction === 'romulan' ? '侦察行动已暴露。' : '威慑成立。'}`,
+        `${t.name} 接受警告，正在撤出边境。${FACTIONS[t.faction].warningMessage}`,
         'success',
       );
       this.resolveContact(t, '通过识别与警告完成驱离');
@@ -399,13 +409,13 @@ export class SimulationEngine {
     const contact: Contact = {
       id,
       faction,
-      name: faction === 'klingon' ? 'Klingon · 克拉斯家族巡掠舰' : 'Romulan · 隐蔽侦察舰',
+      name: FACTIONS[faction].contactName,
       x: p.x,
       y: p.y,
       detected: false,
       identified: false,
       hostile: false,
-      shield: faction === 'klingon' ? 65 : 45,
+      shield: FACTIONS[faction].shield,
       hull: 80,
       retreating: false,
       missionId,
@@ -513,8 +523,14 @@ export class SimulationEngine {
     w.time = w.tick / 10;
     w.beams = w.beams.filter((b) => b.expires > w.time);
     if (w.tick % 1800 === 0) {
-      w.resources.supplies = Math.min(300, w.resources.supplies + 45);
-      w.resources.materials = Math.min(200, w.resources.materials + 15);
+      w.resources.supplies = Math.min(
+        RESOURCE_DEFINITIONS.supplies.resupplyCap,
+        w.resources.supplies + RESOURCE_DEFINITIONS.supplies.resupplyAmount,
+      );
+      w.resources.materials = Math.min(
+        RESOURCE_DEFINITIONS.materials.resupplyCap,
+        w.resources.materials + RESOURCE_DEFINITIONS.materials.resupplyAmount,
+      );
       this.log('Starfleet 常规补给到港：补给 +45，维修材料 +15。');
     }
     if (w.time >= w.nextIncursion) {
@@ -585,7 +601,7 @@ export class SimulationEngine {
         continue;
       }
       for (const t of w.contacts)
-        if (!t.detected && dist(s, t) < (t.faction === 'romulan' ? 110 : 200)) {
+        if (!t.detected && dist(s, t) < FACTIONS[t.faction].detectionRange) {
           t.detected = true;
           this.log(`${s.name} 发现未识别接触。`, 'warning');
         }
@@ -611,7 +627,7 @@ export class SimulationEngine {
             t.y += Math.sin(a) * 3 * fixedDelta;
           }
           if (dist(s, t) < RANGE && t.cooldown <= 0) {
-            const damage = t.faction === 'klingon' ? 11 : 8;
+            const damage = FACTIONS[t.faction].damage;
             t.cooldown = 4;
             const m = w.missions.find((m) => m.id === s.missionId);
             if (m && !m.settled) m.damage += Math.max(0, damage - s.shield);

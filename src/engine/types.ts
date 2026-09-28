@@ -1,3 +1,6 @@
+import type { FactionId, ContactFactionId } from './definitions/factions';
+import type { ShipClassId } from './definitions/ships';
+import type { ResourceId } from './definitions/resources';
 export type Point = { x: number; y: number };
 export type MissionKind = 'explore' | 'supply' | 'patrol';
 export type Phase =
@@ -34,7 +37,8 @@ export interface Ship extends Point {
   name: string;
   registry: string;
   role: string;
-  operatorId: string;
+  classId: ShipClassId;
+  factionId: FactionId;
   science: number;
   capacity: number;
   power: number;
@@ -85,7 +89,7 @@ export interface Mission {
 }
 export interface Contact extends Point {
   id: string;
-  faction: 'klingon' | 'romulan';
+  faction: ContactFactionId;
   name: string;
   detected: boolean;
   identified: boolean;
@@ -110,7 +114,7 @@ export interface Beam {
   expires: number;
 }
 export interface WorldState {
-  version: 1;
+  version: 2;
   tick: number;
   time: number;
   seed: number;
@@ -124,13 +128,7 @@ export interface WorldState {
   missions: Mission[];
   locations: Location[];
   contacts: Contact[];
-  resources: {
-    materials: number;
-    supplies: number;
-    science: number;
-    allocation: number;
-    intel: number;
-  };
+  resources: Record<ResourceId, number>;
   threat: number;
   logs: LogEntry[];
   nextLog: number;
@@ -164,4 +162,10 @@ export interface Observation {
   missions: Mission[];
   resources: WorldState['resources'];
   legalActions: string[];
+}
+
+/** Controller adapters receive only this port, never the writable engine state. */
+export interface AgentControllerPort {
+  getObservation(): Observation | null;
+  dispatchCommand(command: Command): CommandResult;
 }

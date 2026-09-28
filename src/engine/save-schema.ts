@@ -1,3 +1,8 @@
+import { FACTIONS } from './definitions/factions';
+import { SHIP_CLASSES } from './definitions/ships';
+import { LOCATIONS } from './definitions/locations';
+import type { FactionId } from './definitions/factions';
+import type { ShipClassId } from './definitions/ships';
 import { z } from 'zod';
 const n = z.number().finite();
 const nonnegative = n.min(0);
@@ -9,7 +14,12 @@ const ship = point.extend({
   name: z.string(),
   registry: z.string(),
   role: z.string(),
-  operatorId: id,
+  classId: z.custom<ShipClassId>(
+    (value) => typeof value === 'string' && Object.hasOwn(SHIP_CLASSES, value),
+  ),
+  factionId: z.custom<FactionId>(
+    (value) => typeof value === 'string' && Object.hasOwn(FACTIONS, value),
+  ),
   science: nonnegative.max(100),
   capacity: nonnegative,
   power: nonnegative,
@@ -68,7 +78,7 @@ const mission = z.object({
 });
 export const worldSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     tick: nonnegative.int(),
     time: nonnegative,
     seed: nonnegative.int().max(4294967295),
@@ -79,9 +89,9 @@ export const worldSchema = z
     commander: z.object({ id, name: z.string(), rank: z.string() }),
     operators: z
       .array(z.object({ id, shipId: id, kind: z.literal('rules'), name: z.string() }))
-      .length(3),
-    ships: z.array(ship).length(3),
-    missions: z.array(mission).length(6),
+      .min(1),
+    ships: z.array(ship).min(1),
+    missions: z.array(mission),
     locations: z
       .array(
         point.extend({
@@ -92,7 +102,7 @@ export const worldSchema = z
           supply: nonnegative.max(100),
         }),
       )
-      .length(8),
+      .min(1),
     contacts: z
       .array(
         point.extend({
@@ -148,9 +158,16 @@ export const worldSchema = z
       if (s.shield > s.maxShield || s.cargo > s.capacity) fail('Ship stats inconsistent');
       if (s.missionId && !w.missions.some((m) => m.id === s.missionId && m.shipId === s.id))
         fail('Ship mission missing');
-      if (!w.operators.some((o) => o.id === s.operatorId && o.shipId === s.id))
-        fail('Operator mismatch');
+      if (!w.operators.some((o) => o.shipId === s.id)) fail('Operator mismatch');
     }
+    if (w.operators.some((o) => o.id === w.commander.id)) fail('Actor IDs overlap');
+    if (new Set(w.operators.map((o) => o.shipId)).size !== w.operators.length)
+      fail('Multiple operators assigned to one ship');
+    for (const o of w.operators)
+      if (!w.ships.some((s) => s.id === o.shipId)) fail('Operator ship missing');
+    for (const location of w.locations)
+      if (!LOCATIONS.some((definition) => definition.id === location.id))
+        fail('Unknown location definition');
     for (const m of w.missions) {
       if (!w.locations.some((l) => l.id === m.locationId)) fail('Mission location missing');
       if (m.shipId && !w.ships.some((s) => s.id === m.shipId)) fail('Mission ship missing');

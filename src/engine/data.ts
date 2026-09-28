@@ -1,108 +1,8 @@
-import type { Location, Mission, Ship, WorldState } from './types';
-export const WORLD_WIDTH = 1200;
-export const WORLD_HEIGHT = 800;
-export const BASE = { x: 260, y: 430 };
-export const LOCATIONS: Location[] = [
-  { id: 'base', name: '曙光基地', label: 'DAWN STARBASE', kind: 'base', ...BASE, supply: 100 },
-  {
-    id: 'colony',
-    name: '新曙殖民地',
-    label: 'NEW HORIZON',
-    kind: 'colony',
-    x: 440,
-    y: 660,
-    supply: 30,
-  },
-  {
-    id: 'outpost',
-    name: '信标科研前哨',
-    label: 'BEACON OUTPOST',
-    kind: 'outpost',
-    x: 780,
-    y: 310,
-    supply: 20,
-  },
-  {
-    id: 'depot',
-    name: '中继补给站',
-    label: 'RELAY STATION',
-    kind: 'outpost',
-    x: 490,
-    y: 430,
-    supply: 80,
-  },
-  {
-    id: 'anomaly1',
-    name: '琥珀星云',
-    label: 'AMBER NEBULA',
-    kind: 'anomaly',
-    x: 460,
-    y: 200,
-    supply: 0,
-  },
-  {
-    id: 'anomaly2',
-    name: '回声异常',
-    label: 'ECHO ANOMALY',
-    kind: 'anomaly',
-    x: 750,
-    y: 120,
-    supply: 0,
-  },
-  {
-    id: 'border1',
-    name: '边境哨线 K-7',
-    label: 'PATROL K-7',
-    kind: 'border',
-    x: 850,
-    y: 550,
-    supply: 0,
-  },
-  {
-    id: 'border2',
-    name: '静默走廊 R-3',
-    label: 'SILENT CORRIDOR',
-    kind: 'border',
-    x: 930,
-    y: 240,
-    supply: 0,
-  },
-];
-const specs = [
-  {
-    id: 'verity',
-    name: 'USS VERITY',
-    registry: 'NCC-78231',
-    role: '探索舰 · 明理号',
-    science: 90,
-    capacity: 20,
-    power: 9,
-    speed: 5.4,
-    maxShield: 80,
-  },
-  {
-    id: 'meridian',
-    name: 'USS MERIDIAN',
-    registry: 'NCC-78232',
-    role: '补给舰 · 子午号',
-    science: 45,
-    capacity: 60,
-    power: 7,
-    speed: 4.7,
-    maxShield: 100,
-  },
-  {
-    id: 'vigil',
-    name: 'USS VIGIL',
-    registry: 'NCC-78233',
-    role: '巡逻舰 · 守望号',
-    science: 60,
-    capacity: 25,
-    power: 18,
-    speed: 6.3,
-    maxShield: 140,
-  },
-];
+import type { Mission, Ship, WorldState } from './types';
+import { BASE, LOCATIONS } from './definitions/locations';
+import { INITIAL_FLEET, SHIP_CLASSES } from './definitions/ships';
+import { initialResources } from './definitions/resources';
+export { BASE, LOCATIONS, WORLD_WIDTH, WORLD_HEIGHT } from './definitions/locations';
 const tasks = [
   [
     'amber',
@@ -184,13 +84,13 @@ const tasks = [
   ],
 ] as const;
 export function createWorld(seed = 236807): WorldState {
-  const ships: Ship[] = specs.map((s, i) => ({
+  const ships: Ship[] = INITIAL_FLEET.map((s, i) => ({
     ...s,
+    ...SHIP_CLASSES[s.classId],
     x: BASE.x + (i - 1) * 17,
     y: BASE.y + 24,
-    operatorId: `ops-${s.id}`,
     hull: 100,
-    shield: s.maxShield,
+    shield: SHIP_CLASSES[s.classId].maxShield,
     heading: -Math.PI / 2,
     throttle: 0,
     status: 'docked',
@@ -247,7 +147,7 @@ export function createWorld(seed = 236807): WorldState {
     }),
   );
   return {
-    version: 1,
+    version: 2,
     tick: 0,
     time: 0,
     seed: seed >>> 0,
@@ -257,16 +157,16 @@ export function createWorld(seed = 236807): WorldState {
     manualShipId: null,
     commander: { id: 'commander', name: '舰队指挥官', rank: 'COMMODORE' },
     operators: ships.map((s) => ({
-      id: s.operatorId,
+      id: `ops-${s.id}`,
       shipId: s.id,
       kind: 'rules',
       name: `${s.name} 规则驾驶系统`,
     })),
     ships,
     missions,
-    locations: structuredClone(LOCATIONS),
+    locations: LOCATIONS.map((location) => ({ ...location })),
     contacts: [],
-    resources: { materials: 100, supplies: 140, science: 0, allocation: 120, intel: 0 },
+    resources: initialResources(),
     threat: 32,
     logs: [
       {

@@ -68,8 +68,10 @@ npm run test:package # 隐藏窗口验证打包后的exe、离线运行与存档
 ## 程序结构
 
 ```text
-src/engine/      类型、初始数据、合法命令、固定步长模拟、存档结构校验
-src/App.tsx     指挥界面、任务中心、舰队管理与档案
+src/engine/      实体类型、合法命令、固定步长模拟、版本化存档与迁移
+src/engine/definitions/  只读阵营、舰型、地点和资源定义
+src/App.tsx     界面组合、跨页面导航与选择状态
+src/ui/         六个页面、共享 LCARS 组件、快照与输入 hooks
 src/TacticalMap.tsx  Canvas 战术图与快照插值
 src/styles.css / src/lcars.css  原创组件与 Classic LCARS 双肘形框架
 electron/       主进程、有限 preload 接口、本地原子存档
@@ -92,13 +94,19 @@ scripts/        开发启动与原创程序图标生成
 
 未来接模型时，让适配器只调用 observation／command；不要把 API Key 放入渲染进程，也不要把整个可写世界对象交给模型。本阶段没有创建模型连接或伪装成 Agent 的聊天功能。
 
+`SimulationEngine.controllerPort(operatorId)` 提供绑定操作者的 `AgentControllerPort`，仅包含 `getObservation()` 和 `dispatchCommand(command)`。Operator 独立保存身份、规则控制器类型与 `shipId` 分配；Ship 保存舰船实体状态，不再反向保存操作者身份。没有新增 Agent 持久化实体或模型运行时。结构与扩展约束见 [架构说明](docs/architecture.md)。
+
 ## 存档与恢复
 
-默认位于 Electron 用户数据目录：`%APPDATA%/frontier-command/world-v1.json`。备份为同目录的 `.bak` 文件。打包程序与源码启动使用同一应用名称，因此可以继续同一世界。
+默认位于 Electron 用户数据目录：`%APPDATA%/frontier-command/world-v2.json`。备份为同目录的 `.bak` 文件。打包程序与源码启动使用同一应用名称，因此可以继续同一世界。
+
+当 v2 主文件和备份都不存在时，自动读取 `world-v1.json` 或其备份，并在内存中迁移；下次保存写入 v2。正常迁移和保存保留原 v1 文件，舰船已有属性、任务进度和随机数状态不会被配置默认值覆盖。旧版程序只能读取保留的 v1 进度，不能读取后续 v2 进度。v2 文件一旦存在，不会因损坏而回退到更早的 v1 世界；遇到不支持的存档版本会阻止覆盖。
 
 重要命令、世界事件、每10秒模拟时间和正常关闭时保存。保存先写临时文件，再替换主文件；之前的合法主存档进入备份。程序关闭期间不推进时间，重启后暂停并清除操舰按键。
 
 主存档损坏时读取备份，并在下一次写入前把坏文件归档为 `.corrupt-时间戳`。主存档与备份都损坏时使用临时世界并阻止保存；系统页“归档旧存档并重置”会保留旧文件并创建新世界。
+
+上述损坏文件归档适用于当前 v2 文件；从损坏的 v1 主文件恢复备份时，两个旧文件均保持原样。显式重置会归档 v1、v2 主文件及备份，避免旧世界再次被自动载入。
 
 ## 当前边界
 

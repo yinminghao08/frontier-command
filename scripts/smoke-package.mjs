@@ -3,11 +3,9 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
-
-// Launches the actual packaged binary without showing or focusing any desktop window.
 const executablePath =
   process.env.FRONTIER_EXECUTABLE || resolve('release/win-unpacked/Frontier Command.exe');
-const userData = mkdtempSync(join(tmpdir(), 'frontier-packaged-'));
+const userData = mkdtempSync(join(tmpdir(), 'frontier-packaged-v4-'));
 const launch = () =>
   electron.launch({
     executablePath,
@@ -17,43 +15,58 @@ const launch = () =>
 let app;
 try {
   app = await launch();
-  const page = await app.firstWindow();
+  let page = await app.firstWindow();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.waitForSelector('.fleet-chip', { state: 'attached' });
+  await page.waitForSelector('.admiral-console');
   assert.equal(
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()),
     false,
   );
   await page.context().setOffline(true);
-  assert.equal(await page.locator('.fleet-chip').count(), 3);
-  const dispatch = await page.evaluate(() =>
+  const initial = (await page.evaluate(() => window.frontier.getState())).state;
+  assert.equal(initial.version, 4);
+  assert.equal(initial.ships.length, 4);
+  assert.equal(initial.contacts.length, 0);
+  const result = await page.evaluate(() =>
     window.frontier.command({
-      type: 'dispatch',
-      shipId: 'verity',
-      missionId: 'amber',
-      route: 'safe',
+      type: 'createOrder',
+      spec: {
+        kind: 'transport',
+        objective: { type: 'location', id: 'colony' },
+        shipIds: ['meridian'],
+        priority: 'normal',
+        roe: 'RETURN FIRE',
+        border: 'federation',
+        retreat: { hull: 30, shield: 0, core: 0, emptyAmmo: false },
+        duration: 45,
+        sourceId: 'base',
+        cargoKind: 'supplies',
+        amount: 30,
+        route: 'safe',
+        approach: 'remote',
+      },
     }),
   );
-  assert.equal(dispatch.ok, true);
+  assert.equal(result.ok, true);
   await page.evaluate(() => window.frontier.command({ type: 'pause', paused: false }));
-  await new Promise((resolve) => setTimeout(resolve, 1300));
+  await new Promise((resolve) => setTimeout(resolve, 1400));
   await page.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
-  const state = (await page.evaluate(() => window.frontier.getState())).state;
-  assert.ok(state.time > 0);
-  assert.equal(state.ships[0].missionId, 'amber');
+  const saved = (await page.evaluate(() => window.frontier.getState())).state;
+  assert.ok(saved.time > 0);
+  assert.equal(saved.orders.length, 1);
   assert.equal((await page.evaluate(() => window.frontier.save())).ok, true);
   assert.deepEqual(errors, []);
   await app.close();
   app = await launch();
-  const restoredPage = await app.firstWindow();
-  await restoredPage.waitForSelector('.fleet-chip', { state: 'attached' });
-  const restored = (await restoredPage.evaluate(() => window.frontier.getState())).state;
+  page = await app.firstWindow();
+  await page.waitForSelector('.admiral-console');
+  const restored = (await page.evaluate(() => window.frontier.getState())).state;
   assert.equal(restored.paused, true);
-  assert.equal(restored.time, state.time);
-  assert.equal(restored.ships[0].missionId, 'amber');
+  assert.equal(restored.time, saved.time);
+  assert.deepEqual(restored.orders, saved.orders);
   console.log(
-    'PASS: packaged EXE, hidden-window launch, offline commands, simulation advancement, save and restart.',
+    'PASS: v4 packaged EXE, hidden window, offline order, fixed-step simulation, save and restart.',
   );
 } finally {
   if (app) await app.close().catch(() => {});

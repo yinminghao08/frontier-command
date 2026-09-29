@@ -1,49 +1,52 @@
-# STEP 1 architecture
+# LV1 v4 architecture
 
-The strategic world uses a persistent accelerated calendar and explicit critical-event pauses. Existing rule automation and controller ownership remain; no model integration or Agent AI is added.
+## Step 1 retained
 
-## Simulation time and critical boundaries
+The Electron main process owns SimulationEngine. Commander and Operator identities remain separate from Ship. The 1600×800 strategic geography, fixed 0.1 game-minute step, integer tick calendar, 1/4/16 step batching, critical-event pauses and midnight events remain. No offline catch-up and no wall-clock gameplay decisions.
 
-All engine durations, rates, deadlines, cooldowns and timestamps use game minutes. Integer ticks are authoritative: one step is 0.1 game minute. The host calls advanceFrame every nominal 100ms; 1x/4x/16x execute 1/4/16 fixed steps. Host delays never produce offline catch-up. Rendering, input sampling, notifications and filesystem timestamps may use host clocks without affecting gameplay calculations.
+Renderer state is selection, camera, navigation and draft input only. It submits validated commands through the existing limited preload API. There is no LLM runtime or per-frame AI helm input.
 
-step and advanceFrame return typed events. dayBoundary contains the entered day, tick and simulation time and is emitted exactly once at each multiple of 14,400 ticks. It is independent of the bounded log and is not replayed on loading. Daily autosave integration is intentionally deferred; existing save triggers remain.
+## Rules and data flow
 
-Explicit transition sites collect investigation, first detection, hostility, hull below 30%, disablement and mission failure reasons. A command or fixed step completes atomically, then pauses and clears helm input. The host batch stops before another step. Reasons persist in snapshots/saves until explicit resume, and continued conditions do not retrigger. Logs alone never trigger a pause.
+- Frozen definitions contain geography, factions, ship classes, weapons and global timing rules.
+- navigation.ts handles bounded movement and routes scored against charted anomalies and player-known contacts; hidden enemies never enter route scoring.
+- sensors.ts builds faction intelligence separately from true enemy entities. Snapshot and Observation are explicit projections; new private WorldState fields cannot accidentally leak through a spread.
+- combat.ts handles ROE eligibility, retreat conditions, resource recovery, weapon cooldown, energy, ammo and hit rolls.
+- threats.ts performs periodic deterministic decisions using enemy sensor observations and publicly charted colonies. No target is an allowed outcome.
+- engine.ts retains the command/step/snapshot/controllerPort entrypoints and coordinates Order lifecycle, actual inventory transfer, docking, service, events and subsystem order.
 
-## Geography
+Each tick advances time, refreshes sensors on its cadence, processes scheduled logistics/incursions, advances friendly ships, advances enemy ships, advances orders, then applies critical pauses atomically. Each loop uses stable entity order and the saved PRNG. All timing uses game minutes.
 
-The map is 1600x800: Federation x<1040, Neutral Zone 1040<=x<1280, Romulan x>=1280. New Dawn is at (880,430); migrated worlds retain their saved base. Docking, return routing and towing resolve the base from the world instance. Mines, M-class planets and additional border/colony landmarks have region IDs but no new economic or AI mechanics. Manual fleet movement remains capped at x=1040.
+## Public interfaces
 
-## Authority and identities
+OperationOrder replaces the six fixed mission cards. OrderSpec contains a typed objective, shipIds, priority, ROE, territory authorization, retreat thresholds, and transport/exploration parameters.
 
-The Electron main process owns `SimulationEngine`. Renderer pages consume copied snapshots and submit typed commands through the existing preload IPC. Validation, movement, combat, mission settlement and resources remain in the engine. Canvas interpolation remains presentation-only.
+Commands: createOrder, updateOrder, cancelOrder, holdOrder, resumeOrder, investigate, scan, recall, repair, rearm, acknowledge, pause and speed. Create/modify validate before mutation. Update cannot silently change loaded cargo or reset an investigation already underway.
 
-Commander and Operator identities are separate from Ship entities. Each LV1 operator has one ship assignment, stored only in `Operator.shipId`; saved v2 worlds require one operator per ship and distinct actor IDs. A ship stores physical state, effective attributes, orders and stable `classId`/`factionId` references. Changing controller assignments is not a player feature.
+snapshot() returns own ships, own orders, public locations, filtered intelligence, observable effects, resources and communications. It does not return enemy entities, their intent, sensor memory, PRNG or spawn schedule. Romulan location economic/defense values are withheld. getObservation(operatorId) gives detached observations and legal actions for the assigned ship; controllerPort binds command authority.
 
-`getObservation(operatorId)` resolves the operator before its ship and returns a detached observation. `controllerPort(operatorId)` binds the same observation/command methods to one operator identity without exposing engine state. Adapters must be given this port rather than the engine. Existing commander commands and rules automation retain their scheduling and authorization; no new agent loop runs.
+## Intelligence and combat authority
 
-## UI boundaries
+IntelRecord is not an Enemy object. CONTACT omits identity; CLASSIFIED provides faction; IDENTIFIED and TRACKED can provide ship identity. Last known coordinates and observation time are stored, not synthesized from the live enemy. Expiration hides map markers while retaining history and observed resolution evidence.
 
-App retains navigation, selected ship/mission, route, mission filter and reset-dialog state so extracting pages does not reset user choices when navigating. The six pages and shared inspectors receive snapshots and callbacks. The LCARS shell provides page, inspector and overlay slots without adding DOM wrappers.
+Only sensed, identified contacts satisfy fire eligibility. Physics checks range/cooldown/energy/ammo and cloak state. Weapons spend resources even on a miss. Attacks against our ships or facilities produce observable reports/effects. A target disappearing is not proof of a successful intercept.
 
-`useFrontier` manages IPC subscription and command feedback. `useHelmControls` owns keyboard/pointer input and the original 80ms input cadence. These hooks live at App level, so changing pages does not duplicate subscriptions or timers. Simulation results never come from renderer-local state.
+High-level defense may temporarily chase a threat; when the threat leaves, the ship returns to its protected objective. Normal return paths terminate at distinct physical base berths so docked markers stay selectable.
 
-## Definitions and mutable worlds
+## Orders and inventory
 
-`src/engine/definitions` contains recursively frozen TypeScript records for the existing factions, ship classes, locations and resources, plus the initial fleet roster. Definition modules have no runtime dependency on Electron or React.
+Transport reserves source stock at acceptance, deducts it only at loading, and transfers actual remaining cargo at unloading. Cancellation releases reservations; returned cargo is recovered at base. Pirate theft reduces actual cargo; partial delivery cannot receive full success. Settlement is guarded and occurs once. Returning ships stay allocated until docking.
 
-World creation copies defaults into independent mutable entities. Ship names/registries belong to fleet instances, while science, cargo capacity, power, speed and shield defaults belong to classes. Faction-specific contact stats and responses are read from faction definitions; all formulas and random-call ordering remain unchanged. Resource definitions supply starting balances and the existing resupply amounts/caps.
+Exploration rewards a location revision once or an unrecorded coordinate region; near sampling costs time/hull for greater initial science. Defense measures a protected window and checks known hostile presence. Deadlines, lost-contact search, retreat and disablement all end in settlement and return/recovery.
 
-Effective ship attributes and location state remain serialized. Loading never recomputes them from current defaults. New content or balance changes require a separate gameplay change; adding a persisted shape requires an explicit schema/migration change rather than silently changing existing worlds.
+## Save v4
 
-## Save evolution
+New worlds only: v1–v3 remain on disk but are not selected or migrated. Strict schema validates resources, references, clock consistency, class bounds and reservation totals. v4 persists orders, current energy/ammo, inventory, AI state, cloak, intelligence, communications, cooldowns and PRNG.
 
-Frozen v1 and v2 validators read legacy files; the runtime schema validates v3. Pure migration preserves integer ticks, numerical timers, effective stats, positions, routes, resources and PRNG state, adds region metadata and missing landmarks, translates old timer labels, and maps 2x to 1x. Existing locations are not moved.
+SaveStore keeps atomic replacement, a valid same-generation backup, corrupt-primary archival, unsupported-version protection and explicit v4 reset archival. Loading does not advance time; Electron resumes paused. Test user-data directories are isolated from player saves.
 
-Read precedence selects the newest generation present (v3, then v2, then v1) and tries its primary then backup. Corruption never causes rollback to an earlier generation; unsupported versions block loading/writing. Normal saves write world-v3.json and preserve all legacy files. Explicit reset archives all three generations and backups. Startup pauses and clears helm inputs without advancing simulation time.
+## UI and verification
 
-## Regression evidence
+The map stays mounted across six work panels. Right-side selection and order drafts are distinct; pan/zoom survive navigation. Map layers consume only Snapshot. CSS Grid constrains frame dimensions, with independent panel scrolling.
 
-The original LV1 fixtures remain unchanged. Historical replay tests start from migrated geography and explicitly acknowledge new critical pauses while retaining the original fixed-step checkpoints. Dedicated tests cover clock progression, all pause transitions, frame-batch stopping, midnight delivery, geography, versioned migration and recovery. Electron tests verify the rendered controls, strategic map, pause reasons and saved-world restart.
-
-Run npm test and npm run test:e2e (which includes the production build). Electron tests use isolated temporary user-data directories.
+Unit scenarios cover real-world threat interaction, three concurrent loops, conservation, combat, intelligence, permission checks, determinism and save continuation. Real Electron tests drive the UI, map input, resolutions, restart and corruption recovery. Packaged and extracted-ZIP smoke tests exercise the actual Windows binary offline.

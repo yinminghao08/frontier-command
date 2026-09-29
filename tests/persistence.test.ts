@@ -1,120 +1,92 @@
-import { describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SaveStore } from '../electron/persistence';
 import { createWorld } from '../src/engine/data';
-import { parseSave, UnsupportedSaveVersionError } from '../src/engine/saves';
-describe('SaveStore', () => {
-  it('atomically writes, rotates backup, and restores it after corruption without deleting evidence', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'frontier-save-'));
-    const store = new SaveStore(dir);
-    const w = createWorld();
-    store.write(w);
-    w.resources.science = 12;
-    store.write(w);
-    writeFileSync(store.path, 'broken');
-    const restored = store.read();
-    expect(restored.world?.resources.science).toBe(0);
-    expect(restored.message).toContain('备份');
-    expect(readFileSync(store.path, 'utf8')).toBe('broken');
-    store.write(restored.world!);
-    expect(readdirSync(dir).some((f) => f.includes('.corrupt-'))).toBe(true);
-    expect(store.read().world).not.toBeNull();
+import { worldSchema } from '../src/engine/save-schema';
+import { quietEngine, run, spec } from './helpers';
+const dirs: string[] = [];
+const dir = () => {
+  const p = mkdtempSync(join(tmpdir(), 'frontier-v4-test-'));
+  dirs.push(p);
+  return p;
+};
+afterEach(() => {
+  for (const p of dirs.splice(0)) rmSync(p, { recursive: true, force: true });
+});
+describe('v4 persistence', () => {
+  it('saves and restores new order state including reservations and partial cargo', () => {
+    const e = quietEngine();
+    e.dispatchCommand({ type: 'createOrder', spec: spec('transport') });
+    const store = new SaveStore(dir());
+    store.write(e.state);
+    expect(store.read().world).toEqual(e.state);
+    run(e, 10);
+    store.write(e.state);
+    expect(store.read().world).toEqual(e.state);
   });
-  it('blocks persistence if no valid backup exists', () => {
-    const store = new SaveStore(mkdtempSync(join(tmpdir(), 'frontier-broken-')));
-    writeFileSync(store.path, '{}');
-    expect(store.read().blocked).toBe(true);
-    expect(store.read().world).toBeNull();
+  it('ignores old worlds without modifying them', () => {
+    const p = dir(),
+      legacy = join(p, 'world-v3.json');
+    writeFileSync(legacy, 'old-world');
+    const s = new SaveStore(p);
+    expect(s.read().world).toBeNull();
+    s.write(createWorld());
+    expect(readFileSync(legacy, 'utf8')).toBe('old-world');
+    expect(existsSync(join(p, 'world-v4.json'))).toBe(true);
   });
-  it('archives saves on explicit reset', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'frontier-archive-'));
-    const store = new SaveStore(dir);
-    store.write(createWorld());
-    store.archive();
-    expect(readdirSync(dir).some((f) => f.includes('.archived-'))).toBe(true);
-    expect(store.read().world).toBeNull();
+  it('recovers only same-generation backup and archives corrupt primary on write', () => {
+    const p = dir(),
+      s = new SaveStore(p),
+      w = createWorld();
+    s.write(w);
+    s.write(w);
+    writeFileSync(s.path, 'bad');
+    expect(s.read().world).toEqual(w);
+    s.write(w);
+    expect(s.read().blocked).toBe(false);
   });
-
-  it('migrates v1 without altering the legacy primary or backup, then prefers v3', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'frontier-migration-'));
-    const store = new SaveStore(dir);
-    const legacy = readFileSync('tests/fixtures/lv1/in-progress.json', 'utf8');
-    const legacyPath = join(dir, 'world-v1.json');
-    writeFileSync(legacyPath, legacy);
-    writeFileSync(legacyPath + '.bak', legacy);
-    const loaded = store.read();
-    expect(loaded.blocked).toBe(false);
-    expect(loaded.world).toEqual(parseSave(JSON.parse(legacy)));
-    expect(existsSync(store.path)).toBe(false);
-    loaded.world!.resources.science = 123;
-    store.write(loaded.world!);
-    expect(store.path).toBe(join(dir, 'world-v3.json'));
-    expect(store.read().world?.resources.science).toBe(123);
-    expect(JSON.parse(readFileSync(store.path, 'utf8')).version).toBe(3);
-    expect(readFileSync(legacyPath, 'utf8')).toBe(legacy);
-    expect(readFileSync(legacyPath + '.bak', 'utf8')).toBe(legacy);
+  it('blocks irrecoverable or future saves and does not fall back to old versions', () => {
+    const p = dir(),
+      s = new SaveStore(p);
+    writeFileSync(s.path, 'bad');
+    writeFileSync(join(p, 'world-v3.json'), JSON.stringify(createWorld()));
+    expect(s.read().blocked).toBe(true);
+    writeFileSync(s.path, JSON.stringify({ ...createWorld(), version: 5 }));
+    expect(s.read().blocked).toBe(true);
+    expect(() => s.write(createWorld())).toThrow();
   });
-
-  it('recovers a v1 backup while retaining both legacy files', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'frontier-legacy-backup-'));
-    const store = new SaveStore(dir);
-    const legacyPath = join(dir, 'world-v1.json');
-    const legacy = readFileSync('tests/fixtures/lv1/manual.json', 'utf8');
-    writeFileSync(legacyPath, 'broken');
-    writeFileSync(legacyPath + '.bak', legacy);
-    const loaded = store.read();
-    expect(loaded.message).toContain('备份');
-    expect(loaded.world).toEqual(parseSave(JSON.parse(legacy)));
-    store.write(loaded.world!);
-    expect(readFileSync(legacyPath, 'utf8')).toBe('broken');
-    expect(readFileSync(legacyPath + '.bak', 'utf8')).toBe(legacy);
+  it('rejects malformed resources, clock, inventory reservations, IDs and ship references', () => {
+    for (const mutate of [
+      (w: ReturnType<typeof createWorld>) => {
+        w.tick = 1;
+      },
+      (w: ReturnType<typeof createWorld>) => {
+        w.ships[0].core = 9999;
+      },
+      (w: ReturnType<typeof createWorld>) => {
+        w.locations[0].reserved.supplies = 3;
+      },
+      (w: ReturnType<typeof createWorld>) => {
+        w.ships[0].orderId = 'missing';
+      },
+      (w: ReturnType<typeof createWorld>) => {
+        w.operators[0].shipId = w.operators[1].shipId;
+      },
+    ]) {
+      const w = createWorld();
+      mutate(w);
+      expect(worldSchema.safeParse(w).success).toBe(false);
+    }
   });
-
-  it.each(['', '.bak'])(
-    'does not roll back to v1 when a v3%s file exists but is corrupt',
-    (suffix) => {
-      const dir = mkdtempSync(join(tmpdir(), 'frontier-no-rollback-'));
-      const store = new SaveStore(dir);
-      writeFileSync(join(dir, 'world-v1.json'), readFileSync('tests/fixtures/lv1/initial.json'));
-      writeFileSync(store.path + suffix, 'broken');
-      expect(store.read()).toMatchObject({ world: null, blocked: true });
-    },
-  );
-
-  it.each(['', '.bak'])('never overwrites an unsupported v3%s save', (suffix) => {
-    const store = new SaveStore(mkdtempSync(join(tmpdir(), 'frontier-future-')));
-    const future = JSON.stringify({ ...createWorld(), version: 9 });
-    writeFileSync(store.path + suffix, future);
-    expect(store.read()).toMatchObject({ world: null, blocked: true });
-    expect(() => store.write(createWorld())).toThrow(UnsupportedSaveVersionError);
-    expect(readFileSync(store.path + suffix, 'utf8')).toBe(future);
-  });
-
-  it('does not fall back from an unsupported primary to an older valid backup', () => {
-    const store = new SaveStore(mkdtempSync(join(tmpdir(), 'frontier-future-primary-')));
-    writeFileSync(store.path, JSON.stringify({ ...createWorld(), version: 9 }));
-    writeFileSync(store.path + '.bak', JSON.stringify(createWorld()));
-    expect(store.read()).toMatchObject({ world: null, blocked: true });
-  });
-
-  it('explicit reset archives all three save generations and their backups', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'frontier-reset-all-'));
-    const store = new SaveStore(dir);
-    for (const file of [
-      'world-v1.json',
-      'world-v1.json.bak',
-      'world-v2.json',
-      'world-v2.json.bak',
-      'world-v3.json',
-      'world-v3.json.bak',
-    ])
-      writeFileSync(join(dir, file), file);
-    store.archive();
-    expect(readdirSync(dir).filter((file) => file.includes('.archived-'))).toHaveLength(6);
-    expect(store.read()).toMatchObject({ world: null, blocked: false });
-    store.write(createWorld());
-    expect(store.read().world).toEqual(createWorld());
+  it('archive resets v4 only, retaining legacy files', () => {
+    const p = dir(),
+      s = new SaveStore(p);
+    writeFileSync(join(p, 'world-v3.json'), 'keep');
+    s.write(createWorld());
+    s.archive();
+    expect(existsSync(s.path)).toBe(false);
+    expect(readFileSync(join(p, 'world-v3.json'), 'utf8')).toBe('keep');
   });
 });

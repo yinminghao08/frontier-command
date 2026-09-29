@@ -1,580 +1,878 @@
-import { FACTIONS } from './definitions/factions';
-import { RESOURCE_DEFINITIONS } from './definitions/resources';
-import { createWorld, WORLD_HEIGHT } from './data';
-import { FEDERATION_FRONTIER } from './definitions/locations';
+import { createWorld, makeEnemy } from './data';
 import { FIXED_DELTA, TICKS_PER_DAY, gameCalendar } from './clock';
-export { FIXED_DELTA } from './clock';
-import { commandSchema } from './commands';
+import { commandSchema, orderSpecSchema } from './commands';
+import { SHIP_CLASSES, type WeaponDefinition } from './definitions/ships';
+import { RULES } from './definitions/rules';
+import { boundary, dist, move, objectivePosition, planRoute } from './navigation';
+import { RESOURCE_DEFINITIONS } from './definitions/resources';
+import { observe, updateSensors, visibleIntel } from './sensors';
+import { attack, permittedTarget, regenerate, shouldRetreat } from './combat';
+import { decideThreat } from './threats';
 import type {
   AgentControllerPort,
   Command,
   CommandResult,
-  Contact,
+  CriticalReason,
+  Enemy,
+  IntelRecord,
+  Location,
   LogEntry,
-  Mission,
   Observation,
+  OperationOrder,
+  OrderSpec,
   Point,
   Ship,
+  SimulationEvent,
   Snapshot,
   WorldState,
-  CriticalReason,
-  SimulationEvent,
 } from './types';
-
-export const RANGE = 145;
-export const SCAN_RANGE = 220;
-export const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
-const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
-const angleDiff = (a: number, b: number) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+export { FIXED_DELTA } from './clock';
+export { dist } from './navigation';
 const ok = (reason = '命令已执行'): CommandResult => ({ ok: true, reason });
 const no = (reason: string): CommandResult => ({ ok: false, reason });
-
 export class SimulationEngine {
   state: WorldState;
-  private pendingReasons: CriticalReason[] = [];
-  private get base(): Point {
-    const base = this.state.locations.find((location) => location.id === 'base');
-    if (!base) throw new Error('World base is missing');
-    return { x: base.x, y: base.y };
-  }
-  private critical(kind: CriticalReason['kind'], entityId: string, message: string) {
-    this.pendingReasons.push({
-      kind,
-      entityId,
-      message,
-      tick: this.state.tick,
-      time: this.state.time,
-    });
-  }
-  private finishCritical(): SimulationEvent[] {
-    if (!this.pendingReasons.length) return [];
-    const reasons = this.pendingReasons;
-    this.pendingReasons = [];
-    this.state.paused = true;
-    for (const reason of reasons) {
-      if (
-        !this.state.pauseReasons.some(
-          (existing) => existing.kind === reason.kind && existing.entityId === reason.entityId,
-        )
-      )
-        this.state.pauseReasons.push(reason);
-    }
-    this.clearInputs();
-    return [{ type: 'criticalPause', reasons: structuredClone(reasons) }];
-  }
-  private detect(t: Contact) {
-    if (!t.detected)
-      this.critical(
-        'contactDetected',
-        t.id,
-        '发现新的接触：' + (t.identified ? t.name : '未识别接触'),
-      );
-    t.detected = true;
-  }
-  private makeHostile(t: Contact) {
-    if (!t.hostile) this.critical('hostility', t.id, '接触转为敌对：' + t.name);
-    t.hostile = true;
-  }
-  /** A nominal 100ms host pulse. Speed changes step count, never the fixed delta. */
-  advanceFrame(): SimulationEvent[] {
-    const events: SimulationEvent[] = [];
-    const speed = this.state.speed;
-    for (let i = 0; i < speed && !this.state.paused; i++) events.push(...this.step());
-    return events;
-  }
+  private pending: CriticalReason[] = [];
   constructor(world = createWorld()) {
     this.state = structuredClone(world);
   }
-  private random() {
+  private get base() {
+    return this.state.locations.find((l) => l.id === 'base')!;
+  }
+  private berth(s: Ship): Point {
+    return {
+      x: this.base.x + (this.state.ships.findIndex((x) => x.id === s.id) - 1.5) * 70,
+      y: this.base.y + 90,
+    };
+  }
+  private random = () => {
     this.state.seed = (Math.imul(1664525, this.state.seed) + 1013904223) >>> 0;
     return this.state.seed / 4294967296;
-  }
+  };
   log(text: string, level: LogEntry['level'] = 'info') {
     const w = this.state;
-    w.logs.push({ id: w.nextLog++, time: w.time, level, text });
+    w.logs.push({ id: w.nextLog++, time: w.time, text, level });
     if (w.logs.length > 180) w.logs.shift();
   }
-  snapshot(): Snapshot {
-    const { seed: _seed, nextIncursion: _incursion, ...view } = structuredClone(this.state);
-    view.contacts = view.contacts
-      .filter((c) => c.detected)
-      .map((c) => (c.identified ? c : { ...c, name: '未识别亚空间接触' }));
-    return view;
+  private report(
+    text: string,
+    entityId: string | null,
+    priority: 'normal' | 'high' | 'urgent' = 'normal',
+    category: 'request' | 'report' | 'threat' | 'decision' = 'report',
+  ) {
+    const w = this.state;
+    w.communications.push({
+      id: w.nextComms++,
+      time: w.time,
+      text,
+      entityId,
+      priority,
+      category,
+      read: false,
+    });
+    if (w.communications.length > 100) w.communications.shift();
+    this.log(text, priority === 'urgent' ? 'danger' : priority === 'high' ? 'warning' : 'info');
   }
-  controllerPort(operatorId: string): AgentControllerPort {
-    return Object.freeze({
-      getObservation: () => this.getObservation(operatorId),
-      dispatchCommand: (command: Command) =>
-        this.state.operators.some((operator) => operator.id === operatorId)
-          ? this.dispatchCommand(command, operatorId)
-          : no('操作者不存在'),
+  private critical(kind: CriticalReason['kind'], entityId: string, message: string) {
+    if (!this.pending.some((r) => r.kind === kind && r.entityId === entityId))
+      this.pending.push({ kind, entityId, message, tick: this.state.tick, time: this.state.time });
+  }
+  private finishCritical(): SimulationEvent[] {
+    if (!this.pending.length) return [];
+    const reasons = this.pending;
+    this.pending = [];
+    this.state.paused = true;
+    this.state.pauseReasons.push(
+      ...reasons.filter(
+        (r) => !this.state.pauseReasons.some((x) => x.entityId === r.entityId && x.kind === r.kind),
+      ),
+    );
+    return [{ type: 'criticalPause', reasons: structuredClone(reasons) }];
+  }
+  clearInputs() {
+    /* LV1 Admiral commands have no held keys or frame input. */
+  }
+  snapshot(): Snapshot {
+    const w = this.state;
+    return structuredClone({
+      version: w.version,
+      tick: w.tick,
+      time: w.time,
+      paused: w.paused,
+      speed: w.speed,
+      pauseReasons: w.pauseReasons,
+      commander: w.commander,
+      operators: w.operators,
+      ships: w.ships,
+      contacts: visibleIntel(w),
+      orders: w.orders,
+      locations: w.locations.map((l) =>
+        l.regionId === 'romulan'
+          ? {
+              ...l,
+              stock: { supplies: 0, medical: 0, materials: 0 },
+              reserved: { supplies: 0, medical: 0, materials: 0 },
+              hull: 0,
+              maxHull: 0,
+              distress: false,
+            }
+          : l,
+      ),
+      resources: w.resources,
+      communications: w.communications,
+      logs: w.logs,
+      beams: w.beams,
+      explored: w.explored,
     });
   }
   getObservation(operatorId: string): Observation | null {
-    const operator = this.state.operators.find((o) => o.id === operatorId);
-    const ship = operator && this.state.ships.find((s) => s.id === operator.shipId);
+    const operator = this.state.operators.find((o) => o.id === operatorId),
+      ship = this.state.ships.find((s) => s.id === operator?.shipId);
     if (!ship) return null;
-    const candidates: Command[] = [
-      { type: 'recall', shipId: ship.id },
-      { type: 'scan', shipId: ship.id },
-      { type: 'hold', shipId: ship.id },
-      { type: 'repair', shipId: ship.id },
-      { type: 'resume', shipId: ship.id },
-      ...this.state.missions
-        .filter((m) => m.phase === 'available')
-        .map((m) => ({
-          type: 'dispatch' as const,
-          shipId: ship.id,
-          missionId: m.id,
-          route: 'safe' as const,
-        })),
-      ...this.state.contacts
-        .filter((c) => c.detected)
-        .flatMap((c) => [
-          { type: 'hail' as const, shipId: ship.id, targetId: c.id },
-          { type: 'engage' as const, shipId: ship.id, targetId: c.id },
-        ]),
-      { type: 'investigate', shipId: ship.id, choice: 'remote' },
-      { type: 'route', shipId: ship.id, route: 'safe' },
-    ];
     return structuredClone({
       time: this.state.time,
       operatorId,
       ship,
-      contacts: this.snapshot().contacts,
-      missions: this.state.missions,
-      resources: this.state.resources,
-      legalActions: [
-        ...new Set(candidates.filter((c) => this.validate(c, operatorId).ok).map((c) => c.type)),
-      ],
+      contacts: visibleIntel(this.state),
+      orders: this.state.orders.filter((o) => o.shipIds.includes(ship.id)),
+      legalActions: ['scan', 'recall', 'repair', 'rearm'].filter(
+        (type) => this.validate({ type, shipId: ship.id }, operatorId).ok,
+      ),
     });
   }
-  validate(command: unknown, actorId = 'commander'): CommandResult {
-    const parsed = commandSchema.safeParse(command);
-    if (!parsed.success) return no('命令格式无效或包含越界数值');
-    const c = parsed.data as Command,
-      w = this.state;
-    const isCommander = actorId === w.commander.id;
-    const operator = w.operators.find((o) => o.id === actorId);
-    if (!isCommander && !operator) return no('操作者不存在');
-    if (
-      !isCommander &&
-      (!('shipId' in c) ||
-        operator?.shipId !== c.shipId ||
-        ['takeControl', 'releaseControl', 'helm'].includes(c.type))
-    )
-      return no('该操作者没有此命令权限');
-    if (c.type === 'pause') return ok();
-    if (c.type === 'speed')
-      return w.manualShipId && c.speed !== 1 ? no('直接操舰期间固定为 1×') : ok();
-    if (c.type === 'renew') {
-      const m = w.missions.find((m) => m.id === c.missionId);
+  controllerPort(operatorId: string): AgentControllerPort {
+    return Object.freeze({
+      getObservation: () => this.getObservation(operatorId),
+      dispatchCommand: (c: Command) => this.dispatchCommand(c, operatorId),
+    });
+  }
+  private validateSpec(spec: OrderSpec, existing?: OperationOrder): CommandResult {
+    const w = this.state,
+      p = objectivePosition(w, spec.objective);
+    if (!p) return no('目标不存在或情报已过期');
+    if (p.x > boundary(spec.border)) return no('目标超出本命令的跨境授权');
+    if (spec.kind !== 'defense' && spec.shipIds.length !== 1)
+      return no('运输和探索须指定一艘执行舰；护航请建立防御命令');
+    for (const id of spec.shipIds) {
+      const s = w.ships.find((s) => s.id === id);
+      if (!s) return no('舰船不存在');
+      if (existing && s.orderId === existing.id) {
+        if (s.status === 'disabled' || s.status === 'returning')
+          return no('失能或返航舰船不能重新分配');
+        if (s.x > boundary(spec.border)) return no('舰船仍在授权范围以外，请先撤回');
+      } else if (s.status !== 'docked' || s.orderId) return no('舰船必须空闲停靠基地');
+      if (s.hull / SHIP_CLASSES[s.classId].hull < 0.35) return no('舰体低于35%，请先维修');
+    }
+    if (spec.objective.type === 'ship' && spec.shipIds.includes(spec.objective.id))
+      return no('不能指派舰船保护自己');
+    if (spec.kind === 'transport') {
+      const src = w.locations.find((l) => l.id === spec.sourceId);
+      const dest =
+        spec.objective.type === 'location'
+          ? w.locations.find((l) => l.id === spec.objective.id)
+          : null;
       if (
-        !m ||
-        !['complete', 'failed'].includes(m.phase) ||
-        w.ships.some((s) => s.missionId === m.id)
+        !src ||
+        !dest ||
+        src.id === dest.id ||
+        !['base', 'colony', 'outpost', 'mine'].includes(src.kind) ||
+        !['base', 'colony', 'outpost', 'mine'].includes(dest.kind) ||
+        src.regionId !== 'federation' ||
+        dest.regionId !== 'federation'
       )
-        return no('任务尚未结束或舰船尚未返航');
-      return ok();
+        return no('请选择不同的联邦物流起终点');
+      if (spec.amount > SHIP_CLASSES[w.ships.find((s) => s.id === spec.shipIds[0])!.classId].cargo)
+        return no('货舱容量不足');
+      if (!existing && src.stock[spec.cargoKind] - src.reserved[spec.cargoKind] < spec.amount)
+        return no('起点可用库存不足');
     }
-    if (!('shipId' in c)) return no('未知命令');
-    const s = w.ships.find((s) => s.id === c.shipId);
-    if (!s) return no('舰船不存在');
-    if (!isCommander && w.manualShipId === s.id)
-      return no('指挥官已直接接管，该操作者暂时没有控制权');
-    if (s.status === 'disabled') return no('舰船已失能，正在等待拖航');
-    const m = w.missions.find((m) => m.id === s.missionId);
-    if (c.type === 'dispatch') {
-      const mission = w.missions.find((m) => m.id === c.missionId);
-      if (!mission || mission.phase !== 'available') return no('任务不可派遣');
-      if (s.status !== 'docked' || s.missionId || w.manualShipId === s.id)
-        return no('舰船必须空闲停靠基地');
-      if (s.hull < 35) return no('舰体低于 35%，请先维修');
-      if (mission.kind === 'explore' && s.science < 40) return no('科学能力不足');
-      if (mission.cargoRequired > s.capacity) return no('货舱容量不足');
-      if (mission.cargoRequired > w.resources.supplies)
-        return no('基地补给库存不足；每 180 游戏分钟获得常规补给');
+    if (spec.kind === 'explore') {
+      if (spec.objective.type === 'ship') return no('探索目标应为地点、未知区域或敌方接触');
+      if (SHIP_CLASSES[w.ships.find((s) => s.id === spec.shipIds[0])!.classId].science < 40)
+        return no('科学能力不足40，建议 Constitution');
     }
-    if (
-      c.type === 'repair' &&
-      (s.status !== 'docked' || (s.hull >= 100 && s.shield >= s.maxShield))
-    )
-      return no('只有停靠且受损的舰船可以维修');
-    if (c.type === 'takeControl' && (w.manualShipId || s.status === 'repairing'))
-      return no('请先释放当前控制，或等待维修完成');
-    if ((c.type === 'releaseControl' || c.type === 'helm') && w.manualShipId !== s.id)
-      return no('未接管该舰');
-    if (c.type === 'recall' && ['docked', 'repairing', 'returning'].includes(s.status))
-      return no('舰船已在基地或正在返航');
-    if (c.type === 'hold' && ['docked', 'repairing'].includes(s.status)) return no('舰船未出航');
-    if (c.type === 'resume' && (s.order !== 'hold' || !m || m.settled))
-      return no('没有可恢复的暂停任务');
-    if (c.type === 'route' && (!m || m.kind !== 'supply' || m.settled || m.phase !== 'outbound'))
-      return no('只能改变尚在去程的补给任务航线');
-    if (c.type === 'investigate' && (!m || m.phase !== 'decision' || m.kind !== 'explore'))
-      return no('当前没有等待处置的探索事件');
-    if (
-      c.type === 'scan' &&
-      (s.status === 'repairing' ||
-        !w.contacts.some((t) => !t.retreating && dist(s, t) <= SCAN_RANGE))
-    )
-      return no('扫描范围 220 内没有可分析的接触');
-    if ('targetId' in c) {
-      const target = w.contacts.find(
-        (t) => t.id === c.targetId && t.detected && !t.retreating && t.hull > 0,
-      );
-      if (!target) return no('目标不可见、已失效或正在撤离');
-      if (s.status === 'repairing') return no('维修期间不能执行战术命令');
-      if (c.type === 'hail' && (!target.identified || dist(s, target) > 240))
-        return no('请先识别目标并接近至 240 以内');
-      if (c.type === 'engage' && !target.identified) return no('必须识别目标后才能交战');
-    }
-    if (c.type === 'fire') {
-      if (w.paused) return no('模拟暂停期间不能开火');
-      if (s.status === 'docked') return no('舰船停靠中，请先出港');
-      const target = w.contacts.find((t) => t.id === s.targetId && t.detected && !t.retreating);
-      if (!target || !target.identified) return no('请选择已识别的有效目标');
-      if (s.status === 'repairing') return no('维修期间不能开火');
-      if (s.cooldown > 0) return no('相位阵列冷却中');
-      if (dist(s, target) > RANGE) return no('目标超出相位射程 145');
-      if (Math.abs(angleDiff(Math.atan2(target.y - s.y, target.x - s.x), s.heading)) > Math.PI / 3)
-        return no('目标不在舰艏 ±60° 射界内');
+    if (spec.kind === 'defense' && spec.objective.type === 'point')
+      return no('防御需要殖民地、舰船或敌方接触目标');
+    if (spec.kind === 'defense' && spec.objective.type === 'location') {
+      const l = w.locations.find((l) => l.id === spec.objective.id)!;
+      if (l.regionId !== 'federation' || !['colony', 'outpost', 'base', 'mine'].includes(l.kind))
+        return no('请选择联邦防御设施');
     }
     return ok();
   }
+  validate(command: unknown, actorId = 'commander'): CommandResult {
+    const parsed = commandSchema.safeParse(command);
+    if (!parsed.success) return no('命令格式无效或数值越界');
+    const c = parsed.data as Command,
+      w = this.state;
+    if (actorId !== w.commander.id) {
+      const op = w.operators.find((o) => o.id === actorId);
+      if (!op || !('shipId' in c) || op.shipId !== c.shipId) return no('该操作者没有此命令权限');
+    }
+    if (c.type === 'pause' || c.type === 'speed') return ok();
+    if (c.type === 'acknowledge')
+      return w.communications.some((m) => m.id === c.communicationId) ? ok() : no('通信已过期');
+    if (c.type === 'createOrder') return this.validateSpec(c.spec);
+    if ('orderId' in c) {
+      const o = w.orders.find((o) => o.id === c.orderId);
+      if (!o || o.settled) return no('行动不存在或已经结算');
+      if (c.type === 'updateOrder') {
+        if ((c.changes.objective || c.changes.shipIds) && o.kind !== 'defense')
+          return no('运输和探索在执行中不能更换目标或舰船');
+        if (c.changes.approach && o.kind === 'explore' && o.phase === 'working')
+          return no('调查已执行，不能重置采样方案');
+        const spec = { ...o, ...c.changes };
+        if (!orderSpecSchema.safeParse(specOnly(spec)).success) return no('行动参数无效');
+        return this.validateSpec(spec, o);
+      }
+      if (c.type === 'investigate' && (o.kind !== 'explore' || o.phase !== 'decision'))
+        return no('当前没有待决调查');
+      if (c.type === 'holdOrder' && o.held) return no('行动已暂停');
+      if (c.type === 'resumeOrder' && !o.held) return no('行动没有暂停');
+      return ok();
+    }
+    if ('shipId' in c) {
+      const s = w.ships.find((s) => s.id === c.shipId);
+      if (!s) return no('舰船不存在');
+      if (c.type === 'repair' || c.type === 'rearm') {
+        if (s.status !== 'docked' || s.orderId) return no('必须空闲停靠基地');
+        const d = SHIP_CLASSES[s.classId];
+        if (c.type === 'repair' && s.hull >= d.hull && s.shield >= d.shield)
+          return no('舰船无需维修');
+        if (c.type === 'rearm' && s.photon >= d.photon && s.quantum >= d.quantum)
+          return no('弹药已满或未装备鱼雷');
+      }
+      if (
+        c.type === 'recall' &&
+        (!s.orderId || s.status === 'returning' || s.status === 'disabled')
+      )
+        return no('没有可撤回的行动');
+      if (
+        c.type === 'scan' &&
+        (s.status === 'disabled' ||
+          s.status === 'repairing' ||
+          s.status === 'rearming' ||
+          s.core < 12 ||
+          s.scanUntil > w.time)
+      )
+        return no('扫描需要12能源、可用舰船且不能重复开启');
+      return ok();
+    }
+    return no('未知命令');
+  }
   dispatchCommand(command: unknown, actorId = 'commander'): CommandResult {
-    const check = this.validate(command, actorId);
-    if (!check.ok) return check;
+    const valid = this.validate(command, actorId);
+    if (!valid.ok) return valid;
     const c = command as Command,
       w = this.state;
     if (c.type === 'pause') {
       w.paused = c.paused;
       if (!c.paused) w.pauseReasons = [];
-      if (c.paused) this.clearInputs();
-      return ok(c.paused ? '模拟已暂停' : '模拟已继续');
+      return ok(c.paused ? '模拟已暂停' : '模拟继续');
     }
     if (c.type === 'speed') {
       w.speed = c.speed;
-      return ok(`模拟速度 ${c.speed}×`);
+      return ok('时间倍率已更新');
     }
-    if (c.type === 'renew') {
-      const m = w.missions.find((m) => m.id === c.missionId)!;
-      Object.assign(m, {
-        phase: 'available',
-        shipId: null,
-        started: 0,
+    if (c.type === 'acknowledge') {
+      w.communications.find((m) => m.id === c.communicationId)!.read = true;
+      return ok('通信已确认');
+    }
+    if (c.type === 'createOrder') {
+      const spec = structuredClone(c.spec),
+        p = objectivePosition(w, spec.objective)!;
+      const slowest = Math.min(
+        ...spec.shipIds.map((id) => SHIP_CLASSES[w.ships.find((s) => s.id === id)!.classId].warp),
+      );
+      const o: OperationOrder = {
+        ...spec,
+        id: 'order-' + w.nextOrder++,
+        created: w.time,
+        phase: 'preparing',
         work: 0,
         decisionAt: 0,
-        choice: null,
         settled: false,
+        outcome: null,
         result: '',
-        contactId: null,
-        damage: 0,
-        run: m.run + 1,
-      });
-      this.log(`行动窗口重新开放：${m.name}`);
-      return ok();
+        held: false,
+        loaded: false,
+        delivered: false,
+        reserved: 0,
+        deadline: w.time + (dist(this.base, p) / slowest) * 2 + spec.duration + 180,
+        targetLastSeen: { x: p.x, y: p.y },
+        searchUntil: 0,
+        rewarded: false,
+      };
+      if (o.kind === 'transport') {
+        const src = w.locations.find((l) => l.id === o.sourceId)!;
+        src.reserved[o.cargoKind] += o.amount;
+        o.reserved = o.amount;
+        o.deadline = w.time + ((dist(this.base, src) + dist(src, p)) / slowest) * 1.6 + 100;
+      }
+      w.orders.push(o);
+      for (const s of w.ships.filter((s) => o.shipIds.includes(s.id))) {
+        s.orderId = o.id;
+        s.status = 'mission';
+        s.behavior = 'travel';
+        this.setRoute(s, o);
+      }
+      this.report(
+        o.id +
+          ' 已接受：' +
+          { defense: '防御／拦截', transport: '运输', explore: '探索／侦察' }[o.kind],
+        o.id,
+        o.priority,
+      );
+      return ok('行动已接受，启动时间后执行');
     }
-    if (!('shipId' in c)) return no('未知命令');
-    const s = w.ships.find((s) => s.id === c.shipId)!;
-    const m = w.missions.find((m) => m.id === s.missionId);
-    switch (c.type) {
-      case 'dispatch': {
-        const task = w.missions.find((m) => m.id === c.missionId)!;
-        Object.assign(task, { phase: 'outbound', shipId: s.id, route: c.route, started: w.time });
-        Object.assign(s, {
-          missionId: task.id,
-          status: 'mission',
-          order: 'mission',
-          cargo: task.cargoRequired,
-          targetId: null,
-        });
-        w.resources.supplies -= s.cargo;
-        s.path = this.route(s, task);
-        this.log(`${s.name} 接受 ${task.name}；${c.route === 'safe' ? '安全' : '快速'}航线。`);
-        break;
+    if ('orderId' in c) {
+      const o = w.orders.find((o) => o.id === c.orderId)!;
+      if (c.type === 'cancelOrder') this.settle(o, 'cancelled', '指挥官取消，执行返航');
+      if (c.type === 'holdOrder') {
+        o.held = true;
+        for (const s of w.ships.filter((s) => s.orderId === o.id)) s.behavior = 'hold';
       }
-      case 'route':
-        m!.route = c.route;
-        s.path = this.route(s, m!);
-        this.log(`${s.name} 改为${c.route === 'safe' ? '安全' : '快速'}航线。`);
-        break;
-      case 'investigate':
-        this.investigate(s, m!, c.choice);
-        break;
-      case 'recall':
-        if (m && !m.settled) this.settle(s, m, false, '指挥官召回，保留舰船与未交付货物');
-        this.returnHome(s);
-        this.log(`${s.name} 收到返航命令。`);
-        break;
-      case 'hold':
-        this.clearManual(s);
-        s.order = 'hold';
-        s.path = [];
-        s.throttle = 0;
-        s.status = 'holding';
-        this.log(`${s.name} 保持位置，任务时限仍在推进。`);
-        break;
-      case 'resume':
-        this.clearManual(s);
-        s.order = 'mission';
-        s.status = 'mission';
-        s.path = this.route(s, m!);
-        this.log(`${s.name} 恢复原行动。`);
-        break;
-      case 'scan':
-        this.scan(s);
-        break;
-      case 'target':
-        s.targetId = c.targetId;
-        break;
-      case 'hail':
-        this.hail(s, w.contacts.find((t) => t.id === c.targetId)!);
-        break;
-      case 'engage':
-        this.clearManual(s);
-        s.targetId = c.targetId;
-        s.order = 'engage';
-        s.status = 'mission';
-        this.log(`${s.name} 正在自动拦截已识别接触。`, 'warning');
-        break;
-      case 'fire':
-        this.fire(s, w.contacts.find((t) => t.id === s.targetId)!);
-        break;
-      case 'repair': {
-        const cost = Math.ceil((100 - s.hull) / 5);
-        s.emergency = w.resources.materials < cost;
-        if (!s.emergency) w.resources.materials -= cost;
-        s.status = 'repairing';
-        s.repair = (100 - s.hull) / (s.emergency ? 0.5 : 2) + 10;
-        this.log(
-          `${s.name} 进入${s.emergency ? '基础抢修（无材料消耗）' : `标准维修（${cost} 材料）`}。`,
-        );
-        break;
-      }
-      case 'takeControl':
-        w.manualShipId = s.id;
-        w.speed = 1;
-        s.helm = { turn: 0, throttle: 0 };
-        s.throttle = 0;
-        if (s.status === 'docked') s.status = 'holding';
-        this.log(`指挥官直接接管 ${s.name}。自动驾驶暂停。`);
-        break;
-      case 'releaseControl':
-        this.clearManual(s);
-        if (c.resume && m && !m.settled) {
-          s.order = 'mission';
-          s.status = 'mission';
-          s.path = this.route(s, m);
-        } else if (c.resume && s.order === 'return') this.returnHome(s);
-        else {
-          s.order = 'hold';
-          s.status = 'holding';
-          s.path = [];
+      if (c.type === 'resumeOrder') o.held = false;
+      if (c.type === 'investigate') this.beginInvestigation(o, c.approach);
+      if (c.type === 'updateOrder') {
+        const oldShips = [...o.shipIds];
+        Object.assign(o, structuredClone(c.changes));
+        for (const id of oldShips.filter((id) => !o.shipIds.includes(id))) {
+          const s = w.ships.find((s) => s.id === id)!;
+          this.returnHome(s);
         }
-        this.log(
-          `${s.name} 已释放控制：${c.resume ? '恢复有效任务；无任务则保持位置' : '保持位置'}。`,
-        );
-        break;
-      case 'helm':
-        s.helm = { turn: c.turn, throttle: c.throttle };
-        break;
+        for (const s of w.ships.filter((s) => o.shipIds.includes(s.id))) {
+          s.orderId = o.id;
+          s.status = 'mission';
+          this.setRoute(s, o);
+        }
+        if (c.changes.objective) {
+          o.phase = 'outbound';
+          o.work = 0;
+          o.searchUntil = 0;
+          o.targetLastSeen = objectivePosition(w, o.objective);
+          o.deadline = Math.max(o.deadline, w.time + o.duration + 180);
+        }
+        this.report(o.id + ' 指令已更新', o.id, o.priority);
+      }
+    }
+    if ('shipId' in c) {
+      const s = w.ships.find((s) => s.id === c.shipId)!;
+      if (c.type === 'scan') {
+        s.core -= 12;
+        s.scanUntil = w.time + 12;
+        s.behavior = 'scan';
+      }
+      if (c.type === 'recall') {
+        const o = w.orders.find((o) => o.id === s.orderId)!;
+        this.settle(o, 'cancelled', '指挥官撤退，未交付货物回收');
+      }
+      if (c.type === 'repair') {
+        const cost = 10,
+          available = this.base.stock.materials - this.base.reserved.materials;
+        s.status = 'repairing';
+        s.service = available >= cost ? RULES.serviceMinutes : RULES.serviceMinutes * 3;
+        if (available >= cost) this.base.stock.materials -= cost;
+      }
+      if (c.type === 'rearm') {
+        const available = this.base.stock.materials - this.base.reserved.materials;
+        s.status = 'rearming';
+        s.service = available >= 5 ? RULES.serviceMinutes : RULES.serviceMinutes * 3;
+        if (available >= 5) this.base.stock.materials -= 5;
+      }
     }
     this.finishCritical();
     return ok();
   }
-  clearInputs() {
-    for (const s of this.state.ships) s.helm = { turn: 0, throttle: 0 };
-  }
-  private clearManual(s: Ship) {
-    if (this.state.manualShipId === s.id) this.state.manualShipId = null;
-    s.helm = { turn: 0, throttle: 0 };
-    s.throttle = 0;
-  }
-  private route(s: Ship, m: Mission): Point[] {
-    const dest = this.state.locations.find((l) => l.id === m.locationId)!;
-    if (m.kind === 'supply' && m.route === 'safe') {
-      const waypoint = m.locationId === 'colony' ? { x: 290, y: 650 } : { x: 580, y: 430 };
-      if (dist(s, dest) > dist(waypoint, dest) + 30) return [waypoint, { x: dest.x, y: dest.y }];
+  private routeTarget(o: OperationOrder): Point | null {
+    if (o.kind === 'transport' && !o.loaded)
+      return this.state.locations.find((l) => l.id === o.sourceId)!;
+    const p = objectivePosition(this.state, o.objective);
+    if (!p) return o.targetLastSeen;
+    o.targetLastSeen = { x: p.x, y: p.y };
+    if (o.kind === 'explore' && o.approach === 'remote') {
+      return { x: Math.max(20, p.x - 65), y: p.y };
     }
-    return [{ x: dest.x, y: dest.y }];
+    return p;
+  }
+  private setRoute(s: Ship, o: OperationOrder) {
+    const p = this.routeTarget(o);
+    s.path = p ? planRoute(this.state, s, p, o.route === 'safe', o.border) : [];
   }
   private returnHome(s: Ship) {
-    this.clearManual(s);
-    s.order = 'return';
+    if (s.status === 'disabled') return;
     s.status = 'returning';
+    s.behavior = 'retreat';
     s.targetId = null;
-    s.path = [{ ...this.base }];
+    s.path = planRoute(this.state, s, this.berth(s), true, 'romulan');
   }
-  private scan(s: Ship) {
-    let count = 0;
-    for (const t of this.state.contacts) {
-      if (!t.retreating && dist(s, t) <= SCAN_RANGE && !t.identified) {
-        this.detect(t);
-        t.identified = true;
-        count++;
-        this.state.resources.intel += FACTIONS[t.faction].scanIntel;
-        this.log(`${s.name} 识别：${t.name}。${FACTIONS[t.faction].scanMessage}`, 'warning');
+  private releaseReservation(o: OperationOrder) {
+    if (o.reserved) {
+      const src = this.state.locations.find((l) => l.id === o.sourceId)!;
+      src.reserved[o.cargoKind] -= o.reserved;
+      o.reserved = 0;
+    }
+  }
+  private settle(o: OperationOrder, outcome: OperationOrder['outcome'], reason: string) {
+    if (o.settled) return;
+    o.settled = true;
+    o.outcome = outcome;
+    o.phase = 'returning';
+    o.held = false;
+    this.releaseReservation(o);
+    const w = this.state;
+    if (outcome === 'success') {
+      if (o.kind === 'defense') {
+        w.resources.allocation += 45;
+        w.resources.intel += 8;
+        reason += '；防卫配额 +45，情报 +8';
       }
-    }
-    if (!count) this.log(`${s.name} 扫描完成，未发现新的身份信息。`);
-  }
-  private hail(s: Ship, t: Contact) {
-    this.detect(t);
-    if (FACTIONS[t.faction].retreatOnWarning || s.power >= 12 || t.shield < 15 || t.hull < 60) {
-      t.retreating = true;
-      t.hostile = false;
-      this.log(
-        `${t.name} 接受警告，正在撤出边境。${FACTIONS[t.faction].warningMessage}`,
-        'success',
-      );
-      this.resolveContact(t, '通过识别与警告完成驱离');
-    } else {
-      this.makeHostile(t);
-      this.log(`${t.name} 拒绝弱势舰船的警告并转为敌对。可以撤离或请求巡逻舰支援。`, 'danger');
-    }
-  }
-  private fire(s: Ship, t: Contact) {
-    s.cooldown = 3;
-    this.makeHostile(t);
-    const shieldHit = Math.min(t.shield, s.power);
-    t.shield -= shieldHit;
-    t.hull = Math.max(0, t.hull - (s.power - shieldHit));
-    this.state.beams.push({
-      from: { x: s.x, y: s.y },
-      to: { x: t.x, y: t.y },
-      enemy: false,
-      expires: this.state.time + 0.45,
-    });
-    if (t.hull <= 25) {
-      t.retreating = true;
-      t.hostile = false;
-      this.log(`${t.name} 战斗失利，撤离接触区域。`, 'success');
-      this.resolveContact(t, '通过战术拦截迫使目标撤离');
-    }
-  }
-  private resolveContact(t: Contact, reason: string) {
-    this.state.threat = Math.max(0, this.state.threat - 8);
-    const m = this.state.missions.find((m) => m.id === t.missionId);
-    if (m && !m.settled) {
-      m.result = reason;
-    }
-  }
-  private spawnContact(faction: Contact['faction'], p: Point, missionId: string | null) {
-    if (this.state.contacts.filter((t) => !t.retreating).length >= 4) return null;
-    const id = `contact-${this.state.nextContact++}`;
-    const contact: Contact = {
-      id,
-      faction,
-      name: FACTIONS[faction].contactName,
-      x: p.x,
-      y: p.y,
-      detected: false,
-      identified: false,
-      hostile: false,
-      shield: FACTIONS[faction].shield,
-      hull: 80,
-      retreating: false,
-      missionId,
-      cooldown: 0,
-      created: this.state.time,
-    };
-    this.state.contacts.push(contact);
-    return contact;
-  }
-  private investigate(s: Ship, m: Mission, choice: 'remote' | 'close') {
-    m.choice = choice;
-    m.phase = 'working';
-    m.work = 0;
-    if (choice === 'close') {
-      const injury = Math.round(8 + this.random() * 25 * (1 - s.science / 130));
-      m.damage += injury;
-      this.damage(s, injury, true);
-      this.log(
-        `${s.name} 深入异常区：获得高分辨率样本，舰体受到 ${injury} 点辐射损伤。`,
-        'warning',
-      );
-    } else this.log(`${s.name} 选择远距调查：保持安全距离，采用保守采样。`);
-  }
-  private settle(s: Ship, m: Mission, success: boolean, reason: string) {
-    if (m.settled) return;
-    m.settled = true;
-    if (!success) this.critical('missionFailed', m.id, m.name + '：' + reason);
-    const r = this.state.resources;
-    let gain = '';
-    if (success) {
-      if (m.kind === 'explore') {
-        const data = Math.round(
-          m.reward * (0.65 + s.science / 180) * (m.choice === 'close' ? 1.6 : 1),
-        );
-        r.science += data;
-        gain = `科研数据 +${data}`;
+      if (o.kind === 'transport') {
+        w.resources.allocation += 20;
+        reason += '；运输配额 +20';
       }
-      if (m.kind === 'supply') {
-        r.allocation += m.reward;
-        const loc = this.state.locations.find((l) => l.id === m.locationId)!;
-        loc.supply = Math.min(100, loc.supply + s.cargo);
-        gain = `行动配额 +${m.reward}，交付 ${s.cargo} 补给`;
-        s.cargo = 0;
+      if (o.kind === 'explore') {
+        const loc =
+          o.objective.type === 'location' ? w.locations.find((l) => l.id === o.objective.id) : null;
+        const p = o.targetLastSeen!;
+        const already = loc
+          ? loc.rewardedRevision >= loc.surveyRevision
+          : w.explored.some((x) => dist(x, p) < 60);
+        if (!already) {
+          const s = w.ships.find((s) => s.id === o.shipIds[0])!,
+            science = Math.round(
+              SHIP_CLASSES[s.classId].science * 0.4 * (o.approach === 'close' ? 1.6 : 1),
+            );
+          w.resources.science += science;
+          w.resources.intel += o.approach === 'close' ? 12 : 5;
+          w.explored.push({ ...p, time: w.time });
+          o.rewarded = true;
+          if (loc) {
+            loc.surveyed = true;
+            loc.rewardedRevision = loc.surveyRevision;
+          }
+          reason += '；科研 +' + science + '，新增调查情报';
+        } else reason += '；记录已更新，本区域没有新的科研奖励';
       }
-      if (m.kind === 'patrol') {
-        r.allocation += m.reward;
-        r.intel += 12;
-        gain = `行动配额 +${m.reward}，巡逻情报 +12`;
-      }
-    } else {
-      r.allocation = Math.max(0, r.allocation - 5);
-      gain = '行动配额 -5；未交付货物返航回收';
+    } else if (outcome === 'failed') {
+      this.critical('missionFailed', o.id, reason);
     }
-    m.result = `${success ? '成功' : '未完成'}：${reason}；${gain}。任务损伤 ${Math.round(m.damage)}。`;
-    m.phase = success ? 'returning' : 'failed';
-    this.log(`${m.name}｜${m.result}`, success ? 'success' : 'warning');
-    this.returnHome(s);
+    o.result = reason;
+    this.report(
+      o.id +
+        ' ' +
+        (outcome === 'success' ? '成功' : outcome === 'failed' ? '失败' : '取消') +
+        '：' +
+        reason,
+      o.id,
+      outcome === 'failed' ? 'urgent' : o.priority,
+    );
+    for (const s of w.ships.filter((s) => s.orderId === o.id)) this.returnHome(s);
   }
-  private damage(s: Ship, amount: number, bypass = false) {
-    const previousHull = s.hull;
-    const absorbed = bypass ? 0 : Math.min(s.shield, amount);
-    s.shield -= absorbed;
-    s.hull = Math.max(0, s.hull - amount + absorbed);
-    if (previousHull >= 30 && s.hull < 30) this.critical('lowHull', s.id, s.name + ' 舰体低于 30%');
-    if (s.hull <= 0 && s.status !== 'disabled') {
-      const m = this.state.missions.find((m) => m.id === s.missionId);
-      if (m && !m.settled) this.settle(s, m, false, '舰船失能，启动应急拖航');
-      this.clearManual(s);
-      s.status = 'disabled';
-      this.critical('disabled', s.id, s.name + ' 已失能，等待应急拖航');
-      s.path = [];
-      s.tow = 35;
-      this.log(`${s.name} 已失能，应急拖航将在 35 游戏分钟后将其送回基地。`, 'danger');
+  private beginInvestigation(o: OperationOrder, approach: 'remote' | 'close') {
+    o.approach = approach;
+    o.phase = 'working';
+    o.work = 0;
+    for (const s of this.state.ships.filter((s) => s.orderId === o.id)) {
+      s.behavior = 'scan';
+      this.setRoute(s, o);
     }
-  }
-  private move(s: Ship, dest: Point, dt: number, multiplier = 1) {
-    const d = dist(s, dest),
-      step = s.speed * dt * multiplier;
-    s.heading = Math.atan2(dest.y - s.y, dest.x - s.x);
-    if (d <= step) {
-      s.x = dest.x;
-      s.y = dest.y;
-      return true;
-    }
-    s.x += Math.cos(s.heading) * step;
-    s.y += Math.sin(s.heading) * step;
-    return false;
+    this.report(
+      o.id +
+        ' 采用' +
+        (approach === 'close' ? '近距采样，承担暴露与辐射风险' : '远距扫描，保留安全距离'),
+      o.id,
+      o.priority,
+    );
   }
   private dock(s: Ship) {
-    const m = this.state.missions.find((m) => m.id === s.missionId);
-    if (m?.phase === 'returning') m.phase = 'complete';
-    this.state.resources.supplies += s.cargo;
-    s.cargo = 0;
-    s.missionId = null;
-    s.order = 'hold';
+    for (const k of ['supplies', 'medical', 'materials'] as const) {
+      this.base.stock[k] += s.cargo[k];
+      s.cargo[k] = 0;
+    }
     s.status = 'docked';
+    s.orderId = null;
+    s.targetId = null;
     s.path = [];
-    s.throttle = 0;
-    this.log(
-      `${s.name} 已停靠曙光基地。${s.hull < 100 ? '建议安排维修。' : '等待下一项任务。'}`,
-      'success',
-    );
+    s.behavior = 'hold';
+    this.report(s.name + ' 已返航，可安排维修、装弹或再次派遣', s.id);
+  }
+  private onDetection = (i: IntelRecord, fresh: boolean, hostility: boolean) => {
+    if (fresh) {
+      this.report('发现未识别亚空间接触', i.id, 'high', 'threat');
+      this.critical('contactDetected', i.id, '发现新接触，请评估行动');
+    }
+    if (hostility) {
+      this.report('传感器确认敌对接触', i.id, 'urgent', 'threat');
+      this.critical('hostility', i.id, '接触已确认敌对');
+    }
+  };
+  private hit = (target: Ship | Location, amount: number, attacker: Ship) => {
+    const w = this.state,
+      previous = target.hull;
+    if ('shield' in target) {
+      const absorbed = Math.min(target.shield, amount);
+      target.shield -= absorbed;
+      target.hull = Math.max(0, target.hull - amount + absorbed);
+      target.lastAttackerId = attacker.id;
+      target.attackedAt = w.time;
+      if (target.factionId === 'starfleet') {
+        if (
+          attacker.factionId === 'pirate' &&
+          target.hull < SHIP_CLASSES[target.classId].hull * 0.5
+        ) {
+          const raider = w.enemies.find((e) => e.id === attacker.id);
+          if (raider)
+            for (const kind of ['supplies', 'medical', 'materials'] as const) {
+              const stolen = Math.min(target.cargo[kind], Math.max(0, 20 - raider.loot));
+              target.cargo[kind] -= stolen;
+              raider.cargo[kind] += stolen;
+              raider.loot += stolen;
+            }
+        }
+        if (
+          previous >= SHIP_CLASSES[target.classId].hull * 0.3 &&
+          target.hull < SHIP_CLASSES[target.classId].hull * 0.3
+        )
+          this.critical('lowHull', target.id, target.name + ' 舰体低于30%');
+        if (target.hull <= 0 && target.status !== 'disabled') {
+          target.status = 'disabled';
+          target.service = RULES.towMinutes;
+          target.path = [];
+          target.behavior = 'hold';
+          const o = w.orders.find((o) => o.id === target.orderId);
+          if (o && !o.settled) this.settle(o, 'failed', '舰船失能，启动应急拖航');
+          this.critical('disabled', target.id, target.name + ' 失能，等待拖航');
+        }
+      } else if (target.hull <= 0) {
+        const intel = w.intel.find((i) => i.id === target.id && i.live);
+        if (intel) {
+          intel.resolved = true;
+          intel.resolution = 'destroyed';
+          this.report('已确认目标失能／击毁', target.id, 'high');
+        }
+      }
+      if (target.factionId !== 'starfleet') {
+        const intel = w.intel.find((i) => i.id === target.id && i.live && i.classId);
+        if (intel) {
+          intel.hull = target.hull;
+          intel.shield = target.shield;
+        }
+      }
+    } else {
+      if (target.kind === 'base') return;
+      target.hull = Math.max(0, target.hull - amount);
+      if (!target.distress) {
+        target.distress = true;
+        this.report(target.name + ' 遭袭，请求防御支援', target.id, 'urgent', 'request');
+        this.critical('hostility', target.id, '殖民地遭到攻击');
+      }
+      const e = w.enemies.find((e) => e.id === attacker.id);
+      if (e && e.factionId === 'pirate') {
+        const stolen = Math.min(2, Math.max(0, target.stock.supplies - target.reserved.supplies));
+        target.stock.supplies -= stolen;
+        e.loot += stolen;
+      }
+    }
+  };
+  private fired = (
+    attacker: Ship,
+    target: Ship | Location,
+    weapon: WeaponDefinition,
+    _hit: boolean,
+  ) => {
+    const w = this.state;
+    if (attacker.factionId !== 'starfleet') {
+      const result = observe(w, attacker as Enemy, 3);
+      const newly = result.hostility || !result.record.hostile;
+      result.record.hostile = true;
+      result.record.lastAttackTargetId = target.id;
+      result.record.lastAttackAt = w.time;
+      this.onDetection(result.record, result.fresh, newly);
+    }
+    // Shots involving our ships/colonies are observable. Enemy-v-enemy combat is not simulated.
+    w.beams.push({
+      from: { x: attacker.x, y: attacker.y },
+      to: { x: target.x, y: target.y },
+      enemy: attacker.factionId !== 'starfleet',
+      weapon: weapon.name,
+      expires: w.time + 0.5,
+    });
+  };
+  private fire(s: Ship, t: Ship | Location) {
+    attack(this.state, s, t, { random: this.random, hit: this.hit, fired: this.fired });
+  }
+  private advanceShip(s: Ship, dt: number) {
+    const w = this.state,
+      d = SHIP_CLASSES[s.classId];
+    if (s.status === 'disabled') {
+      s.service -= dt;
+      if (s.service <= 0) {
+        Object.assign(s, this.berth(s));
+        s.hull = 1;
+        this.dock(s);
+      }
+      return;
+    }
+    regenerate(s, w.time, dt);
+    if (s.status === 'repairing' || s.status === 'rearming') {
+      s.service -= dt;
+      if (s.service <= 0) {
+        if (s.status === 'repairing') {
+          s.hull = d.hull;
+          s.shield = d.shield;
+        } else {
+          s.photon = d.photon;
+          s.quantum = d.quantum;
+        }
+        s.status = 'docked';
+        this.report(s.name + ' 基地保障完成', s.id);
+      }
+      return;
+    }
+    if (s.status === 'docked') return;
+    const o = w.orders.find((o) => o.id === s.orderId);
+    if (!o) {
+      this.returnHome(s);
+    }
+    if (o && !o.settled && shouldRetreat(s, o)) this.settle(o, 'failed', '达到撤退条件，保全舰船');
+    if (s.status === 'returning') {
+      if (s.path.length && move(s, s.path[0], dt, 'romulan')) s.path.shift();
+      if (dist(s, this.berth(s)) < 3) this.dock(s);
+      return;
+    }
+    if (!o || o.held) return;
+    const p = this.routeTarget(o);
+    if (w.tick % 30 === 0 && (o.objective.type === 'ship' || o.objective.type === 'contact'))
+      this.setRoute(s, o);
+    if (w.tick % 50 === 0 && o.route === 'safe' && s.path.length) this.setRoute(s, o);
+    const candidates = w.enemies
+      .filter((e) => permittedTarget(w, s, o, e))
+      .filter((e) => {
+        if (o.kind !== 'defense') return dist(s, e) <= 110;
+        return p && dist(e, p) <= 260;
+      })
+      .sort((a, b) => {
+        const priority = (e: Enemy) => {
+          const intel = w.intel.find((i) => i.id === e.id);
+          return w.orders
+            .filter(
+              (other) =>
+                !other.settled &&
+                other.objective.type !== 'point' &&
+                other.objective.id === intel?.lastAttackTargetId,
+            )
+            .reduce(
+              (v, other) =>
+                Math.max(v, other.priority === 'urgent' ? 3 : other.priority === 'high' ? 2 : 1),
+              0,
+            );
+        };
+        return priority(b) - priority(a) || dist(s, a) - dist(s, b) || a.id.localeCompare(b.id);
+      });
+    const target = candidates[0];
+    if (target) {
+      s.targetId = target.id;
+      s.behavior = 'engage';
+      if (o.kind === 'defense' && dist(s, target) > 80) move(s, target, dt, o.border);
+      this.fire(s, target);
+      if (o.kind === 'defense') return;
+    } else {
+      s.targetId = null;
+      s.behavior = o.kind === 'defense' ? 'defend' : o.kind === 'explore' ? 'scan' : 'travel';
+      if (p && dist(s, p) > 12 && !s.path.length) this.setRoute(s, o);
+    }
+    if (s.path.length && move(s, s.path[0], dt, o.border)) s.path.shift();
+  }
+  private advanceOrder(o: OperationOrder, dt: number) {
+    const w = this.state,
+      ships = w.ships.filter((s) => o.shipIds.includes(s.id)),
+      s = ships[0];
+    if (o.settled) {
+      if (!w.ships.some((s) => s.orderId === o.id)) {
+        o.phase = 'complete';
+      }
+      return;
+    }
+    if (w.time > o.deadline) {
+      this.settle(o, 'failed', '行动超时，停止搜索／交付并返航');
+      return;
+    }
+    if (o.held) return;
+    const p = this.routeTarget(o);
+    if (o.objective.type === 'contact') {
+      const intel = w.intel.find((i) => i.id === o.objective.id);
+      if (intel?.resolved && o.kind === 'defense') {
+        this.settle(o, 'success', '确认目标已被击毁或驱离');
+        return;
+      }
+      if (!intel?.live) {
+        if (!o.searchUntil) o.searchUntil = w.time + RULES.searchMinutes;
+        if (w.time >= o.searchUntil) {
+          this.settle(o, 'failed', '丢失接触，搜索结束；未确认驱离');
+          return;
+        }
+      } else o.searchUntil = 0;
+    }
+    if (!p) {
+      this.settle(o, 'failed', '目标失效');
+      return;
+    }
+    if (o.kind === 'transport' && !o.loaded) {
+      if (dist(s, p) > 5) {
+        o.phase = 'preparing';
+        return;
+      }
+      o.work += dt;
+      if (o.work < RULES.loadMinutes) return;
+      const src = w.locations.find((l) => l.id === o.sourceId)!;
+      src.stock[o.cargoKind] -= o.amount;
+      s.cargo[o.cargoKind] += o.amount;
+      this.releaseReservation(o);
+      o.loaded = true;
+      o.work = 0;
+      o.phase = 'outbound';
+      this.setRoute(s, o);
+      return;
+    }
+    if (o.phase === 'preparing') {
+      o.phase = 'outbound';
+    }
+    if (o.phase === 'outbound' && ships.some((s) => dist(s, p) < 12)) {
+      o.work = 0;
+      o.phase = o.kind === 'explore' ? 'decision' : 'working';
+      if (o.phase === 'decision') {
+        o.decisionAt = w.time;
+        this.report(o.id + ' 抵达调查区，请选择远距或近距方案', o.id, o.priority, 'decision');
+        this.critical('investigation', o.id, '调查方案等待指挥官决策');
+      }
+    }
+    if (o.phase === 'decision') {
+      if (w.time - o.decisionAt >= 20) this.beginInvestigation(o, o.approach);
+      return;
+    }
+    if (o.phase !== 'working') return;
+    if (o.kind === 'transport') {
+      if (dist(s, p) > 8) return;
+      o.work += dt;
+      if (o.work >= RULES.loadMinutes) {
+        const dest = w.locations.find(
+          (l) => o.objective.type === 'location' && l.id === o.objective.id,
+        )!;
+        const delivered = s.cargo[o.cargoKind];
+        dest.stock[o.cargoKind] += delivered;
+        s.cargo[o.cargoKind] = 0;
+        if (o.cargoKind === 'materials')
+          dest.hull = Math.min(dest.maxHull, dest.hull + delivered * 2);
+        dest.distress = dest.hull < 100 || dest.stock.supplies < 20;
+        o.delivered = true;
+        this.settle(
+          o,
+          delivered >= o.amount ? 'success' : 'failed',
+          '实际交付 ' +
+            delivered +
+            ' / ' +
+            o.amount +
+            ' 至' +
+            dest.name +
+            (delivered < o.amount ? '；货物损失，未满足运输需求' : ''),
+        );
+      }
+    }
+    if (o.kind === 'explore') {
+      if (dist(s, p) > 12) return;
+      if (o.objective.type === 'contact') {
+        const i = w.intel.find((i) => i.id === o.objective.id);
+        if (!i?.live) return;
+        s.scanUntil = Math.max(s.scanUntil, w.time + 1);
+        if (!['IDENTIFIED', 'TRACKED'].includes(i.level)) return;
+      }
+      o.work += dt;
+      const l =
+        o.objective.type === 'location' ? w.locations.find((l) => l.id === o.objective.id) : null;
+      if (o.approach === 'close' && l?.hazard) {
+        s.hull = Math.max(1, s.hull - dt * 0.5);
+        if (shouldRetreat(s, o)) {
+          this.settle(o, 'failed', '近距辐射触发撤退条件');
+          return;
+        }
+      }
+      if (
+        o.work >=
+        (RULES.surveyMinutes * (o.approach === 'close' ? 1.3 : 1) * 70) /
+          SHIP_CLASSES[s.classId].science
+      )
+        this.settle(o, 'success', o.approach === 'close' ? '近距高精度调查完成' : '远距测绘完成');
+    }
+    if (o.kind === 'defense') {
+      const protectedObject =
+        o.objective.type === 'location'
+          ? w.locations.find((l) => l.id === o.objective.id)
+          : o.objective.type === 'ship'
+            ? w.ships.find((s) => s.id === o.objective.id)
+            : null;
+      if (protectedObject && protectedObject.hull <= 0) {
+        this.settle(o, 'failed', '保护目标失能');
+        return;
+      }
+      if (o.objective.type === 'contact') return;
+      if (ships.some((s) => dist(s, p) < 100)) o.work += dt;
+      // Safety checks use current sensed attackers, never undiscovered enemies.
+      const attacking = visibleIntel(w).some((i) => i.live && i.hostile && dist(i, p) < 180);
+      if (o.work >= o.duration && !attacking) {
+        if (protectedObject && 'distress' in protectedObject)
+          protectedObject.distress =
+            protectedObject.hull < 100 || protectedObject.stock.supplies < 20;
+        this.settle(o, 'success', '保护目标存续，防御窗口完成');
+      }
+    }
+  }
+  private advanceEnemy(e: Enemy, dt: number) {
+    const w = this.state;
+    if (e.hull <= 0) return;
+    regenerate(e, w.time, dt);
+    decideThreat(w, e);
+    if (e.intent === 'retreat') {
+      e.behavior = 'retreat';
+      move(e, e.home, dt);
+      const i = w.intel.find((i) => i.id === e.id && i.live);
+      if (i && dist(e, e.home) < 60) {
+        i.resolved = true;
+        i.resolution = 'withdrawn';
+        this.report('确认敌方接触撤出行动区域', e.id, 'high');
+      }
+      if (dist(e, e.home) < 5) e.hull = 0;
+      return;
+    }
+    const known = e.knownTargets.find((t) => t.id === e.targetId);
+    const target =
+      w.ships.find((s) => s.id === e.targetId) || w.locations.find((l) => l.id === e.targetId);
+    if (known && target && target.hull > 0) {
+      const sensed = dist(e, target) <= SHIP_CLASSES[e.classId].sensors || !('classId' in target);
+      const p = sensed ? target : known;
+      e.behavior = 'engage';
+      if (dist(e, p) > 75) move(e, p, dt);
+      if (sensed && dist(e, target) < 110) {
+        this.fire(e, target);
+      }
+    } else {
+      e.behavior = 'scan';
+      const waypoint =
+        e.factionId === 'pirate'
+          ? { x: 440, y: 660 }
+          : {
+              x: e.classId === 'scout' ? 1090 : 1370,
+              y: 250 + (Number(e.id.split('-')[1]) % 3) * 150,
+            };
+      if (dist(e, waypoint) > 10) move(e, waypoint, dt);
+      if (
+        e.factionId === 'romulan' &&
+        e.cloak === 'off' &&
+        e.core > SHIP_CLASSES[e.classId].core * 0.8 &&
+        w.time - e.attackedAt > 20
+      )
+        e.cloak = 'on';
+    }
   }
   step(fixedDelta = FIXED_DELTA): SimulationEvent[] {
     if (fixedDelta !== FIXED_DELTA)
@@ -588,201 +886,89 @@ export class SimulationEngine {
         ? [{ type: 'dayBoundary', day: gameCalendar(w.tick).day, tick: w.tick, time: w.time }]
         : [];
     w.beams = w.beams.filter((b) => b.expires > w.time);
-    if (w.tick % 1800 === 0) {
-      w.resources.supplies = Math.min(
-        RESOURCE_DEFINITIONS.supplies.resupplyCap,
-        w.resources.supplies + RESOURCE_DEFINITIONS.supplies.resupplyAmount,
-      );
-      w.resources.materials = Math.min(
-        RESOURCE_DEFINITIONS.materials.resupplyCap,
-        w.resources.materials + RESOURCE_DEFINITIONS.materials.resupplyAmount,
-      );
-      this.log('Starfleet 常规补给到港：补给 +45，维修材料 +15。');
+    if (w.tick % 10 === 0) updateSensors(w, this.random, this.onDetection);
+    if (w.tick % (RULES.resupplyMinutes * 10) === 0) {
+      const received: string[] = [];
+      for (const k of ['supplies', 'medical', 'materials'] as const) {
+        const definition = RESOURCE_DEFINITIONS[k];
+        const amount = Math.max(
+          0,
+          Math.min(definition.resupplyAmount, definition.resupplyCap - this.base.stock[k]),
+        );
+        this.base.stock[k] += amount;
+        received.push(definition.label + ' +' + amount);
+      }
+      this.report('Starfleet 常规补给抵达：' + received.join('，'), 'base');
+      for (const l of w.locations.filter(
+        (l) => l.kind === 'colony' && l.regionId === 'federation',
+      )) {
+        l.stock.supplies = Math.max(l.reserved.supplies, l.stock.supplies - 15);
+        if (l.stock.supplies < 20 && !l.distress) {
+          l.distress = true;
+          this.report(l.name + ' 储备偏低，请求运输', l.id, 'high', 'request');
+        }
+      }
     }
     if (w.time >= w.nextIncursion) {
-      const faction = this.random() < 0.5 ? 'klingon' : 'romulan';
-      this.spawnContact(faction, { x: 910, y: 390 + this.random() * 200 }, null);
-      w.nextIncursion = w.time + 180;
-      w.threat = Math.min(100, w.threat + 6);
-      this.log('边境传感器记录到亚空间扰动。派舰接近并扫描以确认。', 'warning');
-    }
-    for (const s of w.ships) {
-      s.cooldown = Math.max(0, s.cooldown - fixedDelta);
-      if (s.status === 'disabled') {
-        s.tow -= fixedDelta;
-        if (s.tow <= 0) {
-          s.x = this.base.x;
-          s.y = this.base.y;
-          s.hull = 1;
-          this.dock(s);
-        }
-        continue;
-      }
-      if (s.status === 'repairing') {
-        s.repair -= fixedDelta;
-        if (s.repair <= 0) {
-          s.hull = 100;
-          s.shield = s.maxShield;
-          s.status = 'docked';
-          this.log(`${s.name} 维修完毕。`, 'success');
-        }
-        continue;
-      }
-      if (s.status === 'docked') {
-        s.shield = Math.min(s.maxShield, s.shield + fixedDelta * 3);
-        continue;
-      }
-      const m = w.missions.find((m) => m.id === s.missionId);
-      if (m && !m.settled && m.deadline && w.time - m.started > m.deadline)
-        this.settle(s, m, false, '超过交付时限');
-      if (w.manualShipId === s.id) {
-        s.heading += s.helm.turn * 1.7 * fixedDelta;
-        s.throttle = clamp(s.throttle + s.helm.throttle * fixedDelta * 0.7, 0, 1);
-        s.x = clamp(
-          s.x + Math.cos(s.heading) * s.speed * 2 * s.throttle * fixedDelta,
-          35,
-          FEDERATION_FRONTIER,
+      w.nextIncursion += RULES.incursionMinutes;
+      if (w.enemies.filter((e) => e.hull > 0).length < RULES.maxEnemies) {
+        const pirate = this.random() < 0.6;
+        const classId = pirate ? 'raider' : this.random() < 0.6 ? 'scout' : 'valdore';
+        w.enemies.push(
+          makeEnemy(
+            'enemy-' + w.nextEnemy++,
+            classId,
+            pirate ? 'pirate' : 'romulan',
+            pirate ? RULES.pirateEntry : RULES.romulanEntry,
+          ),
         );
-        s.y = clamp(
-          s.y + Math.sin(s.heading) * s.speed * 2 * s.throttle * fixedDelta,
-          35,
-          WORLD_HEIGHT - 35,
-        );
-      } else if (s.order === 'engage') {
-        const t = w.contacts.find((t) => t.id === s.targetId && !t.retreating);
-        if (t) {
-          if (dist(s, t) > RANGE * 0.8) this.move(s, t, fixedDelta);
-          else s.heading = Math.atan2(t.y - s.y, t.x - s.x);
-          if (this.validate({ type: 'fire', shipId: s.id }).ok) this.fire(s, t);
-        } else if (m && !m.settled) {
-          s.order = 'mission';
-          s.path = this.route(s, m);
-        } else this.returnHome(s);
-      } else if (s.order !== 'hold' && s.path.length) {
-        const multiplier = m?.kind === 'supply' && m.route === 'fast' && !m.settled ? 1.25 : 1;
-        if (this.move(s, s.path[0], fixedDelta, multiplier)) s.path.shift();
-      }
-      if (w.tick % 20 === 0) {
-        s.trail.push({ x: s.x, y: s.y });
-        if (s.trail.length > 40) s.trail.shift();
-      }
-      if (s.order === 'return' && w.manualShipId !== s.id && dist(s, this.base) < 2) {
-        this.dock(s);
-        continue;
-      }
-      for (const t of w.contacts)
-        if (!t.detected && dist(s, t) < FACTIONS[t.faction].detectionRange) {
-          this.detect(t);
-          this.log(`${s.name} 发现未识别接触。`, 'warning');
-        }
-      if (m && !m.settled && s.order !== 'hold') this.advanceMission(s, m, fixedDelta);
-      if (w.manualShipId !== s.id && s.hull < 30 && m && !m.settled)
-        this.settle(s, m, false, '舰体过低，默认安全规则触发撤离');
-    }
-    for (const t of w.contacts) {
-      t.cooldown = Math.max(0, t.cooldown - fixedDelta);
-      if (t.retreating) {
-        t.x += fixedDelta * 12;
-        continue;
-      }
-      if (t.hostile) {
-        const victims = w.ships
-          .filter((s) => !['disabled', 'docked', 'repairing'].includes(s.status))
-          .sort((a, b) => dist(a, t) - dist(b, t));
-        const s = victims[0];
-        if (s && dist(s, t) < 280) {
-          if (dist(s, t) > 120) {
-            const a = Math.atan2(s.y - t.y, s.x - t.x);
-            t.x += Math.cos(a) * 3 * fixedDelta;
-            t.y += Math.sin(a) * 3 * fixedDelta;
-          }
-          if (dist(s, t) < RANGE && t.cooldown <= 0) {
-            const damage = FACTIONS[t.faction].damage;
-            t.cooldown = 4;
-            const m = w.missions.find((m) => m.id === s.missionId);
-            if (m && !m.settled) m.damage += Math.max(0, damage - s.shield);
-            this.damage(s, damage);
-            w.beams.push({
-              from: { x: t.x, y: t.y },
-              to: { x: s.x, y: s.y },
-              enemy: true,
-              expires: w.time + 0.45,
-            });
-            if (w.manualShipId !== s.id && s.status !== 'disabled' && s.order !== 'return') {
-              s.targetId = t.id;
-              s.order = 'engage';
-            }
-          }
-        }
-      }
-      if (!t.missionId && w.time - t.created > 150) {
-        t.retreating = true;
-        this.log('边境接触离开本地传感器区域；未形成新的交战。');
       }
     }
-    w.contacts = w.contacts.filter((t) => t.x < 1250);
+    for (const s of w.ships) this.advanceShip(s, fixedDelta);
+    for (const e of w.enemies) this.advanceEnemy(e, fixedDelta);
+    for (const o of w.orders) this.advanceOrder(o, fixedDelta);
+    // Keep resolved intel for order evidence; expire map visibility independently.
+    w.enemies = w.enemies.filter((e) => e.hull > 0);
+    if (w.orders.length > 200)
+      w.orders = w.orders.filter((o) => o.phase !== 'complete' || w.time - o.created < 1440);
     return [...events, ...this.finishCritical()];
   }
-  private advanceMission(s: Ship, m: Mission, dt: number) {
-    const w = this.state,
-      loc = w.locations.find((l) => l.id === m.locationId)!;
-    if (m.phase === 'outbound' && dist(s, loc) < 18) {
-      m.phase = m.kind === 'explore' ? 'decision' : 'working';
-      if (m.phase === 'decision') this.critical('investigation', m.id, s.name + ' 等待调查决策');
-      m.decisionAt = w.time;
-      m.work = 0;
-      this.log(
-        `${s.name} 抵达 ${loc.name}。${m.kind === 'explore' ? '等待调查决策，20 游戏分钟后采用远距扫描。' : '开始执行任务。'}`,
-      );
-      if (m.kind === 'patrol') {
-        const t = this.spawnContact(
-          m.id === 'k7' ? 'klingon' : 'romulan',
-          { x: loc.x + 65, y: loc.y - 20 },
-          m.id,
-        );
-        if (t) {
-          m.contactId = t.id;
-          this.detect(t);
-        }
-      }
-      if (m.kind === 'supply' && m.route === 'fast') {
-        const loss = 4 + Math.floor(this.random() * 9);
-        m.damage += loss;
-        this.damage(s, loss, true);
-        this.log(`${s.name} 快速航线穿越微陨石带，舰体损伤 ${loss}；货物完整。`, 'warning');
-      }
-    }
-    if (m.phase === 'decision' && w.time - m.decisionAt >= 20) this.investigate(s, m, 'remote');
-    if (m.phase !== 'working' || dist(s, loc) > 200) return;
-    m.work += dt;
-    if (m.kind === 'patrol') {
-      if (!m.contactId) {
-        const t = this.spawnContact(
-          m.id === 'k7' ? 'klingon' : 'romulan',
-          { x: loc.x + 65, y: loc.y - 20 },
-          m.id,
-        );
-        if (t) {
-          m.contactId = t.id;
-          this.detect(t);
-        }
-      }
-      const t = w.contacts.find((t) => t.id === m.contactId);
-      if (w.manualShipId !== s.id && s.order === 'mission' && t && !t.retreating) {
-        if (!t.identified && m.work >= 5) this.scan(s);
-        if (t.identified && m.work >= 12 && !t.hostile) this.hail(s, t);
-      }
-      if (m.work >= m.duration && m.result) this.settle(s, m, true, m.result);
-    } else if (m.work >= m.duration)
-      this.settle(
-        s,
-        m,
-        true,
-        m.kind === 'explore'
-          ? m.choice === 'close'
-            ? '近距调查完成，样本精度提高'
-            : '远距调查完成，保持安全距离'
-          : `货物在 ${Math.round(w.time - m.started)} 游戏分钟内抵达，航线：${m.route === 'safe' ? '安全' : '快速'}`,
-      );
+  advanceFrame(): SimulationEvent[] {
+    const events: SimulationEvent[] = [],
+      speed = this.state.speed;
+    for (let i = 0; i < speed && !this.state.paused; i++) events.push(...this.step());
+    return events;
   }
+}
+function specOnly(o: OrderSpec): OrderSpec {
+  const {
+    kind,
+    objective,
+    shipIds,
+    priority,
+    roe,
+    border,
+    retreat,
+    duration,
+    sourceId,
+    cargoKind,
+    amount,
+    route,
+    approach,
+  } = o;
+  return {
+    kind,
+    objective,
+    shipIds,
+    priority,
+    roe,
+    border,
+    retreat,
+    duration,
+    sourceId,
+    cargoKind,
+    amount,
+    route,
+    approach,
+  };
 }

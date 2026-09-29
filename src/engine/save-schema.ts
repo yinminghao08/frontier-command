@@ -1,210 +1,233 @@
-import { CRITICAL_KINDS } from './types';
-import { regionAt, WORLD_WIDTH, WORLD_HEIGHT } from './definitions/locations';
-import { FACTIONS } from './definitions/factions';
-import { SHIP_CLASSES } from './definitions/ships';
-import { LOCATIONS } from './definitions/locations';
-import type { FactionId } from './definitions/factions';
-import type { ShipClassId } from './definitions/ships';
 import { z } from 'zod';
-const n = z.number().finite();
-const nonnegative = n.min(0);
-const id = z.string().min(1).max(100);
-const nullableId = id.nullable();
-const point = z.object({ x: n, y: n });
-const ship = point.extend({
-  id,
-  name: z.string(),
-  registry: z.string(),
-  role: z.string(),
-  classId: z.custom<ShipClassId>(
-    (value) => typeof value === 'string' && Object.hasOwn(SHIP_CLASSES, value),
-  ),
-  factionId: z.custom<FactionId>(
-    (value) => typeof value === 'string' && Object.hasOwn(FACTIONS, value),
-  ),
-  science: nonnegative.max(100),
-  capacity: nonnegative,
-  power: nonnegative,
-  speed: nonnegative,
-  hull: nonnegative.max(100),
-  shield: nonnegative,
-  maxShield: nonnegative,
-  heading: n,
-  throttle: nonnegative.max(1),
-  status: z.enum(['docked', 'mission', 'returning', 'holding', 'disabled', 'repairing']),
-  order: z.enum(['mission', 'hold', 'return', 'engage']),
-  missionId: nullableId,
-  targetId: nullableId,
-  path: z.array(point).max(10),
-  trail: z.array(point).max(40),
-  cooldown: nonnegative,
-  cargo: nonnegative,
-  repair: n,
-  tow: n,
-  emergency: z.boolean(),
-  helm: z.object({ turn: n.min(-1).max(1), throttle: n.min(-1).max(1) }),
-});
-const mission = z.object({
-  id,
-  name: z.string(),
-  kind: z.enum(['explore', 'supply', 'patrol']),
-  locationId: id,
-  brief: z.string(),
-  requirement: z.string(),
-  attention: z.string(),
-  risk: z.string(),
-  duration: nonnegative,
-  phase: z.enum([
-    'available',
-    'outbound',
-    'working',
-    'decision',
-    'returning',
-    'complete',
-    'failed',
-  ]),
-  shipId: nullableId,
-  route: z.enum(['safe', 'fast']),
-  started: nonnegative,
-  work: nonnegative,
-  decisionAt: nonnegative,
-  choice: z.enum(['remote', 'close']).nullable(),
-  deadline: nonnegative,
-  cargoRequired: nonnegative,
-  settled: z.boolean(),
-  run: nonnegative.int(),
-  reward: nonnegative,
-  result: z.string(),
-  contactId: nullableId,
-  damage: nonnegative,
-});
+import { orderSpecSchema } from './commands';
+import { SHIP_CLASSES, type ShipClassId } from './definitions/ships';
+import { CRITICAL_KINDS } from './types';
+const n = z.number().finite(),
+  nn = n.min(0),
+  id = z.string().min(1).max(100),
+  integer = nn.int();
+const point = z.object({ x: n.min(0).max(1600), y: n.min(0).max(800) }).strict();
+const stock = z.object({ supplies: nn, medical: nn, materials: nn }).strict();
+const classId = z.custom<ShipClassId>(
+  (x) => typeof x === 'string' && Object.hasOwn(SHIP_CLASSES, x),
+);
+const ship = point
+  .extend({
+    id,
+    name: z.string(),
+    classId,
+    factionId: z.enum(['starfleet', 'pirate', 'romulan']),
+    hull: nn,
+    shield: nn,
+    core: nn,
+    photon: integer,
+    quantum: integer,
+    status: z.enum(['docked', 'mission', 'returning', 'disabled', 'repairing', 'rearming']),
+    orderId: id.nullable(),
+    targetId: id.nullable(),
+    path: z.array(point).max(30),
+    heading: n,
+    cargo: stock,
+    cooldowns: z.record(nn),
+    service: n,
+    lastAttackerId: id.nullable(),
+    attackedAt: n,
+    scanUntil: nn,
+    cloak: z.enum(['off', 'on', 'decloaking']),
+    cloakUntil: nn,
+    behavior: z.enum(['hold', 'defend', 'engage', 'retreat', 'scan', 'travel']),
+  })
+  .strict();
+const location = point
+  .extend({
+    id,
+    name: z.string(),
+    label: z.string(),
+    kind: z.enum(['base', 'colony', 'outpost', 'anomaly', 'border', 'mine', 'planet']),
+    regionId: z.enum(['federation', 'neutral', 'romulan']),
+    supply: nn,
+    stock,
+    reserved: stock,
+    hull: nn,
+    maxHull: nn,
+    distress: z.boolean(),
+    surveyed: z.boolean(),
+    hazard: nn,
+    surveyRevision: integer,
+    rewardedRevision: integer,
+  })
+  .strict();
+const order = orderSpecSchema
+  .extend({
+    id,
+    created: nn,
+    phase: z.enum(['preparing', 'outbound', 'decision', 'working', 'returning', 'complete']),
+    work: nn,
+    decisionAt: nn,
+    settled: z.boolean(),
+    outcome: z.enum(['success', 'failed', 'cancelled']).nullable(),
+    result: z.string(),
+    held: z.boolean(),
+    loaded: z.boolean(),
+    delivered: z.boolean(),
+    reserved: nn,
+    deadline: nn,
+    targetLastSeen: point.nullable(),
+    searchUntil: nn,
+    rewarded: z.boolean(),
+  })
+  .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(3),
-    tick: nonnegative.int(),
-    time: nonnegative,
-    seed: nonnegative.int().max(4294967295),
-    initialSeed: nonnegative.int().max(4294967295),
+    version: z.literal(4),
+    tick: integer,
+    time: nn,
+    seed: integer.max(4294967295),
+    initialSeed: integer.max(4294967295),
     paused: z.boolean(),
-    pauseReasons: z.array(
-      z.object({
-        kind: z.enum(CRITICAL_KINDS),
-        entityId: id,
-        tick: nonnegative.int(),
-        time: nonnegative,
-        message: z.string(),
-      }),
-    ),
     speed: z.union([z.literal(1), z.literal(4), z.literal(16)]),
-    manualShipId: nullableId,
-    commander: z.object({ id, name: z.string(), rank: z.string() }),
+    pauseReasons: z.array(
+      z
+        .object({
+          kind: z.enum(CRITICAL_KINDS),
+          entityId: id,
+          tick: integer,
+          time: nn,
+          message: z.string(),
+        })
+        .strict(),
+    ),
+    commander: z.object({ id, name: z.string(), rank: z.string() }).strict(),
     operators: z
-      .array(z.object({ id, shipId: id, kind: z.literal('rules'), name: z.string() }))
-      .min(1),
-    ships: z.array(ship).min(1),
-    missions: z.array(mission),
-    locations: z
-      .array(
-        point.extend({
-          id,
-          name: z.string(),
-          label: z.string(),
-          kind: z.enum(['base', 'colony', 'outpost', 'anomaly', 'border', 'mine', 'planet']),
-          regionId: z.enum(['federation', 'neutral', 'romulan']),
-          supply: nonnegative.max(100),
-        }),
-      )
-      .min(1),
-    contacts: z
-      .array(
-        point.extend({
-          id,
-          faction: z.enum(['klingon', 'romulan']),
-          name: z.string(),
-          detected: z.boolean(),
-          identified: z.boolean(),
-          hostile: z.boolean(),
-          shield: nonnegative,
-          hull: nonnegative,
-          retreating: z.boolean(),
-          missionId: nullableId,
-          cooldown: nonnegative,
-          created: nonnegative,
-        }),
-      )
+      .array(z.object({ id, shipId: id, kind: z.literal('rules'), name: z.string() }).strict())
       .max(20),
-    resources: z.object({
-      materials: nonnegative,
-      supplies: nonnegative,
-      science: nonnegative,
-      allocation: nonnegative,
-      intel: nonnegative,
-    }),
-    threat: nonnegative.max(100),
+    ships: z.array(ship).min(1).max(20),
+    enemies: z
+      .array(
+        ship
+          .extend({
+            home: point,
+            intent: z.enum(['observe', 'raid', 'probe', 'retreat']),
+            nextDecision: nn,
+            loot: nn,
+            knownTargets: z.array(point.extend({ id, seenAt: nn, score: n }).strict()),
+          })
+          .strict(),
+      )
+      .max(30),
+    intel: z.array(
+      point
+        .extend({
+          id,
+          level: z.enum(['UNKNOWN', 'CONTACT', 'CLASSIFIED', 'IDENTIFIED', 'TRACKED']),
+          strength: nn.max(12),
+          lastSeen: nn,
+          live: z.boolean(),
+          name: z.string().optional(),
+          factionId: z.enum(['starfleet', 'pirate', 'romulan']).optional(),
+          classId: classId.optional(),
+          hull: nn.optional(),
+          shield: nn.optional(),
+          lastAttackTargetId: id.optional(),
+          lastAttackAt: nn.optional(),
+          hostile: z.boolean(),
+          resolved: z.boolean(),
+          resolution: z.enum(['destroyed', 'withdrawn']).optional(),
+        })
+        .strict(),
+    ),
+    orders: z.array(order).max(2000),
+    locations: z.array(location).max(100),
+    resources: z.object({ science: nn, intel: nn, allocation: nn }).strict(),
+    communications: z
+      .array(
+        z
+          .object({
+            id: integer,
+            time: nn,
+            priority: z.enum(['normal', 'high', 'urgent']),
+            text: z.string(),
+            read: z.boolean(),
+            entityId: id.nullable(),
+            category: z.enum(['request', 'report', 'threat', 'decision']),
+          })
+          .strict(),
+      )
+      .max(100),
     logs: z
       .array(
-        z.object({
-          id: nonnegative.int(),
-          time: nonnegative,
-          level: z.enum(['info', 'success', 'warning', 'danger']),
-          text: z.string(),
-        }),
+        z
+          .object({
+            id: integer,
+            time: nn,
+            level: z.enum(['info', 'success', 'warning', 'danger']),
+            text: z.string(),
+          })
+          .strict(),
       )
       .max(180),
-    nextLog: nonnegative.int(),
-    nextContact: nonnegative.int(),
-    nextIncursion: nonnegative,
-    beams: z
-      .array(z.object({ from: point, to: point, enemy: z.boolean(), expires: nonnegative }))
-      .max(100),
+    beams: z.array(
+      z
+        .object({ from: point, to: point, enemy: z.boolean(), weapon: z.string(), expires: nn })
+        .strict(),
+    ),
+    nextLog: integer,
+    nextComms: integer,
+    nextOrder: integer,
+    nextEnemy: integer,
+    nextIncursion: nn,
+    explored: z.array(point.extend({ time: nn }).strict()),
   })
+  .strict()
   .superRefine((w, ctx) => {
-    const fail = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
-    if (w.time !== w.tick / 10) fail('Simulation time is inconsistent');
-    for (const arr of [w.ships, w.missions, w.locations, w.operators, w.contacts])
-      if (new Set(arr.map((a) => a.id)).size !== arr.length) fail('Duplicate IDs');
-    if (w.manualShipId && !w.ships.some((s) => s.id === w.manualShipId))
-      fail('Manual ship missing');
-    if (w.manualShipId && w.speed !== 1) fail('Manual control requires 1x');
-    for (const s of w.ships) {
-      if (s.shield > s.maxShield || s.cargo > s.capacity) fail('Ship stats inconsistent');
-      if (s.missionId && !w.missions.some((m) => m.id === s.missionId && m.shipId === s.id))
-        fail('Ship mission missing');
-      if (!w.operators.some((o) => o.shipId === s.id)) fail('Operator mismatch');
-    }
-    if (w.operators.some((o) => o.id === w.commander.id)) fail('Actor IDs overlap');
-    if (new Set(w.operators.map((o) => o.shipId)).size !== w.operators.length)
-      fail('Multiple operators assigned to one ship');
-    for (const o of w.operators)
-      if (!w.ships.some((s) => s.id === o.shipId)) fail('Operator ship missing');
-    if (!w.locations.some((l) => l.id === 'base' && l.kind === 'base')) fail('Base missing');
-    if (!w.paused && w.pauseReasons.length) fail('Active world has pause reasons');
-    for (const reason of w.pauseReasons)
-      if (reason.time !== reason.tick / 10 || reason.tick > w.tick) fail('Invalid pause timestamp');
-    for (const location of w.locations) {
+    const bad = (message: string) => ctx.addIssue({ code: 'custom', message });
+    if (Math.abs(w.time - w.tick / 10) > 1e-8) bad('Clock mismatch');
+    for (const entries of [w.ships, w.enemies, w.orders, w.locations, w.operators, w.intel])
+      if (new Set(entries.map((x) => x.id)).size !== entries.length) bad('Duplicate identifiers');
+    if (!w.locations.some((l) => l.id === 'base' && l.kind === 'base')) bad('Missing base');
+    if (
+      w.operators.length !== w.ships.length ||
+      new Set(w.operators.map((o) => o.shipId)).size !== w.ships.length ||
+      w.operators.some((o) => !w.ships.some((s) => s.id === o.shipId))
+    )
+      bad('Invalid operator assignment');
+    for (const s of [...w.ships, ...w.enemies]) {
+      const d = SHIP_CLASSES[s.classId];
+      if (!d) {
+        bad('Unknown ship class');
+        continue;
+      }
       if (
-        location.regionId !== regionAt(location.x) ||
-        location.x < 0 ||
-        location.x > WORLD_WIDTH ||
-        location.y < 0 ||
-        location.y > WORLD_HEIGHT
+        s.hull > d.hull + 0.0001 ||
+        s.shield > d.shield + 0.0001 ||
+        s.core > d.core + 0.0001 ||
+        s.photon > d.photon ||
+        s.quantum > d.quantum
       )
-        fail('Invalid location geography');
+        bad('Ship attributes exceed class limits');
+      if (Object.values(s.cargo).reduce((a, b) => a + b, 0) > d.cargo)
+        bad('Cargo capacity exceeded');
+      if (s.orderId && !w.orders.some((o) => o.id === s.orderId)) bad('Dangling order');
     }
-    for (const location of w.locations)
-      if (!LOCATIONS.some((definition) => definition.id === location.id))
-        fail('Unknown location definition');
-    for (const m of w.missions) {
-      if (!w.locations.some((l) => l.id === m.locationId)) fail('Mission location missing');
-      if (m.shipId && !w.ships.some((s) => s.id === m.shipId)) fail('Mission ship missing');
+    for (const o of w.orders) {
+      if (o.shipIds.some((id) => !w.ships.some((s) => s.id === id))) bad('Missing order ship');
       if (
-        ['outbound', 'working', 'decision', 'returning'].includes(m.phase) &&
-        !w.ships.some((s) => s.missionId === m.id && s.id === m.shipId)
+        o.settled !== (o.outcome !== null) ||
+        ((o.phase === 'returning' || o.phase === 'complete') && !o.settled)
       )
-        fail('Active mission unassigned');
-      if (['complete', 'failed', 'returning'].includes(m.phase) && !m.settled)
-        fail('Settlement flag inconsistent');
-      if (['available', 'outbound', 'working', 'decision'].includes(m.phase) && m.settled)
-        fail('Active mission already settled');
+        bad('Invalid settlement');
+      if (
+        o.objective.type === 'location' &&
+        !w.locations.some((l) => o.objective.type === 'location' && l.id === o.objective.id)
+      )
+        bad('Missing objective');
     }
+    for (const l of w.locations)
+      for (const k of ['supplies', 'medical', 'materials'] as const) {
+        const reserved = w.orders
+          .filter((o) => o.sourceId === l.id && o.cargoKind === k)
+          .reduce((sum, o) => sum + o.reserved, 0);
+        if (Math.abs(l.reserved[k] - reserved) > 1e-6 || l.reserved[k] > l.stock[k])
+          bad('Invalid inventory reservation');
+      }
   });

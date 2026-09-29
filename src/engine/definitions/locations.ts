@@ -1,4 +1,4 @@
-import type { Location } from '../types';
+import type { GeographicLocation as Location } from '../types';
 import { freezeDefinitions } from './freeze';
 export const WORLD_WIDTH = 1600;
 export const WORLD_HEIGHT = 800;

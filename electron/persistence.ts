@@ -14,15 +14,10 @@ export class SaveStore {
   readonly path: string;
   constructor(readonly directory: string) {
     mkdirSync(directory, { recursive: true });
-    this.path = join(directory, 'world-v3.json');
+    this.path = join(directory, 'world-v4.json');
   }
   read(): { world: WorldState | null; message: string; blocked: boolean } {
-    const selectedPath =
-      [
-        this.path,
-        join(this.directory, 'world-v2.json'),
-        join(this.directory, 'world-v1.json'),
-      ].find((path) => existsSync(path) || existsSync(path + '.bak')) ?? this.path;
+    const selectedPath = this.path;
     if (!existsSync(selectedPath) && !existsSync(selectedPath + '.bak'))
       return { world: null, message: '新世界已就绪', blocked: false };
     for (const path of [selectedPath, selectedPath + '.bak']) {
@@ -33,13 +28,9 @@ export class SaveStore {
         return {
           world,
           message:
-            selectedPath !== this.path
-              ? path === selectedPath
-                ? '已迁移旧版本地存档，模拟处于暂停状态；旧版文件保持不变'
-                : '旧版主存档损坏，已从备份迁移；旧版文件保持不变'
-              : path === selectedPath
-                ? '已恢复本地存档，模拟处于暂停状态'
-                : '主存档损坏，已从备份恢复；原文件将在保存前归档',
+            path === selectedPath
+              ? '已恢复 v4 本地存档，模拟处于暂停状态'
+              : '主存档损坏，已从 v4 备份恢复；原文件将在保存前归档',
           blocked: false,
         };
       } catch (error) {
@@ -54,7 +45,7 @@ export class SaveStore {
     }
     return {
       world: null,
-      message: '主存档与备份均不可读。当前为临时世界；请在系统页选择“归档旧存档并重置”后再保存。',
+      message: '主存档与备份均不可读。当前为临时世界；请在 ARCHIVE 选择“新世界”归档重置后再保存。',
       blocked: true,
     };
   }
@@ -82,11 +73,7 @@ export class SaveStore {
   }
   archive() {
     const stamp = Date.now();
-    for (const path of [
-      this.path,
-      join(this.directory, 'world-v2.json'),
-      join(this.directory, 'world-v1.json'),
-    ])
+    for (const path of [this.path])
       for (const suffix of ['', '.bak'])
         if (existsSync(path + suffix))
           renameSync(path + suffix, path + suffix + `.archived-${stamp}`);

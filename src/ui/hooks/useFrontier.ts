@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Command, Snapshot } from '../../engine/types';
+import type { Command, SessionCommand, Snapshot } from '../../engine/types';
+import type { TimelineStatus } from '../../engine/timeline';
 import type { Notice } from '../types';
 export function useFrontier() {
+  const [timeline, setTimeline] = useState<TimelineStatus>({
+    activeId: null,
+    previousDay: null,
+    branches: [],
+  });
   const [world, setWorld] = useState<Snapshot | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -11,10 +17,11 @@ export function useFrontier() {
     noticeTimer.current = setTimeout(() => setNotice(null), error ? 7000 : 3500);
   }, []);
   const command = useCallback(
-    async (c: Command, quiet = false) => {
+    async (c: Command | SessionCommand, quiet = false) => {
       try {
         const result = await window.frontier.command(c);
         if (!result.ok || !quiet) notify(result.reason, !result.ok);
+        if (result.ok) setTimeline(await window.frontier.timeline());
         return result;
       } catch {
         notify('无法连接模拟引擎，请保存并重启应用。', true);
@@ -28,18 +35,39 @@ export function useFrontier() {
     if (!window.frontier) return;
     window.frontier.getState().then((data) => {
       setWorld(data.state);
+      setTimeline(data.timeline);
       if (data.saveBlocked) notify(data.saveMessage, true);
     });
     return window.frontier.onState(setWorld);
   }, [notify]);
+  const day = Math.floor((world?.tick ?? 0) / 14400);
+  useEffect(() => {
+    if (window.frontier)
+      window.frontier
+        .getState()
+        .then((data) => {
+          setTimeline(data.timeline);
+          if (data.saveBlocked) notify(data.saveMessage, true);
+        })
+        .catch(() => {});
+  }, [world?.status, world?.paused, day, notify]);
   const save = async () => {
     const r = await window.frontier.save();
     notify(r.reason, !r.ok);
   };
   const reset = async () => {
-    const r = await window.frontier.reset();
+    const r = await command({ type: 'beginNewFrontier' });
     notify(r.reason, !r.ok);
     return r;
   };
-  return { world, notice, command, notify, save, reset, dismissNotice: () => setNotice(null) };
+  return {
+    world,
+    timeline,
+    notice,
+    command,
+    notify,
+    save,
+    reset,
+    dismissNotice: () => setNotice(null),
+  };
 }

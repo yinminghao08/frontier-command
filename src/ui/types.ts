@@ -1,6 +1,9 @@
-import type { Command, CommandResult } from '../engine/types';
+import type { Command, SessionCommand, CommandResult } from '../engine/types';
 export type Page = 'SECTOR' | 'OPERATIONS' | 'PERSONNEL' | 'STARBASE' | 'COLONIES' | 'ARCHIVE';
-export type CommandSender = (command: Command, quiet?: boolean) => Promise<CommandResult>;
+export type CommandSender = (
+  command: Command | SessionCommand,
+  quiet?: boolean,
+) => Promise<CommandResult>;
 export interface Notice {
   text: string;
   error: boolean;

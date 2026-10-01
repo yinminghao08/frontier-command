@@ -5,6 +5,7 @@ import { SimulationEngine } from '../src/engine/engine';
 import { createWorld } from '../src/engine/data';
 import { HOST_FRAME_MS } from '../src/engine/clock';
 import { SaveStore } from './persistence';
+import { z } from 'zod';
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'frontier', privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -54,12 +55,12 @@ app.whenReady().then(async () => {
   saveMessage = loaded.message;
   saveBlocked = loaded.blocked;
   engine = new SimulationEngine(loaded.world ?? createWorld());
-  engine.state.paused = true;
+  if (engine.state.status === 'active') engine.state.paused = true;
   engine.clearInputs();
-  engine.log(loaded.message, loaded.blocked ? 'danger' : 'info');
+  if (!loaded.world && !loaded.blocked) store.write(engine.state);
   window = new BrowserWindow({
     show: process.env.FRONTIER_HEADLESS !== '1',
-    width: 1440,
+    width: 1600,
     height: 900,
     minWidth: 1280,
     minHeight: 720,
@@ -97,10 +98,35 @@ app.whenReady().then(async () => {
   };
   ipcMain.handle('world:get', (event) => {
     trusted(event);
-    return { state: engine.snapshot(), saveMessage, saveBlocked };
+    return {
+      state: engine.snapshot(),
+      saveMessage,
+      saveBlocked,
+      timeline: store.status(engine.state.tick),
+    };
   });
   ipcMain.handle('world:command', (event, command: unknown) => {
     trusted(event);
+    const session = z
+      .object({ type: z.enum(['restorePreviousDay', 'beginNewFrontier']) })
+      .strict()
+      .safeParse(command);
+    if (session.success) {
+      try {
+        const next =
+          session.data.type === 'restorePreviousDay'
+            ? store.restorePreviousDay(engine.state)
+            : store.beginNew(createWorld(), saveBlocked ? undefined : engine.state);
+        engine = new SimulationEngine(next);
+        saveBlocked = false;
+        lastAutoSave = engine.state.tick;
+        send();
+        return { ok: true, reason: '已切换至独立时间线，原记录保留' };
+      } catch (error) {
+        return { ok: false, reason: String(error) };
+      }
+    }
+    if (saveBlocked) return { ok: false, reason: saveMessage };
     const previousReasons = engine.state.pauseReasons.length;
     const result = engine.dispatchCommand(command);
     if (
@@ -111,7 +137,7 @@ app.whenReady().then(async () => {
         !['helm', 'target', 'fire', 'speed', 'pause'].includes((command as { type: string }).type))
     ) {
       const saved = save();
-      if (!saved.ok) engine.log(saved.reason, 'danger');
+      if (!saved.ok && engine.state.status === 'active') engine.log(saved.reason, 'danger');
     }
     send();
     return result;
@@ -120,21 +146,12 @@ app.whenReady().then(async () => {
     trusted(event);
     return save();
   });
-  ipcMain.handle('world:reset', (event) => {
+  ipcMain.handle('world:timeline', (event) => {
     trusted(event);
-    try {
-      store.archive();
-      engine = new SimulationEngine(createWorld());
-      saveBlocked = false;
-      const result = save();
-      send();
-      return result;
-    } catch (error) {
-      return { ok: false, reason: `无法归档旧存档：${String(error)}` };
-    }
+    return store.status(engine.state.tick);
   });
   window.on('blur', () => {
-    engine.state.paused = true;
+    if (engine.state.status === 'active') engine.dispatchCommand({ type: 'pause', paused: true });
     engine.clearInputs();
     send();
   });
@@ -146,16 +163,26 @@ app.whenReady().then(async () => {
   await window.loadURL(process.env.VITE_DEV_SERVER_URL ?? 'frontier://app/index.html');
   timer = setInterval(() => {
     const previousLog = engine.state.nextLog;
-    const events = engine.advanceFrame();
+    let events: ReturnType<SimulationEngine['advanceFrame']> = [];
+    try {
+      events = engine.advanceFrame((events, state) => {
+        if (events.some((e) => e.type === 'dayBoundary')) store.daily(state);
+        if (events.some((e) => e.type === 'commandLost')) store.write(state);
+      });
+    } catch (error) {
+      engine.state.paused = true;
+      saveMessage = '时间线写入失败：' + String(error);
+      saveBlocked = true;
+    }
     // Critical pauses are world events even when they do not add a log entry.
-    // dayBoundary remains available for a future daily-autosave policy.
+
     if (
       engine.state.tick - lastAutoSave >= 100 ||
       engine.state.nextLog !== previousLog ||
       events.some((event) => event.type === 'criticalPause')
     ) {
       const result = save();
-      if (!result.ok && !saveBlocked) {
+      if (!result.ok && !saveBlocked && engine.state.status === 'active') {
         engine.state.paused = true;
         engine.log(result.reason, 'danger');
         lastAutoSave = engine.state.tick;

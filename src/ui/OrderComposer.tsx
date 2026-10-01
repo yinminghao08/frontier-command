@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { OperationOrder, OrderKind, OrderSpec, Snapshot } from '../engine/types';
 import { defaultOrder } from '../engine/data';
 import { SHIP_CLASSES } from '../engine/definitions/ships';
-import type { Selection } from '../TacticalMap';
+import type { Selection } from '../StrategicMap';
 import type { CommandSender } from './types';
 export const KIND = { defense: '战斗／防御', transport: '运输', explore: '探索／侦察' };
 export const PHASE = {
@@ -112,13 +112,13 @@ export function OrderComposer({
             ×
           </button>
         </div>
-        <form onSubmit={submit}>
+        <form noValidate onSubmit={submit}>
           <p className="muted">
             {spec.kind === 'defense'
               ? '选择保护目标与交战规则；拦截必须确认驱离或击毁。'
               : spec.kind === 'transport'
                 ? '预留真实库存，装货、航行、卸货后结算。安全路线依据当前已知风险。'
-                : '调查未知区域与异常；远距较安全，近距提供高精度数据但承担风险。'}
+                : '调查未知区域与异常；扫描真实消耗 Core，近距采样提高精度并承担辐射及暴露风险。'}
           </p>
           <label>
             Objective / 目标
@@ -145,7 +145,7 @@ export function OrderComposer({
             </select>
           </label>
           <fieldset>
-            <legend>执行舰船 {spec.kind === 'defense' ? '· 可多舰' : '· 单舰'}</legend>
+            <legend>Assets / 执行舰船 {spec.kind === 'defense' ? '· 可多舰' : '· 单舰'}</legend>
             {world.ships.map((s) => {
               const d = SHIP_CLASSES[s.classId],
                 allowed = (s.status === 'docked' && !s.orderId) || s.orderId === existing?.id;
@@ -273,7 +273,12 @@ export function OrderComposer({
                     aria-label="货物数量"
                     type="number"
                     min="1"
-                    max="100"
+                    max={Math.max(
+                      1,
+                      ...world.ships
+                        .filter((s) => spec.shipIds.includes(s.id))
+                        .map((s) => SHIP_CLASSES[s.classId].cargo),
+                    )}
                     disabled={!!existing}
                     value={spec.amount}
                     onChange={(e) => patch({ amount: Number(e.target.value) })}
@@ -315,7 +320,7 @@ export function OrderComposer({
             </label>
           )}
           <fieldset>
-            <legend>自动撤退阈值（0 表示关闭）</legend>
+            <legend>Withdrawal / 自动撤退阈值（0 表示关闭）</legend>
             <div className="form-grid three">
               {(['hull', 'shield', 'core'] as const).map((key, i) => (
                 <label key={key}>

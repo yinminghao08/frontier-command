@@ -62,9 +62,9 @@ export function updateSensors(
     if (e.hull <= 0) continue;
     let strength = 0;
     const sources = [
-      { x: base.x, y: base.y, range: RULES.baseSensors, active: false },
+      { x: base.x, y: base.y, range: base.hull > 0 ? RULES.baseSensors : 0, active: false },
       ...w.ships
-        .filter((s) => s.status !== 'disabled')
+        .filter((s) => s.hull > 0)
         .map((s) => ({
           x: s.x,
           y: s.y,

@@ -1,5 +1,3 @@
-# Historical v1 regression fixtures
+# Historical v1 fixtures
 
-These immutable files document the original fleet demo before Step 1. They are retained only as historical evidence. The v4 Admiral game does not load, migrate, regenerate or replay these legacy mission/helm states.
-
-Current regression coverage lives in the v4 engine, clock, geography, authority, persistence and Electron tests. The v4 tests create seeded worlds through createWorld and validate orders, intelligence, combat and save continuation.
+These immutable files preserve the original demo. The v5 game does not load, migrate or replay them. Current tests create deterministic v5 worlds with createWorld and use isolated temporary timeline directories. These legacy fixtures are not acceptance evidence for the current game.

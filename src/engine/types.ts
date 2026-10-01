@@ -3,6 +3,7 @@ import type { ShipClassId } from './definitions/ships';
 export type Point = { x: number; y: number };
 export type FactionId = 'starfleet' | 'pirate' | 'romulan';
 export type CargoKind = 'supplies' | 'medical' | 'materials';
+export type Ammunition = { photon: number; quantum: number };
 export type Stock = Record<CargoKind, number>;
 export interface GeographicLocation extends Point {
   id: string;
@@ -17,6 +18,9 @@ export interface Location extends GeographicLocation {
   reserved: Stock;
   hull: number;
   maxHull: number;
+  shield: number;
+  maxShield: number;
+  attackedAt: number;
   distress: boolean;
   surveyed: boolean;
   hazard: number;
@@ -80,7 +84,7 @@ export interface Ship extends Point {
   core: number;
   photon: number;
   quantum: number;
-  status: 'docked' | 'mission' | 'returning' | 'disabled' | 'repairing' | 'rearming';
+  status: 'docked' | 'mission' | 'returning' | 'repairing' | 'rearming';
   orderId: string | null;
   targetId: string | null;
   path: Point[];
@@ -88,6 +92,7 @@ export interface Ship extends Point {
   cargo: Stock;
   cooldowns: Record<string, number>;
   service: number;
+  rearm: Ammunition;
   lastAttackerId: string | null;
   attackedAt: number;
   scanUntil: number;
@@ -97,6 +102,9 @@ export interface Ship extends Point {
 }
 export interface Enemy extends Ship {
   home: Point;
+  destination: Point | null;
+  departed: boolean;
+  visited: { id: string; time: number }[];
   intent: 'observe' | 'raid' | 'probe' | 'retreat';
   nextDecision: number;
   loot: number;
@@ -147,7 +155,8 @@ export const CRITICAL_KINDS = [
   'contactDetected',
   'hostility',
   'lowHull',
-  'disabled',
+  'shipDestroyed',
+  'commandLost',
   'missionFailed',
 ] as const;
 export interface CriticalReason {
@@ -159,15 +168,46 @@ export interface CriticalReason {
 }
 export type SimulationEvent =
   | { type: 'dayBoundary'; day: number; tick: number; time: number }
-  | { type: 'criticalPause'; reasons: CriticalReason[] };
+  | { type: 'criticalPause'; reasons: CriticalReason[] }
+  | { type: 'shipDestroyed'; shipId: string; operatorIds: string[]; tick: number }
+  | { type: 'commandLost'; tick: number };
 export interface Operator {
   id: string;
-  shipId: string;
+  availability: 'available' | 'vesselLost';
   kind: 'rules';
   name: string;
 }
+export interface Assignment {
+  operatorId: string;
+  shipId: string;
+  since: number;
+}
+export interface LossRecord {
+  shipId: string;
+  name: string;
+  classId: ShipClassId;
+  tick: number;
+  position: Point;
+  reason: string;
+  cargo: Stock;
+  ammunition: Ammunition;
+  operatorIds: string[];
+  orderId: string | null;
+}
+export interface ThreatReport extends Point {
+  id: string;
+  observerId: string;
+  seenAt: number;
+  confidence: number;
+  value: number;
+  defense: number;
+  kind: 'ship' | 'facility';
+}
+export type ControllerIntent =
+  | { type: 'hold' | 'defend' | 'transport' | 'scan' | 'retreat' }
+  | { type: 'engage'; contactId: string };
 export interface WorldState {
-  version: 4;
+  version: 5;
   tick: number;
   time: number;
   seed: number;
@@ -177,8 +217,13 @@ export interface WorldState {
   speed: SimulationSpeed;
   commander: { id: string; name: string; rank: string };
   operators: Operator[];
+  assignments: Assignment[];
+  losses: LossRecord[];
+  status: 'active' | 'commandLost';
+  armory: { stock: Ammunition; reserved: Ammunition };
   ships: Ship[];
   enemies: Enemy[];
+  romulanReports: ThreatReport[];
   intel: IntelRecord[];
   orders: OperationOrder[];
   locations: Location[];
@@ -195,7 +240,7 @@ export interface WorldState {
 }
 /** Deliberate projection: never expose enemy entities or their AI goals. */
 export interface Snapshot {
-  version: 4;
+  version: 5;
   tick: number;
   time: number;
   paused: boolean;
@@ -203,6 +248,10 @@ export interface Snapshot {
   pauseReasons: CriticalReason[];
   commander: WorldState['commander'];
   operators: Operator[];
+  assignments: Assignment[];
+  losses: LossRecord[];
+  status: 'active' | 'commandLost';
+  armory: { stock: Ammunition; reserved: Ammunition };
   ships: Ship[];
   contacts: IntelRecord[];
   orders: OperationOrder[];
@@ -213,6 +262,7 @@ export interface Snapshot {
   beams: Beam[];
   explored: WorldState['explored'];
 }
+export type SessionCommand = { type: 'restorePreviousDay' | 'beginNewFrontier' };
 export type Command =
   | { type: 'createOrder'; spec: OrderSpec }
   | {
@@ -227,7 +277,10 @@ export type Command =
     }
   | { type: 'cancelOrder' | 'holdOrder' | 'resumeOrder'; orderId: string }
   | { type: 'investigate'; orderId: string; approach: 'remote' | 'close' }
-  | { type: 'scan' | 'recall' | 'repair' | 'rearm'; shipId: string }
+  | { type: 'scan' | 'recall' | 'repair'; shipId: string }
+  | { type: 'rearm'; shipId: string; load: Ammunition }
+  | { type: 'assignOperator'; operatorId: string; shipId: string | null }
+  | { type: 'repairFacility'; locationId: string }
   | { type: 'acknowledge'; communicationId: number }
   | { type: 'pause'; paused: boolean }
   | { type: 'speed'; speed: SimulationSpeed };
@@ -243,4 +296,5 @@ export interface Observation {
 export interface AgentControllerPort {
   getObservation(): Observation | null;
   dispatchCommand(command: Command): CommandResult;
+  submitIntent(intent: ControllerIntent): CommandResult;
 }

@@ -1,7 +1,7 @@
 import type { Enemy, Location, OperationOrder, Ship, WorldState } from './types';
 import { SHIP_CLASSES, WEAPONS, type WeaponDefinition } from './definitions/ships';
 import { RULES } from './definitions/rules';
-import { boundary, dist } from './navigation';
+import { authorized, dist } from './navigation';
 export function regenerate(s: Ship, time: number, dt: number) {
   const d = SHIP_CLASSES[s.classId];
   for (const id of Object.keys(s.cooldowns)) s.cooldowns[id] = Math.max(0, s.cooldowns[id] - dt);
@@ -23,7 +23,7 @@ export function permittedTarget(w: WorldState, s: Ship, o: OperationOrder, e: En
     intel.resolved ||
     !['IDENTIFIED', 'TRACKED'].includes(intel.level) ||
     e.hull <= 0 ||
-    e.x > boundary(o.border)
+    !authorized(intel, o.border)
   )
     return false;
   if (o.roe === 'HOLD FIRE') return false;

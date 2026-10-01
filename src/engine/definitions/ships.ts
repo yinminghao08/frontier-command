@@ -20,6 +20,16 @@ export const WEAPONS = freezeDefinitions({
     accuracy: 0.9,
     ammo: null,
   },
+  arrays: {
+    id: 'arrays',
+    name: 'Phaser Arrays',
+    range: 140,
+    cooldown: 3,
+    damage: 24,
+    cost: 14,
+    accuracy: 0.92,
+    ammo: null,
+  },
   pulse: {
     id: 'pulse',
     name: 'Pulse Phaser',
@@ -79,7 +89,7 @@ export interface ShipClassDefinition {
 }
 export const SHIP_CLASSES = freezeDefinitions({
   antares: {
-    name: 'Antares',
+    name: 'Antares Transport',
     hull: 110,
     shield: 65,
     shieldRegen: 0.5,
@@ -95,7 +105,7 @@ export const SHIP_CLASSES = freezeDefinitions({
     cloak: false,
   },
   peregrine: {
-    name: 'Peregrine',
+    name: 'Peregrine Patrol Craft',
     hull: 85,
     shield: 90,
     shieldRegen: 1,
@@ -105,8 +115,8 @@ export const SHIP_CLASSES = freezeDefinitions({
     cargo: 12,
     sensors: 175,
     science: 45,
-    weapons: ['pulse', 'photon'],
-    photon: 12,
+    weapons: ['pulse'],
+    photon: 0,
     quantum: 0,
     cloak: false,
   },
@@ -137,7 +147,7 @@ export const SHIP_CLASSES = freezeDefinitions({
     cargo: 65,
     sensors: 210,
     science: 75,
-    weapons: ['phaser', 'photon', 'quantum'],
+    weapons: ['arrays', 'photon', 'quantum'],
     photon: 36,
     quantum: 12,
     cloak: false,

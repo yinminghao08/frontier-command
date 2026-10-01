@@ -3,38 +3,100 @@ import { freezeDefinitions } from './freeze';
 export const WORLD_WIDTH = 1600;
 export const WORLD_HEIGHT = 800;
 export const BASE = Object.freeze({ x: 880, y: 430 });
-export const FEDERATION_FRONTIER = 1040;
-export const ROMULAN_FRONTIER = 1280;
+// Shared chart geometry: navigation and renderer use the same border polylines.
+export const FEDERATION_EDGE = [
+  { x: 1000, y: 0 },
+  { x: 1080, y: 180 },
+  { x: 1000, y: 350 },
+  { x: 1100, y: 530 },
+  { x: 1030, y: 800 },
+];
+export const ROMULAN_EDGE = [
+  { x: 1250, y: 0 },
+  { x: 1330, y: 180 },
+  { x: 1240, y: 350 },
+  { x: 1330, y: 530 },
+  { x: 1250, y: 800 },
+];
+export function edgeAt(edge: readonly { x: number; y: number }[], y: number) {
+  const i = Math.max(
+    0,
+    edge.findIndex((_p, j) => j < edge.length - 1 && y <= edge[j + 1].y),
+  );
+  const a = edge[i],
+    b = edge[i + 1];
+  return a.x + (b.x - a.x) * Math.max(0, Math.min(1, (y - a.y) / (b.y - a.y)));
+}
 export const REGIONS = freezeDefinitions([
   {
-    id: 'federation',
+    id: 'rear',
     label: 'FEDERATION SPACE',
-    name: '联邦空间',
-    from: 0,
-    to: FEDERATION_FRONTIER,
-    color: '#29465a',
+    color: '#8899ff',
+    labelPoint: { x: 290, y: 60 },
+    points: [
+      { x: 0, y: 0 },
+      { x: 620, y: 0 },
+      { x: 570, y: 390 },
+      { x: 650, y: 800 },
+      { x: 0, y: 800 },
+    ],
+  },
+  {
+    id: 'frontier',
+    label: 'DAWN FRONTIER',
+    color: '#ffcc99',
+    labelPoint: { x: 810, y: 65 },
+    points: [{ x: 620, y: 0 }, ...FEDERATION_EDGE, { x: 650, y: 800 }, { x: 570, y: 390 }],
   },
   {
     id: 'neutral',
     label: 'NEUTRAL ZONE',
-    name: '中立区',
-    from: FEDERATION_FRONTIER,
-    to: ROMULAN_FRONTIER,
-    color: '#ba945c',
+    color: '#cc99cc',
+    labelPoint: { x: 1170, y: 90 },
+    points: [...FEDERATION_EDGE, ...[...ROMULAN_EDGE].reverse()],
   },
   {
     id: 'romulan',
-    label: 'ROMULAN SPACE',
-    name: '罗慕兰空间',
-    from: ROMULAN_FRONTIER,
-    to: WORLD_WIDTH,
-    color: '#a55555',
+    label: 'ROMULAN FRONTIER',
+    color: '#cc6666',
+    labelPoint: { x: 1450, y: 60 },
+    points: [...ROMULAN_EDGE, { x: 1600, y: 800 }, { x: 1600, y: 0 }],
   },
 ]);
-export function regionAt(x: number): Location['regionId'] {
-  return x < FEDERATION_FRONTIER ? 'federation' : x < ROMULAN_FRONTIER ? 'neutral' : 'romulan';
+export function regionAt(x: number, y = 400): Location['regionId'] {
+  return x < edgeAt(FEDERATION_EDGE, y)
+    ? 'federation'
+    : x < edgeAt(ROMULAN_EDGE, y)
+      ? 'neutral'
+      : 'romulan';
 }
+export const TRANSPORT_LINKS = freezeDefinitions([
+  ['rear-supply', 'depot'],
+  ['depot', 'base'],
+  ['depot', 'colony'],
+  ['depot', 'anomaly1'],
+  ['base', 'outpost'],
+  ['base', 'mine'],
+  ['mine', 'colony'],
+  ['outpost', 'border2'],
+  ['outpost', 'anomaly2'],
+  ['anomaly2', 'planet'],
+  ['base', 'border1'],
+  ['border1', 'neutral-border'],
+  ['border2', 'neutral-border'],
+  ['neutral-border', 'romulan-colony'],
+]);
 export const LOCATIONS = freezeDefinitions([
+  {
+    id: 'rear-supply',
+    name: '联邦后方补给港',
+    label: 'FEDERATION SUPPLY',
+    kind: 'outpost',
+    regionId: 'federation',
+    x: 160,
+    y: 430,
+    supply: 200,
+  },
   {
     id: 'base',
     name: '曙光基地',

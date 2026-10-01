@@ -20,7 +20,6 @@ export const orderSpecSchema = z
     shipIds: z
       .array(id)
       .min(1)
-      .max(4)
       .refine((a) => new Set(a).size === a.length),
     priority: z.enum(['normal', 'high', 'urgent']),
     roe: z.enum(['HOLD FIRE', 'RETURN FIRE', 'ENGAGE HOSTILES', 'WEAPONS FREE']),
@@ -31,7 +30,7 @@ export const orderSpecSchema = z
     duration: z.number().finite().min(10).max(180),
     sourceId: id,
     cargoKind: z.enum(['supplies', 'medical', 'materials']),
-    amount: z.number().int().min(1).max(100),
+    amount: z.number().int().min(1),
     route: z.enum(['safe', 'fast']),
     approach: z.enum(['remote', 'close']),
   })
@@ -58,12 +57,23 @@ export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({ type: z.literal('investigate'), orderId: id, approach: z.enum(['remote', 'close']) })
     .strict(),
-  ...(['scan', 'recall', 'repair', 'rearm'] as const).map((type) =>
+  ...(['scan', 'recall', 'repair'] as const).map((type) =>
     z.object({ type: z.literal(type), shipId: id }).strict(),
   ),
   z
     .object({ type: z.literal('acknowledge'), communicationId: z.number().int().positive() })
     .strict(),
+  z
+    .object({
+      type: z.literal('rearm'),
+      shipId: id,
+      load: z
+        .object({ photon: z.number().int().nonnegative(), quantum: z.number().int().nonnegative() })
+        .strict(),
+    })
+    .strict(),
+  z.object({ type: z.literal('assignOperator'), operatorId: id, shipId: id.nullable() }).strict(),
+  z.object({ type: z.literal('repairFacility'), locationId: id }).strict(),
   z.object({ type: z.literal('pause'), paused: z.boolean() }).strict(),
   z
     .object({
@@ -71,4 +81,12 @@ export const commandSchema = z.discriminatedUnion('type', [
       speed: z.union([z.literal(1), z.literal(4), z.literal(16)]),
     })
     .strict(),
+]);
+
+export const intentSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('hold') }).strict(),
+  ...(['defend', 'transport', 'scan', 'retreat'] as const).map((type) =>
+    z.object({ type: z.literal(type) }).strict(),
+  ),
+  z.object({ type: z.literal('engage'), contactId: id }).strict(),
 ]);

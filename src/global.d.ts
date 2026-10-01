@@ -1,11 +1,17 @@
-import type { Command, CommandResult, Snapshot } from './engine/types';
+import type { Command, SessionCommand, CommandResult, Snapshot } from './engine/types';
+import type { TimelineStatus } from './engine/timeline';
 declare global {
   interface Window {
     frontier: {
-      getState(): Promise<{ state: Snapshot; saveMessage: string; saveBlocked: boolean }>;
-      command(command: Command): Promise<CommandResult>;
+      getState(): Promise<{
+        state: Snapshot;
+        saveMessage: string;
+        saveBlocked: boolean;
+        timeline: TimelineStatus;
+      }>;
+      command(command: Command | SessionCommand): Promise<CommandResult>;
       save(): Promise<CommandResult>;
-      reset(): Promise<CommandResult>;
+      timeline(): Promise<TimelineStatus>;
       onState(callback: (state: Snapshot) => void): () => void;
     };
   }

@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import type { OperationOrder, Snapshot, OrderKind } from '../engine/types';
 import { SHIP_CLASSES } from '../engine/definitions/ships';
-import type { Selection } from '../TacticalMap';
+import type { Selection } from '../StrategicMap';
 import type { CommandSender } from './types';
 import { KIND, PHASE } from './OrderComposer';
 import { actionProgress } from './format';
@@ -47,7 +48,6 @@ export function Inspector({
       docked: '停靠',
       mission: '执行行动',
       returning: '返航',
-      disabled: '失能／等待拖航',
       repairing: '维修',
       rearming: '补充弹药',
     }[s.status];
@@ -106,7 +106,7 @@ export function Inspector({
             disabled={
               s.core < 12 ||
               s.scanUntil > world.time ||
-              ['disabled', 'repairing', 'rearming'].includes(s.status)
+              ['repairing', 'rearming'].includes(s.status)
             }
             title="消耗12能源，主动扫描12游戏分钟"
             onClick={() => command({ type: 'scan', shipId: s.id })}
@@ -120,21 +120,17 @@ export function Inspector({
             撤退返航
           </button>
           <button
-            disabled={s.status !== 'docked' || (s.hull >= d.hull && s.shield >= d.shield)}
-            title="停靠后维修；材料不足采用基础抢修"
+            disabled={s.status !== 'docked' || s.hull >= d.hull}
+            title="消耗真实维修材料；库存不足时拒绝"
             onClick={() => command({ type: 'repair', shipId: s.id })}
           >
             维修
           </button>
-          <button
-            disabled={s.status !== 'docked' || (s.photon >= d.photon && s.quantum >= d.quantum)}
-            title="停靠后补充弹药；材料不足等待常规后勤"
-            onClick={() => command({ type: 'rearm', shipId: s.id })}
-          >
-            装弹
-          </button>
         </div>
-        {s.service > 0 && <p>保障／拖航剩余 {Math.ceil(s.service)} 游戏分钟</p>}
+        {d.photon + d.quantum > 0 && (
+          <RearmControls key={s.id} shipId={s.id} world={world} command={command} />
+        )}
+        {s.service > 0 && <p>保障阶段剩余 {Math.ceil(s.service)} 游戏分钟</p>}
         <p className="muted">
           LV1 确定性规则 AI · 指挥组执行高层命令。不可用操作需要停靠、能源或待执行行动。
         </p>
@@ -164,6 +160,17 @@ export function Inspector({
               </span>
               <progress value={l.hull} max={l.maxHull} />
             </div>
+            {l.maxShield > 0 && (
+              <div className="meter">
+                <span>
+                  SHIELD{' '}
+                  <b>
+                    {Math.ceil(l.shield)} / {l.maxShield}
+                  </b>
+                </span>
+                <progress value={l.shield} max={l.maxShield} />
+              </div>
+            )}
             <dl>
               {(['supplies', 'medical', 'materials'] as const).map((k, i) => (
                 <div className="dl-row" key={k}>
@@ -176,22 +183,33 @@ export function Inspector({
             </dl>
           </>
         )}
+        {l.regionId === 'federation' && l.hull > 0 && l.hull < l.maxHull && (
+          <button
+            disabled={l.stock.materials - l.reserved.materials < 1}
+            onClick={() => command({ type: 'repairFacility', locationId: l.id })}
+          >
+            消耗本地材料维修
+          </button>
+        )}
         {l.distress && <p className="warning">需要后勤或防御支援</p>}
         <p className="muted">
           {l.surveyed ? '已调查：已知异常风险可用于安全路线评估。' : '尚未完成科学调查。'}
         </p>
-        {l.regionId === 'federation' && ['base', 'colony', 'outpost', 'mine'].includes(l.kind) && (
-          <div className="button-grid">
-            <button onClick={() => create('transport')}>运输到此处</button>
-            <button onClick={() => create('defense')}>保护设施</button>
-          </div>
-        )}
+        {l.hull > 0 &&
+          l.regionId === 'federation' &&
+          ['base', 'colony', 'outpost', 'mine'].includes(l.kind) && (
+            <div className="button-grid">
+              <button onClick={() => create('transport')}>运输到此处</button>
+              <button onClick={() => create('defense')}>保护设施</button>
+            </div>
+          )}
         <button className="wide" onClick={() => create('explore')}>
           调查此区域
         </button>
         {l.kind === 'base' && (
           <p className="muted">
-            长程传感器覆盖290距离单位；不能必然识破隐形。基地提供维修、装弹和应急拖航，不提供建造。
+            长程传感器覆盖290距离单位；不能必然识破隐形。基地提供材料维修与实物装弹；基地摧毁即
+            COMMAND LOST。
           </p>
         )}
       </>
@@ -258,6 +276,32 @@ export function Inspector({
       </>
     );
   }
+  if (selection.type === 'loss') {
+    const l = world.losses.find((l) => l.shipId === selection.id);
+    if (!l) return <p>没有该舰损档案。</p>;
+    return (
+      <>
+        <small>ARCHIVE / VESSEL DESTROYED</small>
+        <h2>{l.name}</h2>
+        <p className="danger-text">PERMANENT LOSS</p>
+        <dl>
+          <dt>舰级</dt>
+          <dd>{SHIP_CLASSES[l.classId].name}</dd>
+          <dt>游戏分钟</dt>
+          <dd>{l.tick / 10}</dd>
+          <dt>原因</dt>
+          <dd>{l.reason}</dd>
+          <dt>损失货物</dt>
+          <dd>{Object.values(l.cargo).reduce((a, b) => a + b, 0)}</dd>
+          <dt>损失弹药</dt>
+          <dd>
+            {l.ammunition.photon} / {l.ammunition.quantum}
+          </dd>
+        </dl>
+        <p className="muted">原规则操作者已撤销执行权限。此舰不能维修、装弹或再次派遣。</p>
+      </>
+    );
+  }
   const o = world.orders.find((o) => o.id === selection.id);
   if (!o) return <p>行动记录已归档清理。</p>;
   return (
@@ -287,10 +331,16 @@ export function Inspector({
         <progress aria-label="行动进度" max={1} value={actionProgress(world, o).fraction!} />
       )}
       {o.shipIds.map((id) => {
-        const s = world.ships.find((s) => s.id === id)!;
+        const s = world.ships.find((s) => s.id === id);
+        const loss = world.losses.find((l) => l.shipId === id);
         return (
-          <button className="wide" key={id} onClick={() => select({ type: 'ship', id })}>
-            {s.name}
+          <button
+            className="wide"
+            key={id}
+            onClick={() => select({ type: s ? 'ship' : 'loss', id })}
+          >
+            {s?.name ?? loss?.name ?? id}
+            {!s ? ' / DESTROYED' : ''}
           </button>
         );
       })}
@@ -336,5 +386,56 @@ export function Inspector({
             : '行动与地图状态均来自同一引擎快照。'}
       </p>
     </>
+  );
+}
+
+function RearmControls({
+  shipId,
+  world,
+  command,
+}: {
+  shipId: string;
+  world: Snapshot;
+  command: CommandSender;
+}) {
+  const s = world.ships.find((s) => s.id === shipId)!,
+    d = SHIP_CLASSES[s.classId];
+  const max = (k: 'photon' | 'quantum') =>
+    Math.max(
+      0,
+      Math.min(d[k] - s[k] - s.rearm[k], world.armory.stock[k] - world.armory.reserved[k]),
+    );
+  const [load, setLoad] = useState({ photon: max('photon'), quantum: max('quantum') });
+  return (
+    <fieldset disabled={s.status !== 'docked' || world.status !== 'active'}>
+      <legend>ARMORY / 实物装弹</legend>
+      <div className="form-grid">
+        {(['photon', 'quantum'] as const)
+          .filter((k) => d[k] > 0)
+          .map((k) => (
+            <label key={k}>
+              {k.toUpperCase()}
+              <input
+                aria-label={'装弹 ' + k}
+                type="number"
+                min="0"
+                max={max(k)}
+                value={load[k]}
+                onChange={(e) => setLoad({ ...load, [k]: Number(e.target.value) })}
+              />
+              <small>
+                可装 {max(k)} · 基地可用 {world.armory.stock[k] - world.armory.reserved[k]}
+              </small>
+            </label>
+          ))}
+      </div>
+      <button
+        disabled={load.photon + load.quantum <= 0}
+        onClick={() => command({ type: 'rearm', shipId, load })}
+      >
+        授权装弹
+      </button>
+      <small>预留 → 按发转入弹舱；未装部分不会凭空生成。</small>
+    </fieldset>
   );
 }

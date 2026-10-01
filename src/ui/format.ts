@@ -30,11 +30,12 @@ export function actionProgress(
   if (o.phase === 'returning') {
     const recovery = Math.max(0, ...ships.map((s) => s.service));
     return {
-      text: recovery > 0 ? '等待拖航约 ' + Math.ceil(recovery) + 'm' : '正在停靠',
+      text: recovery > 0 ? '保障约 ' + Math.ceil(recovery) + 'm' : '正在停靠',
       fraction: null,
     };
   }
-  const primary = world.ships.find((s) => s.id === o.shipIds[0])!;
+  const primary = world.ships.find((s) => s.id === o.shipIds[0]);
+  if (!primary) return { text: o.result || '资产已损失', fraction: null };
   const total =
     o.kind === 'defense'
       ? o.duration

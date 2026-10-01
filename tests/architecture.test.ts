@@ -50,6 +50,6 @@ describe('authority and determinism', () => {
       e.dispatchCommand({ type: 'createOrder', spec: { ...spec('transport'), amount: -2 } }).ok,
     ).toBe(false);
     expect(e.state).toEqual(before);
-    expect(() => parseSave({ ...e.state, version: 5 })).toThrow();
+    expect(() => parseSave({ ...e.state, version: 6 })).toThrow();
   });
 });

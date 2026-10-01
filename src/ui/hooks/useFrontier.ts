@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Command, SessionCommand, Snapshot } from '../../engine/types';
 import type { TimelineStatus } from '../../engine/timeline';
 import type { Notice } from '../types';
+import { useLcars } from '../lcars/LcarsProvider';
 export function useFrontier() {
+  const { audio } = useLcars();
   const [timeline, setTimeline] = useState<TimelineStatus>({
     activeId: null,
     previousDay: null,
@@ -20,15 +22,17 @@ export function useFrontier() {
     async (c: Command | SessionCommand, quiet = false) => {
       try {
         const result = await window.frontier.command(c);
+        audio.play(result.ok ? 'action' : 'alert');
         if (!result.ok || !quiet) notify(result.reason, !result.ok);
         if (result.ok) setTimeline(await window.frontier.timeline());
         return result;
       } catch {
+        audio.play('alert');
         notify('无法连接模拟引擎，请保存并重启应用。', true);
         return { ok: false, reason: 'IPC 连接失败' };
       }
     },
-    [notify],
+    [notify, audio],
   );
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
   useEffect(() => {
@@ -53,6 +57,7 @@ export function useFrontier() {
   }, [world?.status, world?.paused, day, notify]);
   const save = async () => {
     const r = await window.frontier.save();
+    audio.play(r.ok ? 'action' : 'alert');
     notify(r.reason, !r.ok);
   };
   const reset = async () => {

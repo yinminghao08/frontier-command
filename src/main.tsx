@@ -1,12 +1,12 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import '@fontsource/antonio/400.css';
-import '@fontsource/antonio/700.css';
-import './styles.css';
-import './lcars.css';
+import './ui/lcars/styles/index.css';
 import { App } from './App';
+import { LcarsProvider } from './ui/lcars/LcarsProvider';
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <LcarsProvider>
+      <App />
+    </LcarsProvider>
   </React.StrictMode>,
 );

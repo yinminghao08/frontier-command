@@ -1,9 +1,12 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { Snapshot } from '../../engine/types';
 import type { CommandSender, Page } from '../types';
 import { gameCalendar } from '../../engine/clock';
 import { KIND, PHASE } from '../OrderComposer';
 import { actionProgress } from '../format';
+import { LcarsBar, LcarsButton, LcarsElbow, LcarsTextBar } from './Lcars';
+import { DataCascade } from '../lcars/DataCascade';
+import { usePanelFocus } from '../lcars/usePanelFocus';
 export const PAGES: Page[] = [
   'SECTOR',
   'OPERATIONS',
@@ -21,6 +24,9 @@ export function LcarsShell({
   locate,
   children,
   inspector,
+  overlay,
+  onSettings,
+  contextSerial,
 }: {
   world: Snapshot;
   page: Page;
@@ -29,9 +35,17 @@ export function LcarsShell({
   locate: (id: string | null) => void;
   children: ReactNode;
   inspector: ReactNode;
+  overlay?: ReactNode;
+  onSettings: () => void;
+  contextSerial: string;
 }) {
   const [showRead, setShowRead] = useState(false),
-    cal = gameCalendar(world.tick),
+    [showContext, setShowContext] = useState(false);
+  const contextRef = usePanelFocus(() => setShowContext(false), false, showContext);
+  useEffect(() => {
+    if (matchMedia('(max-width: 1100px)').matches) setShowContext(true);
+  }, [contextSerial]);
+  const cal = gameCalendar(world.tick),
     active = world.orders.filter((o) => o.phase !== 'complete'),
     lost = world.status === 'commandLost';
   const communications = [...world.communications]
@@ -45,134 +59,208 @@ export function LcarsShell({
   return (
     <div className="admiral-console">
       <header className="command-header">
-        <div className="identity-panel">
-          <span>STARFLEET</span>
-          <b>DAWN FRONTIER</b>
-          <small>ADMIRAL / COMMAND</small>
+        <div className="header-rail">
+          <div className="identity-panel">
+            <span>STARFLEET COMMAND</span>
+            <strong>
+              DAWN
+              <br />
+              FRONTIER
+            </strong>
+          </div>
+          <LcarsElbow orientation="upper" className="header-elbow">
+            <span>ADMIRAL / 047</span>
+          </LcarsElbow>
         </div>
-        <section className="clock-panel">
-          <h1>FRONTIER COMMAND</h1>
-          <strong data-testid="game-clock">
-            DAY {cal.day}{' '}
-            <b>
-              {String(cal.hour).padStart(2, '0')}:{String(cal.minute).padStart(2, '0')}
-            </b>
-          </strong>
-          <div className="time-controls">
-            <button
-              disabled={lost}
-              aria-pressed={world.paused}
-              onClick={() => command({ type: 'pause', paused: !world.paused }, true)}
-            >
-              {world.paused ? '继续' : '暂停'}
-            </button>
-            {([1, 4, 16] as const).map((speed) => (
-              <button
-                key={speed}
-                disabled={lost}
-                aria-pressed={world.speed === speed}
-                onClick={() => command({ type: 'speed', speed }, true)}
-              >
-                {speed}×
-              </button>
-            ))}
+        <div className="header-body">
+          <div className="banner">
+            <span>FEDERATION NETWORK / LCARS 26</span>
+            <h1>FRONTIER COMMAND</h1>
           </div>
-        </section>
-        <section className="communications">
-          <div className="section-title">
-            <span>PRIORITY COMMUNICATIONS</span>
-            <button onClick={() => setShowRead(!showRead)}>
-              {showRead ? '仅未读' : '全部通信'}
-            </button>
-          </div>
-          <div className="comms-list">
-            {communications.length ? (
-              communications.map((c) => (
-                <div key={c.id} className={'comms-item ' + c.priority}>
-                  <button className="comms-content" onClick={() => locate(c.entityId)}>
-                    <span>
-                      {c.priority.toUpperCase()} / {Math.floor(c.time)}m
-                    </span>
-                    {c.text}
-                  </button>
-                  <button
-                    className="ack-button"
-                    disabled={c.read || lost}
-                    aria-label={'确认通信 ' + c.id}
-                    onClick={() => command({ type: 'acknowledge', communicationId: c.id }, true)}
+          <div className="command-deck">
+            <DataCascade world={world} />
+            <section className="communications" aria-label="Priority Communications">
+              <div className="comms-heading">
+                <LcarsTextBar className="section-title">PRIORITY COMMUNICATIONS</LcarsTextBar>
+                <LcarsButton sound="navigation" onClick={() => setShowRead(!showRead)}>
+                  {showRead ? '仅未读' : '全部通信'}
+                </LcarsButton>
+              </div>
+              <div className="comms-list">
+                {world.pauseReasons.length > 0 && !lost && (
+                  <div className="critical-banner" role="alert">
+                    <b>PRIORITY HOLD</b>
+                    <span>{world.pauseReasons.map((r) => r.message).join(' · ')}</span>
+                    <LcarsButton
+                      tone="danger"
+                      onClick={() => command({ type: 'pause', paused: false }, true)}
+                    >
+                      处置后继续
+                    </LcarsButton>
+                  </div>
+                )}
+
+                {communications.length ? (
+                  communications.map((c) => (
+                    <div key={c.id} className={'comms-item ' + c.priority}>
+                      <LcarsButton
+                        shape="text"
+                        sound="navigation"
+                        className="comms-content"
+                        onClick={() => locate(c.entityId)}
+                      >
+                        <span>
+                          {c.priority.toUpperCase()} / {Math.floor(c.time)}m
+                        </span>
+                        {c.text}
+                      </LcarsButton>
+                      <LcarsButton
+                        tone="secondary"
+                        className="ack-button"
+                        disabled={c.read || lost}
+                        aria-label={'确认通信 ' + c.id}
+                        onClick={() =>
+                          command({ type: 'acknowledge', communicationId: c.id }, true)
+                        }
+                      >
+                        {c.read ? '已读' : '确认'}
+                      </LcarsButton>
+                    </div>
+                  ))
+                ) : (
+                  <p className="muted">CHANNEL CLEAR · 暂无待处理通信</p>
+                )}
+              </div>
+            </section>
+            <section className="clock-panel" aria-label="Simulation controls">
+              <strong data-testid="game-clock">
+                DAY {cal.day}
+                <b>
+                  {String(cal.hour).padStart(2, '0')}:{String(cal.minute).padStart(2, '0')}
+                </b>
+              </strong>
+              <div className="time-controls">
+                <LcarsButton
+                  disabled={lost}
+                  aria-pressed={world.paused}
+                  onClick={() => command({ type: 'pause', paused: !world.paused }, true)}
+                >
+                  {world.paused ? '继续' : '暂停'}
+                </LcarsButton>
+                {([1, 4, 16] as const).map((speed) => (
+                  <LcarsButton
+                    key={speed}
+                    disabled={lost}
+                    aria-pressed={world.speed === speed}
+                    onClick={() => command({ type: 'speed', speed }, true)}
                   >
-                    {c.read ? '已读' : '确认'}
-                  </button>
-                </div>
-              ))
-            ) : (
-              <p className="muted">CHANNEL CLEAR · 暂无待处理通信</p>
-            )}
+                    {speed}×
+                  </LcarsButton>
+                ))}
+              </div>
+              <div className="strategic-state">
+                <span>
+                  HULL{' '}
+                  <b className={lost ? 'danger-text' : ''}>
+                    {lost ? 'LOST' : Math.ceil(base.hull)}
+                  </b>{' '}
+                  / {base.maxHull}
+                </span>
+                <span>
+                  SHIELD <b>{Math.ceil(base.shield)}</b>
+                </span>
+              </div>
+              <div className="strategic-state">
+                <span>
+                  READY{' '}
+                  <b>
+                    {world.ships.filter((s) => s.status === 'docked').length}/{world.ships.length}
+                  </b>
+                </span>
+                <span>
+                  HOSTILES <b>{world.contacts.filter((c) => c.hostile && c.live).length}</b>
+                </span>
+              </div>
+            </section>
           </div>
-        </section>
-        <section className="strategic-state">
-          <small>COMMAND INTEGRITY</small>
-          <strong className={lost ? 'danger-text' : ''}>
-            {lost ? 'COMMAND LOST' : Math.ceil(base.hull) + ' / ' + base.maxHull}
-          </strong>
-          <span>
-            SHIELD {Math.ceil(base.shield)} · READY{' '}
-            {world.ships.filter((s) => s.status === 'docked').length}/{world.ships.length}
-          </span>
-          <span>{world.contacts.filter((c) => c.hostile && c.live).length} HOSTILE CONTACTS</span>
-        </section>
-        <div className="header-band" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
+          <LcarsBar className="header-band" />
         </div>
       </header>
       <nav className="section-nav" aria-label="主导航">
-        <div className="nav-cap">
-          SECTOR
-          <br />
-          <b>047</b>
-        </div>
+        <LcarsElbow className="nav-cap">
+          <span>SECTOR</span>
+          <strong>047</strong>
+        </LcarsElbow>
         {PAGES.map((p, i) => (
-          <button
+          <LcarsButton
             key={p}
+            shape="rail"
+            tone={i === 1 || i === 4 ? 'orange' : i === 3 ? 'secondary' : 'almond'}
+            sound="navigation"
             aria-current={page === p ? 'page' : undefined}
-            className={page === p ? 'selected' : ''}
             onClick={() => onPage(page === p ? 'SECTOR' : p)}
           >
             <small>0{i + 1}</small>
             <b>{p}</b>
             <span>{LABELS[i]}</span>
-          </button>
+          </LcarsButton>
         ))}
         <div className="nav-bottom">
-          LCARS / 2368
-          <br />
-          RULES AI
-          <br />
-          LOCAL FRONTIER
+          <span>
+            LCARS / 2368
+            <br />
+            RULES AI / LOCAL
+          </span>
+          <LcarsButton
+            shape="flat"
+            sound="navigation"
+            tone="almond"
+            onClick={onSettings}
+            aria-label="Console Settings"
+          >
+            CONSOLE SETTINGS
+          </LcarsButton>
         </div>
       </nav>
+      <LcarsBar variant="lower" className="body-band" />
       <main className="sector-workspace">
-        {world.pauseReasons.length > 0 && !lost && (
-          <div className="critical-banner" role="alert">
-            <b>PRIORITY HOLD</b>
-            <span>{world.pauseReasons.map((r) => r.message).join(' · ')}</span>
-            <button onClick={() => command({ type: 'pause', paused: false }, true)}>
-              处置后继续
-            </button>
-          </div>
-        )}
         {children}
+        <LcarsButton
+          className="compact-context"
+          sound="navigation"
+          onClick={() => setShowContext(true)}
+          aria-label="打开 Inspector"
+        >
+          CONTEXT INSPECTOR
+        </LcarsButton>
+        {overlay}
       </main>
-      <aside className="inspector" aria-label="对象 Inspector">
-        <div className="section-title">CONTEXT INSPECTOR</div>
-        <div className="inspector-content">{inspector}</div>
+      <aside
+        ref={contextRef}
+        tabIndex={-1}
+        className={'inspector ' + (showContext ? 'is-open' : '')}
+        aria-label="对象 Inspector"
+      >
+        <div className="inspector-heading">
+          <LcarsTextBar className="section-title">CONTEXT INSPECTOR</LcarsTextBar>
+          <LcarsButton
+            className="inspector-close"
+            aria-label="关闭 Inspector"
+            sound="navigation"
+            onClick={() => setShowContext(false)}
+          >
+            CLOSE
+          </LcarsButton>
+        </div>
+        <div className="inspector-content">
+          <div key={contextSerial} className="context-transition">
+            {inspector}
+          </div>
+        </div>
       </aside>
       <footer className="operations-footer">
         <div className="footer-title">
-          <b>ACTIVE OPERATIONS</b>
+          <LcarsTextBar>ACTIVE OPERATIONS</LcarsTextBar>
           <small>
             {lost ? 'COMMAND LOST' : world.paused ? 'SIMULATION PAUSED' : 'SIMULATION ACTIVE'}
           </small>
@@ -180,7 +268,8 @@ export function LcarsShell({
         <div className="operation-strip">
           {active.length ? (
             active.map((o) => (
-              <button
+              <LcarsButton
+                sound="navigation"
                 key={o.id}
                 className={'operation-chip ' + (o.phase === 'decision' ? 'attention' : '')}
                 onClick={() => locate(o.id)}
@@ -192,7 +281,7 @@ export function LcarsShell({
                   {o.held ? 'HOLD' : PHASE[o.phase]} · {o.shipIds.length} ASSETS
                 </span>
                 <small>{actionProgress(world, o).text}</small>
-              </button>
+              </LcarsButton>
             ))
           ) : (
             <span className="muted">NO ACTIVE OPERATIONS · 从星图选择目标下达高层任务</span>

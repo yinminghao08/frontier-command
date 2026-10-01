@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useLcars } from './ui/lcars/LcarsProvider';
+import { LcarsButton } from './ui/components/Lcars';
 import type { Point, Snapshot } from './engine/types';
 import {
   REGIONS,
@@ -34,6 +36,9 @@ export function StrategicMap({
   onSelect: (s: Selection) => void;
   focus: { point: Point; serial: number } | null;
 }) {
+  const { preferences, audio } = useLcars();
+  const motion = useRef(preferences.animations);
+  motion.current = preferences.animations;
   const viewport = useRef<HTMLDivElement>(null),
     svg = useRef<SVGSVGElement>(null);
   const [camera, setCamera] = useState(() => fitCamera(1, 1)),
@@ -55,7 +60,7 @@ export function StrategicMap({
   const animate = (next: Camera) => {
     cancelAnimationFrame(frame.current);
     target.current = next;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (motion.current !== 'on') {
       commit(next);
       return;
     }
@@ -65,7 +70,7 @@ export function StrategicMap({
       const t = target.current,
         progress = Math.min(1, (performance.now() - started) / 180),
         ease = 1 - Math.pow(1 - progress, 3);
-      if (progress === 1) {
+      if (progress === 1 || motion.current !== 'on') {
         commit(t);
         return;
       }
@@ -126,11 +131,15 @@ export function StrategicMap({
     },
     onClick: (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (!moved.current) onSelect(s);
+      if (!moved.current) {
+        audio.play('navigation');
+        onSelect(s);
+      }
     },
     onKeyDown: (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
+        audio.play('navigation');
         onSelect(s);
       }
     },
@@ -147,7 +156,7 @@ export function StrategicMap({
       id: l.id,
       text: l.label,
       priority: active(l.id) ? 100 : l.kind === 'base' ? 80 : l.distress ? 75 : 30,
-      color: l.kind === 'base' ? '#ffcc99' : '#a9b8ee',
+      color: l.kind === 'base' ? 'var(--almond-creme)' : 'var(--bluey)',
     })),
     ...world.ships
       .filter((s) => level !== 'SECTOR' || active(s.id))
@@ -156,7 +165,7 @@ export function StrategicMap({
         id: s.id,
         text: s.name.split(' / ')[0],
         priority: active(s.id) ? 100 : 50,
-        color: '#99ccff',
+        color: 'var(--bluey)',
       })),
     ...world.contacts
       .filter((c) => c.live || layers.Intelligence)
@@ -165,25 +174,36 @@ export function StrategicMap({
         id: c.id,
         text: c.live ? (c.name ?? c.level) : 'LKP ' + Math.floor(world.time - c.lastSeen) + 'm',
         priority: active(c.id) ? 100 : 70,
-        color: c.hostile ? '#ff8866' : '#cc99cc',
+        color: c.hostile ? 'var(--red)' : 'var(--african-violet)',
       })),
   ];
-  const placed = placeLabels(labels, camera.width, camera.height);
+  const markerScale = Math.min(1.5, Math.max(1, camera.width / 1500));
+  const placed = placeLabels(labels, camera.width, camera.height, markerScale);
   return (
-    <section className="map-container" aria-label="Strategic Map workspace">
+    <section
+      className="map-container"
+      aria-label="Strategic Map workspace"
+      style={
+        {
+          '--map-label-size': 14 * markerScale + 'px',
+          '--map-region-size': 17 * markerScale + 'px',
+        } as CSSProperties
+      }
+    >
       <div className="map-toolbar">
         <span>
           STRATEGIC MAP <b>{level}</b>
         </span>
         <div className="layers">
           {Object.entries(layers).map(([name, on]) => (
-            <button
+            <LcarsButton
+              sound="navigation"
               key={name}
               aria-pressed={on}
               onClick={() => setLayers({ ...layers, [name]: !on })}
             >
               {name}
-            </button>
+            </LcarsButton>
           ))}
         </div>
       </div>
@@ -233,6 +253,7 @@ export function StrategicMap({
           }}
           onClick={(e) => {
             if (moved.current) return;
+            audio.play('navigation');
             const p = unproject(local(e.clientX, e.clientY), camera);
             onSelect({
               type: 'point',
@@ -259,9 +280,21 @@ export function StrategicMap({
               <polygon
                 key={r.id}
                 points={r.points.map((p) => p.x + ',' + p.y).join(' ')}
-                fill={r.color}
+                fill={
+                  r.id === 'romulan'
+                    ? 'var(--red)'
+                    : r.id === 'neutral'
+                      ? 'var(--african-violet)'
+                      : 'var(--bluey)'
+                }
                 fillOpacity=".065"
-                stroke={r.color}
+                stroke={
+                  r.id === 'romulan'
+                    ? 'var(--red)'
+                    : r.id === 'neutral'
+                      ? 'var(--african-violet)'
+                      : 'var(--bluey)'
+                }
                 strokeOpacity=".5"
                 strokeWidth="1"
                 vectorEffect="non-scaling-stroke"
@@ -273,7 +306,7 @@ export function StrategicMap({
                 cx={(i * 157.3) % 1600}
                 cy={(i * i * 37.1) % 800}
                 r="1"
-                fill="#99aacc"
+                fill="var(--bluey)"
                 opacity=".45"
               />
             ))}
@@ -287,7 +320,7 @@ export function StrategicMap({
                   y1={x.y}
                   x2={y.x}
                   y2={y.y}
-                  stroke="#8899ff"
+                  stroke="var(--bluey)"
                   strokeOpacity=".16"
                   strokeDasharray="3 7"
                   vectorEffect="non-scaling-stroke"
@@ -302,7 +335,7 @@ export function StrategicMap({
                     key={s.id}
                     points={[s, ...s.path].map((p) => p.x + ',' + p.y).join(' ')}
                     fill="none"
-                    stroke={active(s.id) ? '#ffcc99' : '#cc99cc'}
+                    stroke={active(s.id) ? 'var(--almond-creme)' : 'var(--african-violet)'}
                     strokeWidth="2"
                     strokeDasharray="7 5"
                     vectorEffect="non-scaling-stroke"
@@ -310,9 +343,9 @@ export function StrategicMap({
                 ))}
             {(layers.Sensors || level === 'LOCAL') && (
               <g
-                fill="#99ccff"
+                fill="var(--bluey)"
                 fillOpacity=".025"
-                stroke="#99ccff"
+                stroke="var(--bluey)"
                 strokeOpacity=".25"
                 strokeDasharray="3 6"
               >
@@ -344,9 +377,9 @@ export function StrategicMap({
                 cx={p.x}
                 cy={p.y}
                 r="65"
-                fill="#cc99cc"
+                fill="var(--african-violet)"
                 fillOpacity=".04"
-                stroke="#cc99cc"
+                stroke="var(--african-violet)"
                 strokeOpacity=".2"
               />
             ))}
@@ -360,7 +393,13 @@ export function StrategicMap({
                 y={p.y}
                 textAnchor="middle"
                 className="region-label"
-                fill={r.color}
+                fill={
+                  r.id === 'romulan'
+                    ? 'var(--red)'
+                    : r.id === 'neutral'
+                      ? 'var(--african-violet)'
+                      : 'var(--bluey)'
+                }
               >
                 {r.label}
               </text>
@@ -371,31 +410,44 @@ export function StrategicMap({
             return (
               <g
                 key={l.id}
-                transform={'translate(' + p.x + ' ' + p.y + ')'}
+                transform={'translate(' + p.x + ' ' + p.y + ') scale(' + markerScale + ')'}
                 {...interactive({ type: 'location', id: l.id }, l.name)}
               >
                 <circle r="19" fill="transparent" />
-                {active(l.id) && <circle r="22" fill="none" stroke="#ffcc99" strokeWidth="2" />}
+                {active(l.id) && (
+                  <circle
+                    className="selection-reticle"
+                    r="22"
+                    fill="none"
+                    stroke="var(--almond-creme)"
+                    strokeWidth="2"
+                  />
+                )}
                 {l.kind === 'base' ? (
-                  <g stroke="#ffcc99" fill="#000" strokeWidth="3">
+                  <g stroke="var(--almond-creme)" fill="#000" strokeWidth="3">
                     <circle r="12" />
                     <path d="M-18 0H18M0-18V18" />
                     <circle r="4" />
                   </g>
                 ) : l.kind === 'anomaly' ? (
-                  <g fill="#cc99cc" fillOpacity=".14" stroke="#cc99cc">
+                  <g fill="var(--african-violet)" fillOpacity=".14" stroke="var(--african-violet)">
                     <ellipse rx="24" ry="12" />
                     <ellipse rx="14" ry="7" />
                   </g>
                 ) : l.kind === 'mine' ? (
-                  <path d="M0-9L9 0 0 9 -9 0Z" fill="#000" stroke="#ffcc99" strokeWidth="2" />
+                  <path
+                    d="M0-9L9 0 0 9 -9 0Z"
+                    fill="#000"
+                    stroke="var(--almond-creme)"
+                    strokeWidth="2"
+                  />
                 ) : (
-                  <circle r="7" fill="#000" stroke="#8899ff" strokeWidth="2" />
+                  <circle r="7" fill="#000" stroke="var(--bluey)" strokeWidth="2" />
                 )}
                 {l.regionId === 'federation' && l.hull === 0 && (
-                  <path d="M-12-12L12 12M12-12L-12 12" stroke="#ff6666" strokeWidth="3" />
+                  <path d="M-12-12L12 12M12-12L-12 12" stroke="var(--red)" strokeWidth="3" />
                 )}
-                {l.distress && l.hull > 0 && <circle cx="13" cy="-14" r="4" fill="#ff8866" />}
+                {l.distress && l.hull > 0 && <circle cx="13" cy="-14" r="4" fill="var(--red)" />}
               </g>
             );
           })}
@@ -404,19 +456,26 @@ export function StrategicMap({
             return (
               <g
                 key={s.id}
-                transform={'translate(' + p.x + ' ' + p.y + ')'}
+                transform={'translate(' + p.x + ' ' + p.y + ') scale(' + markerScale + ')'}
                 {...interactive({ type: 'ship', id: s.id }, s.name)}
               >
                 <circle r="15" fill="transparent" />
-                {active(s.id) && <circle r="18" fill="none" stroke="#ffcc99" />}
+                {active(s.id) && (
+                  <circle
+                    className="selection-reticle"
+                    r="18"
+                    fill="none"
+                    stroke="var(--almond-creme)"
+                  />
+                )}
                 <path
                   d="M0-9L7 7 0 4 -7 7Z"
                   transform={'rotate(' + ((s.heading * 180) / Math.PI + 90) + ')'}
-                  fill="#99ccff"
-                  stroke="#ddecff"
+                  fill="var(--bluey)"
+                  stroke="var(--almond-creme)"
                 />
                 {s.status === 'mission' && (
-                  <circle r="12" fill="none" stroke="#99ccff" strokeDasharray="2 4" />
+                  <circle r="12" fill="none" stroke="var(--bluey)" strokeDasharray="2 4" />
                 )}
               </g>
             );
@@ -431,18 +490,18 @@ export function StrategicMap({
                   opacity={
                     c.live ? 1 : Math.max(0.2, 1 - (world.time - c.lastSeen) / RULES.intelTTL)
                   }
-                  transform={'translate(' + p.x + ' ' + p.y + ')'}
+                  transform={'translate(' + p.x + ' ' + p.y + ') scale(' + markerScale + ')'}
                   {...interactive({ type: 'contact', id: c.id }, c.name ?? '未知接触 ' + c.id)}
                 >
                   <circle r="19" fill="transparent" />
                   <path
                     d="M0-11L11 0 0 11 -11 0Z"
                     fill="#000"
-                    stroke={c.hostile ? '#ff8866' : '#cc99cc'}
+                    stroke={c.hostile ? 'var(--red)' : 'var(--african-violet)'}
                     strokeWidth="2"
                     strokeDasharray={c.live ? '' : '3 3'}
                   />
-                  <text y="4" textAnchor="middle" fill="#ffcc99">
+                  <text y="4" textAnchor="middle" fill="var(--almond-creme)">
                     {c.level === 'CONTACT' ? '?' : '!'}
                   </text>
                 </g>
@@ -458,7 +517,7 @@ export function StrategicMap({
                 y1={a.y}
                 x2={z.x}
                 y2={z.y}
-                stroke={b.enemy ? '#ff8866' : '#ffcc99'}
+                stroke={b.enemy ? 'var(--red)' : 'var(--almond-creme)'}
                 strokeWidth={b.weapon.includes('Torpedo') ? 4 : 2}
               />
             );
@@ -479,7 +538,7 @@ export function StrategicMap({
           {selection?.type === 'point' && (
             <g
               transform={'translate(' + pos(selection).x + ' ' + pos(selection).y + ')'}
-              stroke="#ffcc99"
+              stroke="var(--almond-creme)"
             >
               <circle r="14" fill="none" />
               <path d="M-22 0H22M0-22V22" />
@@ -490,7 +549,8 @@ export function StrategicMap({
       <div className="map-status">
         <span>DAWN SECTOR · DRAG / ZOOM / SELECT</span>
         <div className="camera-controls">
-          <button
+          <LcarsButton
+            sound="navigation"
             aria-label="缩小地图"
             disabled={camera.k <= 1.001}
             onClick={() =>
@@ -503,8 +563,9 @@ export function StrategicMap({
             }
           >
             −
-          </button>
-          <button
+          </LcarsButton>
+          <LcarsButton
+            sound="navigation"
             aria-label="放大地图"
             disabled={camera.k >= 7.999}
             onClick={() =>
@@ -517,15 +578,16 @@ export function StrategicMap({
             }
           >
             +
-          </button>
-          <button
+          </LcarsButton>
+          <LcarsButton
+            sound="navigation"
             onClick={() => {
               cancelAnimationFrame(frame.current);
               commit(fitCamera(camera.width, camera.height));
             }}
           >
             FIT
-          </button>
+          </LcarsButton>
           <b>{camera.k.toFixed(1)}×</b>
         </div>
       </div>

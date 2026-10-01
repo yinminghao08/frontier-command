@@ -1,4 +1,54 @@
-# LV1 v5 实际验证记录
+# LCARS 26 Classic 验证记录
+
+日期：2026-10-02。本轮只重构 UI，视觉来源为用户提供的 `LCARS-26.zip` Classic 模板。模板六套 HTML/CSS、公共 JS、字体、标志和五段音效均已审计；24 个原文件与 ZIP 逐文件字节相同。实现细节见 [模板审计与设计系统](lcars26-refactor.md)。
+
+## 本轮结果
+
+| 检查 | 结果 |
+| --- | --- |
+| `npm run build` | TypeScript、Vite、Electron 编译通过；原字体及五段 MP3 已打包 |
+| `npm test` | 8 个文件、94 项通过 |
+| `npm run test:e2e` | 完整 15 项真实 Electron E2E 通过，保留既有 10 项规则及存档断言 |
+| 最终反馈与布局复验 | 6 项反馈/显示测试、4 项布局/缩放测试通过；200% 下 SVG 地图对象的键盘选中、Inspector 关闭与焦点恢复复验通过；舰损/重启和 Day 1 新世界两项最终复验通过 |
+| 模板与数据边界 | `src/engine/`、世界规则、存档 schema、持久化和 preload 接口无改动；界面偏好独立保存 |
+
+实际使用生产 Electron、隔离临时用户数据、原有 preload 与 Command 接口。显示缩放通过 Electron `--force-device-scale-factor` 检查，没有修改用户的 Windows 系统设置；DIP 舍入最多允许一个 CSS 像素差异。没有重新制作发布包，已有 release 目录仍是旧版。
+
+## 显示与视觉检查
+
+已打开实际截图检查六种尺寸、125% / 150% / 200% 缩放、五个管理页面、三类任务表单、六类 Inspector、通知、Console Settings、COMMAND LOST 和新世界确认。对照 Classic 的内外弧、双横条分段、黑色切口、按钮与 Antonio 字体层级；修正了圆角内的颜色泄漏、150% 下侧轨标题裁切和暂停提示遮挡地图区域标签。
+
+| 内容视口 | 实际截图 |
+| --- | --- |
+| 1600×900 | [主控制台](screenshots/lcars-console-1600x900.png) |
+| 1920×1080 | [主控制台](screenshots/lcars-console-1920x1080.png) |
+| 1920×1200 | [主控制台](screenshots/lcars-console-1920x1200.png) |
+| 2560×1440 | [主控制台](screenshots/lcars-console-2560x1440.png) |
+| 2560×1600 | [主控制台](screenshots/lcars-console-2560x1600.png) |
+| 3840×2160 | [主控制台](screenshots/lcars-console-3840x2160.png) |
+| 125% 显示缩放 | [控制台](screenshots/lcars-scale-125.png)、[表单](screenshots/lcars-scale-125-form.png) |
+| 150% 显示缩放 | [控制台](screenshots/lcars-scale-150.png)、[表单](screenshots/lcars-scale-150-form.png) |
+| 200% 显示缩放 | [控制台](screenshots/lcars-scale-200.png)、[表单](screenshots/lcars-scale-200-form.png)、[Inspector 覆盖层](screenshots/lcars-compact-inspector.png) |
+
+地图始终占主工作区最大面积；抽屉开启前后地图 viewport 不变。六项导航在高缩放下仍可访问。FIT、8× 上限、指针缩放、四向平移边界、窗口调整、语义缩放与标签避让均通过实际交互检查。模态表单 Tab 循环、Escape 及关闭后焦点恢复已验证；COMMAND LOST 保留明确的恢复、档案和新世界入口。
+
+管理页面：[Operations](screenshots/lcars-operations.png)、[Personnel](screenshots/lcars-personnel.png)、[Starbase](screenshots/lcars-starbase.png)、[Colonies](screenshots/lcars-colonies.png)、[Archive](screenshots/lcars-archive.png)。任务表单：[Defense](screenshots/lcars-form-defense.png)、[Transport](screenshots/lcars-form-transport.png)、[Explore](screenshots/lcars-form-explore.png)。
+
+Inspector：[地点](screenshots/lcars-inspector-location.png)、[舰船](screenshots/lcars-inspector-ship.png)、[接触](screenshots/lcars-inspector-contact.png)、[调查决策](screenshots/lcars-inspector-decision.png)、[坐标](screenshots/lcars-inspector-point.png)、[永久舰损](screenshots/lcars-inspector-loss.png)。其他状态：[设置](screenshots/lcars-settings.png)、[COMMAND LOST](screenshots/v5-command-lost-1920.png)、[新世界确认](screenshots/v5-new-frontier-confirm.png)。
+
+## 反馈、持久化与功能
+
+三档动画使用实际计算样式检查：ON 保留原模板级联节奏，REDUCED 停用循环与位移，OFF 关闭动画并使摄像机直接定位。关键文字和操作按钮始终可见。
+
+音频检查观察实际 AudioBufferSource 启动：导航、选项提交、命令成功和 COMMAND LOST 使用对应原始样本；静音后不再启动音源，音量与动画模式在 Electron 重启后恢复。快速连续导航、事件去重、最多两路播放、告警两秒间隔、终态延迟提示与静音取消分别通过 E2E 或 Audio Manager 单元测试。初始快照和刷新不会重复播历史告警。
+
+原有任务创建、修改、取消、调查决策、人员分配、维修、装弹、保存、档案、新世界和时间线恢复入口接回原处理函数。既有 Electron 场景继续验证真实结算、资源守恒、舰损、冻结、午夜快照、重启和失败记录保持。
+
+---
+
+## LV1 v5 历史验证记录
+
+以下为 2026-09-29 的引擎/存档基线记录；其中引擎修复属于上一轮。本轮截图已更新为 LCARS Classic，历史测试数量不代表本轮结果。
 
 日期：2026-09-29。源码版本1.1.0，世界格式v5。Windows x64，Node.js24.18.0、npm11.16.0、Electron41.10.7、Vite6.4.3。
 

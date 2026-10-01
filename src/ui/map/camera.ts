@@ -61,20 +61,29 @@ export interface MapLabel extends Point {
   priority: number;
   color: string;
 }
-export function placeLabels(labels: MapLabel[], width: number, height: number) {
+export function placeLabels(labels: MapLabel[], width: number, height: number, scale = 1) {
   const placed: (MapLabel & { width: number })[] = [];
   for (const l of [...labels].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))) {
-    const w = Math.min(240, l.text.length * 6.8 + 8);
+    const w = Math.min(240, l.text.length * 6.8 + 8) * scale;
     for (const [dx, dy] of [
-      [0, 22],
-      [0, -23],
-      [w / 2 + 18, 4],
-      [-w / 2 - 18, 4],
+      [0, 22 * scale],
+      [0, -23 * scale],
+      [w / 2 + 18 * scale, 4 * scale],
+      [-w / 2 - 18 * scale, 4 * scale],
     ]) {
       const p = { ...l, x: l.x + dx, y: l.y + dy, width: w };
-      if (p.x - w / 2 < 4 || p.x + w / 2 > width - 4 || p.y < 15 || p.y > height - 6) continue;
       if (
-        placed.some((x) => Math.abs(x.x - p.x) < (x.width + w) / 2 + 5 && Math.abs(x.y - p.y) < 20)
+        p.x - w / 2 < 4 ||
+        p.x + w / 2 > width - 4 ||
+        p.y < 15 * scale ||
+        p.y > height - 6 * scale
+      )
+        continue;
+      if (
+        placed.some(
+          (x) =>
+            Math.abs(x.x - p.x) < (x.width + w) / 2 + 5 * scale && Math.abs(x.y - p.y) < 20 * scale,
+        )
       )
         continue;
       placed.push(p);

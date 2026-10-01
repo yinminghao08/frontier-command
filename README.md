@@ -4,7 +4,7 @@
 
 玩家是 Dawn Frontier 的 Admiral：观察持续运行的世界、接收通信、制定任务、分配舰船与资源。执行者是明确标注的**确定性规则 AI**；当前不接 LLM，不包含成长、造船或制造系统。
 
-![LCARS Admiral console](docs/screenshots/v5-sector-1920.png)
+![LCARS Admiral console](docs/screenshots/lcars-console-ready.png)
 
 ## 运行
 
@@ -23,7 +23,9 @@ npm start
 
 ## LCARS 指挥终端
 
-顶部 Communications、时间和战略状态；左侧六项导航；中央 Strategic Map；右侧 Inspector；底部 Active Operations。管理页面覆盖地图，不改变地图尺寸。所有时间、地图、任务、关闭、确认、危险操作、装弹与通知控件统一为 LCARS 色块、粗条和圆角几何。
+基于提供的 LCARS-26 Classic 原模板重建：上下肘形侧轨、双横条、黑色切口、Antonio 字体和原始配色。顶部 Communications、时间和战略状态；左侧六项导航；中央 Strategic Map；右侧 Inspector；底部 Active Operations。管理页面覆盖地图，不改变地图尺寸，全部控件共用独立 LCARS design system。
+
+侧轨底部 Console Settings 提供 **ANIMATIONS: ON / REDUCED / OFF**、**SOUND: ON / OFF** 和音量。默认开启声音、25% 音量；系统要求减少动画时首次默认 REDUCED。设置独立于世界存档持久化。五段原始音效分别用于导航、命令确认、告警、指挥失守和表单提交，并限制频率和并发。抽屉支持 Escape，模态表单支持焦点循环。显示覆盖 16:9 / 16:10、1080p / 1440p / 4K 和高显示缩放；窄窗口通过覆盖层打开 Inspector。
 
 地图 FIT 是最小缩放，完整世界铺满视口；可缩放至8×，围绕鼠标缩放，边界内拖动。Resize 保持 FIT 或放大后的世界中心。远景显示区域与主要地点，中景增加设施与舰名，近景增加传感器；标签按屏幕尺寸避让。投影横纵独立，战斗距离仍使用世界坐标。
 
@@ -57,10 +59,11 @@ npm run build
 npm run test:e2e
 ```
 
-测试使用隔离临时存档。Electron E2E 覆盖实际 UI 行动、舰损、COMMAND LOST、恢复分支、午夜快照、真实装弹、侦察决策以及1920×1080／1600×900地图和抽屉。实际记录见 [verification](docs/verification.md)，规则对应证据见 [acceptance](docs/acceptance.md)。
+测试使用隔离临时存档。本轮构建、94 项测试和完整 15 项 Electron E2E 通过，覆盖原有结算与存档行为、六种分辨率、125%／150%／200% 显示缩放、三类表单、面板焦点以及动画和声音设置。实际记录见 [verification](docs/verification.md)，规则对应证据见 [acceptance](docs/acceptance.md)。
 
 - [架构与权限边界](docs/architecture.md)
 - [世界设定与规则](docs/worldbuilding.md)
 - [演示步骤](docs/demo-script.md)
+- [LCARS 26 模板审计、组件与反馈系统](docs/lcars26-refactor.md)
 
-LCARS 几何与配色以本项目历史提交 `b1d55b7` 的 Classic LCARS 为基准重新组织。视觉灵感来自 TheLCARS.com 与 Michael Okuda 的原设计；代码、地图和图标为本项目实现。Antonio 字体使用 SIL OFL。Star Trek 标识属于其权利人，本项目为非官方学习展示；舰型混编与数值属于游戏抽象。
+LCARS Inspired Website Template by TheLCARS.com, with modifications. 本次 UI 直接基于用户提供的 LCARS-26 Classic（Jim Robertus）重构，原文件保存在 `src/assets/lcars-26/`。Antonio 字体使用 SIL OFL。Star Trek 标识属于其权利人，本项目为非官方学习展示；舰型混编与数值属于游戏抽象。

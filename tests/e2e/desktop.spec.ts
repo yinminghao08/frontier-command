@@ -86,7 +86,7 @@ test('real Electron: create three concurrent orders, decisions, settlement, retu
   const saved = (await page.evaluate(() => window.frontier.getState())).state;
   expect(saved.ships.every((s) => s.orderId === null)).toBe(true);
   expect(saved.resources.science).toBeGreaterThan(0);
-  await page.screenshot({ path: 'test-results/v5-complete.png' });
+  await page.screenshot({ animations: 'disabled', path: 'test-results/v5-complete.png' });
   expect(errors).toEqual([]);
   await app!.close();
   app = undefined;
@@ -166,7 +166,7 @@ test('LCARS map boundaries, pointer zoom, resize and overlay geometry at both re
       .poll(async () => (await camera()).width)
       .toBeCloseTo((await map.boundingBox())!.width, 0);
     const original = await map.boundingBox();
-    await page.screenshot({ path: `test-results/v5-sector-${width}.png` });
+    await page.screenshot({ animations: 'disabled', path: `test-results/v5-sector-${width}.png` });
     for (const nav of ['OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
       await page
         .getByRole('navigation')
@@ -174,7 +174,10 @@ test('LCARS map boundaries, pointer zoom, resize and overlay geometry at both re
         .click();
       await expect(page.getByRole('dialog', { name: nav + ' 工作面板' })).toBeVisible();
       expect(await map.boundingBox()).toEqual(original);
-      await page.screenshot({ path: `test-results/v5-${nav.toLowerCase()}-${width}.png` });
+      await page.screenshot({
+        animations: 'disabled',
+        path: `test-results/v5-${nav.toLowerCase()}-${width}.png`,
+      });
       await page.getByRole('button', { name: '关闭管理面板' }).click();
     }
     const b = (await map.boundingBox())!,
@@ -214,11 +217,17 @@ test('LCARS map boundaries, pointer zoom, resize and overlay geometry at both re
       .getByRole('button', { name: /OPERATIONS/ })
       .click();
     await page.getByRole('button', { name: '新建战斗／防御', exact: true }).click();
-    await page.screenshot({ path: `test-results/v5-composer-${width}.png` });
+    await page.screenshot({
+      animations: 'disabled',
+      path: `test-results/v5-composer-${width}.png`,
+    });
     const form = page.getByRole('dialog', { name: '创建行动' });
     await form.getByLabel('分配 Peregrine Patrol Craft', { exact: true }).check();
     await form.getByRole('button', { name: '授权派遣', exact: true }).scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `test-results/v5-composer-controls-${width}.png` });
+    await page.screenshot({
+      animations: 'disabled',
+      path: `test-results/v5-composer-controls-${width}.png`,
+    });
     await page
       .getByRole('dialog', { name: '创建行动' })
       .getByRole('button', { name: /关闭/ })
@@ -277,8 +286,11 @@ test('real hostile fire destroys a vessel; Archive and restart never resurrect i
     .getByRole('button', { name: /ARCHIVE/ })
     .click();
   await expect(page.locator('.loss-row')).toContainText('子午号');
-  await page.screenshot({ path: 'test-results/v5-vessel-loss.png' });
+  await page.screenshot({ animations: 'disabled', path: 'test-results/v5-vessel-loss.png' });
   await page.getByRole('button', { name: '立即保存' }).click();
+  await page.locator('.loss-row').click();
+  await expect(page.locator('.inspector')).toContainText('PERMANENT LOSS');
+  await page.screenshot({ animations: 'disabled', path: 'test-results/lcars-inspector-loss.png' });
   await app!.close();
   app = undefined;
   page = await launch(dir);
@@ -310,8 +322,20 @@ test('COMMAND LOST freezes real Electron, restores yesterday into a new branch, 
   ];
   store.write(e.state);
   let page = await launch(dir);
+  await page.evaluate(() => {
+    const w = window as unknown as Window & { terminalCue: boolean };
+    w.terminalCue = false;
+    window.addEventListener('lcars:cue', (event) => {
+      if ((event as CustomEvent<{ cue: string }>).detail.cue === 'terminal') w.terminalCue = true;
+    });
+  });
   await page.getByRole('button', { name: '继续', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'COMMAND LOST', exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as Window & { terminalCue: boolean }).terminalCue),
+    )
+    .toBe(true);
   const terminal = (await page.evaluate(() => window.frontier.getState())).state;
   expect(
     (await page.evaluate(() => window.frontier.command({ type: 'pause', paused: false }))).ok,
@@ -327,7 +351,10 @@ test('COMMAND LOST freezes real Electron, restores yesterday into a new branch, 
       { width, height },
     );
     await page.waitForTimeout(100);
-    await page.screenshot({ path: `test-results/v5-command-lost-${width}.png` });
+    await page.screenshot({
+      animations: 'disabled',
+      path: `test-results/v5-command-lost-${width}.png`,
+    });
   }
   const failurePath = join(dir, 'frontiers-v5', 'frontier-000001', 'failure.json'),
     failure = readFileSync(failurePath, 'utf8');
@@ -385,7 +412,7 @@ test('explicit ammunition loading uses stock and rejects unavailable rounds thro
   let w = (await page.evaluate(() => window.frontier.getState())).state;
   expect(w.armory.reserved).toEqual({ photon: 3, quantum: 1 });
   expect(w.ships.find((s) => s.id === 'horizon')!.photon).toBe(0);
-  await page.screenshot({ path: 'test-results/v5-armory-loading.png' });
+  await page.screenshot({ animations: 'disabled', path: 'test-results/v5-armory-loading.png' });
   await page.getByRole('button', { name: '16×', exact: true }).click();
   await page.getByRole('button', { name: '继续', exact: true }).click();
   await expect
@@ -513,12 +540,15 @@ test('Day 1 has no restore; BEGIN NEW FRONTIER keeps terminal files and legacy s
   await page.getByRole('button', { name: '继续', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'COMMAND LOST', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'RESTORE PREVIOUS DAY' })).toBeDisabled();
-  await page.screenshot({ path: 'test-results/v5-day-one-lost.png' });
+  await page.screenshot({ animations: 'disabled', path: 'test-results/v5-day-one-lost.png' });
   const path = join(dir, 'frontiers-v5', 'frontier-000001', 'failure.json'),
     bytes = readFileSync(path, 'utf8');
   await page.getByRole('button', { name: 'BEGIN NEW FRONTIER', exact: true }).click();
   await expect(page.getByRole('dialog', { name: '新世界确认' })).toBeVisible();
-  await page.screenshot({ path: 'test-results/v5-new-frontier-confirm.png' });
+  await page.screenshot({
+    animations: 'disabled',
+    path: 'test-results/v5-new-frontier-confirm.png',
+  });
   await page.getByRole('button', { name: '保留记录并创建新世界' }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   const next = await page.evaluate(() => window.frontier.getState());

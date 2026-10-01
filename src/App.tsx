@@ -4,11 +4,13 @@ import { StrategicMap, type Selection } from './StrategicMap';
 import { Inspector } from './ui/Inspector';
 import { OrderComposer } from './ui/OrderComposer';
 import { LcarsShell } from './ui/components/LcarsShell';
-import { LcarsDialog, LcarsButton } from './ui/components/Lcars';
+import { LcarsDialog, LcarsButton, LcarsFrame } from './ui/components/Lcars';
 import { CommandLost } from './ui/CommandLost';
 import { ManagementDrawer } from './ui/ManagementDrawer';
 import type { OperationOrder, OrderKind, Point } from './engine/types';
 import type { Page } from './ui/types';
+import { ConsoleSettings } from './ui/lcars/ConsoleSettings';
+import { WorldFeedback } from './ui/lcars/WorldFeedback';
 export function App() {
   const { world, timeline, notice, command, save, reset, dismissNotice } = useFrontier();
   const [page, setPage] = useState<Page>('SECTOR'),
@@ -17,12 +19,15 @@ export function App() {
   const [composer, setComposer] = useState<{ kind: OrderKind; existing?: OperationOrder } | null>(
       null,
     ),
-    [confirmReset, setConfirmReset] = useState(false);
+    [confirmReset, setConfirmReset] = useState(false),
+    [settings, setSettings] = useState(false);
   if (!world)
     return (
       <div className="loading">
-        <h1>FRONTIER COMMAND</h1>
-        <p>正在连接 DAWN STARBASE…</p>
+        <LcarsFrame title="ESTABLISHING COMMAND LINK">
+          <h1>FRONTIER COMMAND</h1>
+          <p>正在连接 DAWN STARBASE…</p>
+        </LcarsFrame>
       </div>
     );
   const select = (s: Selection, locate = false) => {
@@ -60,16 +65,49 @@ export function App() {
     setSelection({ type: 'location', id: 'base' });
     setPage('SECTOR');
     setComposer(null);
+    setSettings(false);
     setFocus(null);
   };
   return (
     <>
+      <WorldFeedback world={world} branch={timeline.activeId} />
       <LcarsShell
         world={world}
         page={page}
-        onPage={setPage}
+        onPage={(next) => {
+          setSettings(false);
+          setPage(next);
+        }}
         command={command}
         locate={locate}
+        contextSerial={
+          selection?.type === 'point'
+            ? `point:${selection.x}:${selection.y}`
+            : `${selection?.type}:${selection?.id}`
+        }
+        onSettings={() => setSettings(true)}
+        overlay={
+          settings ? (
+            <ConsoleSettings close={() => setSettings(false)} />
+          ) : (
+            page !== 'SECTOR' && (
+              <ManagementDrawer
+                page={page}
+                world={world}
+                timeline={timeline}
+                close={() => setPage('SECTOR')}
+                select={(s) => {
+                  select(s, true);
+                  setPage('SECTOR');
+                }}
+                create={(kind) => setComposer({ kind })}
+                command={command}
+                save={save}
+                newFrontier={() => setConfirmReset(true)}
+              />
+            )
+          )
+        }
         inspector={
           <Inspector
             world={world}
@@ -101,22 +139,6 @@ export function App() {
             onArchive={() => setPage('ARCHIVE')}
           />
         )}
-      {page !== 'SECTOR' && (
-        <ManagementDrawer
-          page={page}
-          world={world}
-          timeline={timeline}
-          close={() => setPage('SECTOR')}
-          select={(s) => {
-            select(s, true);
-            setPage('SECTOR');
-          }}
-          create={(kind) => setComposer({ kind })}
-          command={command}
-          save={save}
-          newFrontier={() => setConfirmReset(true)}
-        />
-      )}
       {composer && world.status === 'active' && (
         <OrderComposer
           world={world}
@@ -131,7 +153,11 @@ export function App() {
         />
       )}
       {confirmReset && (
-        <LcarsDialog title="BEGIN NEW FRONTIER" label="新世界确认">
+        <LcarsDialog
+          title="BEGIN NEW FRONTIER"
+          label="新世界确认"
+          onClose={() => setConfirmReset(false)}
+        >
           <h2>开始新的边疆世界</h2>
           <p>保留当前时间线和旧版文件，从 DAY 1 00:00 创建独立的新世界。</p>
           <div className="dialog-actions">
@@ -155,9 +181,9 @@ export function App() {
       {notice && (
         <div className={'notification ' + (notice.error ? 'error' : '')} role="status">
           <span>{notice.text}</span>
-          <button onClick={dismissNotice} aria-label="关闭通知">
-            CLOSE ×
-          </button>
+          <LcarsButton tone="secondary" onClick={dismissNotice} aria-label="关闭通知">
+            CLOSE
+          </LcarsButton>
         </div>
       )}
     </>

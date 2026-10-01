@@ -1,3 +1,4 @@
+import { LcarsButton, LcarsField, LcarsMeter } from './components/Lcars';
 import { useState } from 'react';
 import type { OperationOrder, Snapshot, OrderKind } from '../engine/types';
 import { SHIP_CLASSES } from '../engine/definitions/ships';
@@ -35,7 +36,9 @@ export function Inspector({
         <p>
           {selection.x}, {selection.y}
         </p>
-        <button onClick={() => create('explore')}>创建侦察行动</button>
+        <LcarsButton sound="navigation" onClick={() => create('explore')}>
+          创建侦察行动
+        </LcarsButton>
         <p className="muted">调查结果将保存在星图与档案中。</p>
       </>
     );
@@ -64,15 +67,7 @@ export function Inspector({
             ['Core Power', s.core, d.core],
           ] as const
         ).map(([name, value, max]) => (
-          <div className="meter" key={name}>
-            <span>
-              {name}
-              <b>
-                {Math.round(value)} / {max}
-              </b>
-            </span>
-            <progress value={value} max={max} />
-          </div>
+          <LcarsMeter key={name} label={name} value={value} max={max} />
         ))}
         <dl>
           <dt>Warp</dt>
@@ -97,12 +92,16 @@ export function Inspector({
           <dd>{s.behavior}</dd>
         </dl>
         {o && (
-          <button className="wide" onClick={() => select({ type: 'order', id: o.id })}>
+          <LcarsButton
+            className="wide"
+            sound="navigation"
+            onClick={() => select({ type: 'order', id: o.id })}
+          >
             {o.id} · {PHASE[o.phase]}
-          </button>
+          </LcarsButton>
         )}
         <div className="button-grid">
-          <button
+          <LcarsButton
             disabled={
               s.core < 12 ||
               s.scanUntil > world.time ||
@@ -112,20 +111,20 @@ export function Inspector({
             onClick={() => command({ type: 'scan', shipId: s.id })}
           >
             主动扫描
-          </button>
-          <button
+          </LcarsButton>
+          <LcarsButton
             disabled={!o || o.settled}
             onClick={() => command({ type: 'recall', shipId: s.id })}
           >
             撤退返航
-          </button>
-          <button
+          </LcarsButton>
+          <LcarsButton
             disabled={s.status !== 'docked' || s.hull >= d.hull}
             title="消耗真实维修材料；库存不足时拒绝"
             onClick={() => command({ type: 'repair', shipId: s.id })}
           >
             维修
-          </button>
+          </LcarsButton>
         </div>
         {d.photon + d.quantum > 0 && (
           <RearmControls key={s.id} shipId={s.id} world={world} command={command} />
@@ -145,32 +144,14 @@ export function Inspector({
         <small>{l.label}</small>
         <h2>{l.name}</h2>
         <p>
-          {l.regionId.toUpperCase()} SPACE · ({l.x}, {l.y})
+          {l.regionId.toUpperCase()} SPACE · {l.x} / {l.y}
         </p>
         {l.regionId === 'romulan' ? (
           <p className="muted">公开星图位置；设施实时库存与防御状态未知。</p>
         ) : (
           <>
-            <div className="meter">
-              <span>
-                设施完整度
-                <b>
-                  {Math.round(l.hull)} / {l.maxHull}
-                </b>
-              </span>
-              <progress value={l.hull} max={l.maxHull} />
-            </div>
-            {l.maxShield > 0 && (
-              <div className="meter">
-                <span>
-                  SHIELD{' '}
-                  <b>
-                    {Math.ceil(l.shield)} / {l.maxShield}
-                  </b>
-                </span>
-                <progress value={l.shield} max={l.maxShield} />
-              </div>
-            )}
+            <LcarsMeter label="设施完整度" value={l.hull} max={l.maxHull} />
+            {l.maxShield > 0 && <LcarsMeter label="SHIELD" value={l.shield} max={l.maxShield} />}
             <dl>
               {(['supplies', 'medical', 'materials'] as const).map((k, i) => (
                 <div className="dl-row" key={k}>
@@ -184,12 +165,12 @@ export function Inspector({
           </>
         )}
         {l.regionId === 'federation' && l.hull > 0 && l.hull < l.maxHull && (
-          <button
+          <LcarsButton
             disabled={l.stock.materials - l.reserved.materials < 1}
             onClick={() => command({ type: 'repairFacility', locationId: l.id })}
           >
             消耗本地材料维修
-          </button>
+          </LcarsButton>
         )}
         {l.distress && <p className="warning">需要后勤或防御支援</p>}
         <p className="muted">
@@ -199,13 +180,17 @@ export function Inspector({
           l.regionId === 'federation' &&
           ['base', 'colony', 'outpost', 'mine'].includes(l.kind) && (
             <div className="button-grid">
-              <button onClick={() => create('transport')}>运输到此处</button>
-              <button onClick={() => create('defense')}>保护设施</button>
+              <LcarsButton sound="navigation" onClick={() => create('transport')}>
+                运输到此处
+              </LcarsButton>
+              <LcarsButton sound="navigation" onClick={() => create('defense')}>
+                保护设施
+              </LcarsButton>
             </div>
           )}
-        <button className="wide" onClick={() => create('explore')}>
+        <LcarsButton className="wide" sound="navigation" onClick={() => create('explore')}>
           调查此区域
-        </button>
+        </LcarsButton>
         {l.kind === 'base' && (
           <p className="muted">
             长程传感器覆盖290距离单位；不能必然识破隐形。基地提供材料维修与实物装弹；基地摧毁即
@@ -246,29 +231,17 @@ export function Inspector({
         </dl>
         {c.classId && c.hull !== undefined && c.shield !== undefined && (
           <>
-            <div className="meter">
-              <span>
-                观测 Hull
-                <b>
-                  {Math.round(c.hull)} / {SHIP_CLASSES[c.classId].hull}
-                </b>
-              </span>
-              <progress value={c.hull} max={SHIP_CLASSES[c.classId].hull} />
-            </div>
-            <div className="meter">
-              <span>
-                观测 Shield
-                <b>
-                  {Math.round(c.shield)} / {SHIP_CLASSES[c.classId].shield}
-                </b>
-              </span>
-              <progress value={c.shield} max={SHIP_CLASSES[c.classId].shield} />
-            </div>
+            <LcarsMeter label="观测 Hull" value={c.hull} max={SHIP_CLASSES[c.classId].hull} />
+            <LcarsMeter label="观测 Shield" value={c.shield} max={SHIP_CLASSES[c.classId].shield} />
           </>
         )}
         <div className="button-grid">
-          <button onClick={() => create('explore')}>侦察／识别</button>
-          <button onClick={() => create('defense')}>创建拦截</button>
+          <LcarsButton sound="navigation" onClick={() => create('explore')}>
+            侦察／识别
+          </LcarsButton>
+          <LcarsButton sound="navigation" onClick={() => create('defense')}>
+            创建拦截
+          </LcarsButton>
         </div>
         <p className="muted">
           失去探测后位置不会更新，30游戏分钟后地图标记失效。未知接触不能直接开火。
@@ -334,30 +307,31 @@ export function Inspector({
         const s = world.ships.find((s) => s.id === id);
         const loss = world.losses.find((l) => l.shipId === id);
         return (
-          <button
+          <LcarsButton
             className="wide"
             key={id}
+            sound="navigation"
             onClick={() => select({ type: s ? 'ship' : 'loss', id })}
           >
             {s?.name ?? loss?.name ?? id}
             {!s ? ' / DESTROYED' : ''}
-          </button>
+          </LcarsButton>
         );
       })}
       {o.phase === 'decision' && (
         <div className="decision-box">
           <h3>调查决策</h3>
           <p>近距耗时更长、采样精度更高，也承担辐射和暴露风险。继续20分钟未决则执行预设方案。</p>
-          <button
+          <LcarsButton
             onClick={() => command({ type: 'investigate', orderId: o.id, approach: 'remote' })}
           >
             远距扫描 · 保守
-          </button>
-          <button
+          </LcarsButton>
+          <LcarsButton
             onClick={() => command({ type: 'investigate', orderId: o.id, approach: 'close' })}
           >
             近距调查 · 高精度
-          </button>
+          </LcarsButton>
         </div>
       )}
       {o.result && (
@@ -367,15 +341,17 @@ export function Inspector({
       )}
       {!o.settled && (
         <div className="button-grid">
-          <button onClick={() => edit(o)}>修改指令</button>
-          <button
+          <LcarsButton sound="navigation" onClick={() => edit(o)}>
+            修改指令
+          </LcarsButton>
+          <LcarsButton
             onClick={() => command({ type: o.held ? 'resumeOrder' : 'holdOrder', orderId: o.id })}
           >
             {o.held ? '恢复行动' : '暂停行动'}
-          </button>
-          <button onClick={() => command({ type: 'cancelOrder', orderId: o.id })}>
+          </LcarsButton>
+          <LcarsButton onClick={() => command({ type: 'cancelOrder', orderId: o.id })}>
             取消并返航
-          </button>
+          </LcarsButton>
         </div>
       )}
       <p className="muted">
@@ -413,7 +389,7 @@ function RearmControls({
         {(['photon', 'quantum'] as const)
           .filter((k) => d[k] > 0)
           .map((k) => (
-            <label key={k}>
+            <LcarsField key={k}>
               {k.toUpperCase()}
               <input
                 aria-label={'装弹 ' + k}
@@ -426,15 +402,15 @@ function RearmControls({
               <small>
                 可装 {max(k)} · 基地可用 {world.armory.stock[k] - world.armory.reserved[k]}
               </small>
-            </label>
+            </LcarsField>
           ))}
       </div>
-      <button
+      <LcarsButton
         disabled={load.photon + load.quantum <= 0}
         onClick={() => command({ type: 'rearm', shipId, load })}
       >
         授权装弹
-      </button>
+      </LcarsButton>
       <small>预留 → 按发转入弹舱；未装部分不会凭空生成。</small>
     </fieldset>
   );

@@ -40,10 +40,10 @@ export function CommandLost({
         >
           RESTORE PREVIOUS DAY
         </LcarsButton>
-        <LcarsButton tone="danger" onClick={onNewFrontier}>
+        <LcarsButton tone="danger" sound="navigation" onClick={onNewFrontier}>
           BEGIN NEW FRONTIER
         </LcarsButton>
-        <LcarsButton tone="secondary" onClick={onArchive}>
+        <LcarsButton tone="secondary" sound="navigation" onClick={onArchive}>
           VIEW ARCHIVE
         </LcarsButton>
       </div>

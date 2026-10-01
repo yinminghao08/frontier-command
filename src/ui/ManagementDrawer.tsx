@@ -5,6 +5,7 @@ import type { Selection } from '../StrategicMap';
 import { SHIP_CLASSES } from '../engine/definitions/ships';
 import { gameCalendar } from '../engine/clock';
 import { KIND, PHASE } from './OrderComposer';
+import { LcarsDrawer, LcarsButton, LcarsField, LcarsTextBar } from './components/Lcars';
 export function ManagementDrawer({
   page,
   world,
@@ -27,26 +28,27 @@ export function ManagementDrawer({
   newFrontier: () => void;
 }) {
   return (
-    <section className="management-drawer" role="dialog" aria-label={page + ' 工作面板'}>
-      <div className="section-title">
-        <span>{page} / COMMAND RECORDS</span>
-        <button aria-label="关闭管理面板" onClick={close}>
-          CLOSE ×
-        </button>
-      </div>
+    <LcarsDrawer title={page + ' / COMMAND RECORDS'} label={page + ' 工作面板'} onClose={close}>
       {page === 'OPERATIONS' && (
         <>
           <div className="inline-actions">
             {(['defense', 'transport', 'explore'] as const).map((k) => (
-              <button key={k} disabled={world.status !== 'active'} onClick={() => create(k)}>
+              <LcarsButton
+                key={k}
+                disabled={world.status !== 'active'}
+                sound="navigation"
+                onClick={() => create(k)}
+              >
                 新建{KIND[k]}
-              </button>
+              </LcarsButton>
             ))}
           </div>
           <div className="record-list">
             {[...world.orders].reverse().map((o) => (
-              <button
+              <LcarsButton
                 key={o.id}
+                shape="rail"
+                sound="navigation"
                 className="record-row"
                 onClick={() => select({ type: 'order', id: o.id })}
               >
@@ -57,7 +59,7 @@ export function ManagementDrawer({
                   {PHASE[o.phase]} · {o.outcome ?? o.priority}
                 </span>
                 <small>{o.result || o.shipIds.length + ' assets assigned'}</small>
-              </button>
+              </LcarsButton>
             ))}
             {!world.orders.length && <p>选择星图对象，指定目标、资产与执行政策。</p>}
           </div>
@@ -79,9 +81,10 @@ export function ManagementDrawer({
                       ? '执行主体不可用 · 原执行舰已损失'
                       : 'RULES CONTROLLER'}
                   </small>
-                  <label>
+                  <LcarsField>
                     ASSIGNMENT
                     <select
+                      data-sound="none"
                       aria-label={'分配操作者 ' + op.id}
                       disabled={op.availability !== 'available' || world.status !== 'active'}
                       value={a?.shipId ?? ''}
@@ -100,7 +103,7 @@ export function ManagementDrawer({
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </LcarsField>
                 </div>
               );
             })}
@@ -122,8 +125,10 @@ export function ManagementDrawer({
           </div>
           <div className="record-list">
             {world.ships.map((s) => (
-              <button
+              <LcarsButton
                 key={s.id}
+                shape="rail"
+                sound="navigation"
                 className="record-row"
                 onClick={() => select({ type: 'ship', id: s.id })}
               >
@@ -134,7 +139,7 @@ export function ManagementDrawer({
                 <small>
                   HULL {Math.ceil(s.hull)} / PHOTON {s.photon} / QUANTUM {s.quantum}
                 </small>
-              </button>
+              </LcarsButton>
             ))}
           </div>
         </>
@@ -146,8 +151,10 @@ export function ManagementDrawer({
               (l) => l.regionId === 'federation' && ['colony', 'mine', 'outpost'].includes(l.kind),
             )
             .map((l) => (
-              <button
+              <LcarsButton
                 key={l.id}
+                shape="rail"
+                sound="navigation"
                 className="record-row"
                 onClick={() => select({ type: 'location', id: l.id })}
               >
@@ -160,23 +167,25 @@ export function ManagementDrawer({
                 <small>
                   MEDICAL {l.stock.medical} / MATERIALS {l.stock.materials}
                 </small>
-              </button>
+              </LcarsButton>
             ))}
         </div>
       )}
       {page === 'ARCHIVE' && (
         <>
           <div className="inline-actions">
-            <button onClick={save}>立即保存</button>
-            <button className="danger" onClick={newFrontier}>
+            <LcarsButton onClick={save}>立即保存</LcarsButton>
+            <LcarsButton tone="danger" sound="navigation" onClick={newFrontier}>
               BEGIN NEW FRONTIER
-            </button>
+            </LcarsButton>
           </div>
-          <h3>VESSEL LOSSES / {world.losses.length}</h3>
+          <LcarsTextBar>VESSEL LOSSES / {world.losses.length}</LcarsTextBar>
           <div className="record-list">
             {world.losses.map((l) => (
-              <button
+              <LcarsButton
                 key={l.shipId}
+                shape="rail"
+                sound="navigation"
                 className="record-row loss-row"
                 onClick={() => select({ type: 'loss', id: l.shipId })}
               >
@@ -185,11 +194,11 @@ export function ManagementDrawer({
                   DAY {gameCalendar(l.tick).day} · {l.reason}
                 </span>
                 <small>永久损失 / {l.operatorIds.length} 个执行主体撤销分配</small>
-              </button>
+              </LcarsButton>
             ))}
             {!world.losses.length && <p className="muted">当前分支无舰船损失。</p>}
           </div>
-          <h3>TIMELINES</h3>
+          <LcarsTextBar>TIMELINES</LcarsTextBar>
           {timeline.branches.map((b) => (
             <div key={b.id} className="timeline-row">
               <b>
@@ -206,7 +215,7 @@ export function ManagementDrawer({
               </small>
             </div>
           ))}
-          <h3>OBSERVABLE REPORTS</h3>
+          <LcarsTextBar>OBSERVABLE REPORTS</LcarsTextBar>
           <div className="archive-log">
             {[...world.logs].reverse().map((l) => (
               <p key={l.id}>
@@ -216,6 +225,6 @@ export function ManagementDrawer({
           </div>
         </>
       )}
-    </section>
+    </LcarsDrawer>
   );
 }

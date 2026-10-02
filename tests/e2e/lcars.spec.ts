@@ -9,7 +9,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { SaveStore } from '../../electron/persistence';
-import { quietEngine, spec, until } from '../helpers';
+import { quietEngine } from '../helpers';
 let app: ElectronApplication | undefined;
 const key = 'frontier.lcars.console.v1';
 async function launch(directory: string, scale = 1) {
@@ -46,29 +46,10 @@ async function screenshot(page: Page, name: string) {
   await page.waitForTimeout(220);
   await page.screenshot({ path: 'test-results/lcars-' + name + '.png', animations: 'disabled' });
 }
-test('Classic geometry at six display sizes, every management page, form and Inspector', async () => {
+test('Classic geometry, eight Starbase modules, directives and Inspector at six sizes', async () => {
   test.setTimeout(120000);
-  const directory = mkdtempSync(join(tmpdir(), 'lcars-geometry-'));
-  const engine = quietEngine();
-  engine.dispatchCommand({ type: 'createOrder', spec: spec('explore') });
-  until(engine, () => engine.state.orders[0].phase === 'decision');
-  engine.state.intel.push({
-    id: 'recorded-contact',
-    name: 'Recorded Raider',
-    x: 1200,
-    y: 400,
-    level: 'TRACKED',
-    strength: 1,
-    lastSeen: engine.state.time,
-    live: false,
-    hostile: true,
-    factionId: 'pirate',
-    classId: 'raider',
-    hull: 80,
-    shield: 50,
-    resolved: false,
-  });
-  new SaveStore(directory).write(engine.state);
+  const directory = mkdtempSync(join(tmpdir(), 'lcars-v6-geometry-'));
+  new SaveStore(directory).write(quietEngine().state);
   const page = await launch(directory),
     errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -84,74 +65,51 @@ test('Classic geometry at six display sizes, every management page, form and Ins
     const map = await page.locator('.strategic-map').boundingBox();
     expect(map!.width).toBeGreaterThan(width * 0.58);
     expect(map!.height).toBeGreaterThan(height * 0.5);
-    const overflow = await page.evaluate(() => {
-      const selectors = [
+    const overflow = await page.evaluate(() =>
+      [
         '.command-header',
         '.section-nav',
         '.map-container',
         '.inspector',
         '.operations-footer',
-      ];
-      return selectors.filter((selector) => {
-        const r = document.querySelector(selector)!.getBoundingClientRect();
+      ].filter((s) => {
+        const r = document.querySelector(s)!.getBoundingClientRect();
         return r.x < 0 || r.y < 0 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1;
-      });
-    });
+      }),
+    );
     expect(overflow).toEqual([]);
-    await screenshot(page, 'console-' + width + 'x' + height);
+    await screenshot(page, 'v6-' + width + 'x' + height);
   }
   await size(page, 1920, 1080);
-  const box = await page.locator('.strategic-map').boundingBox();
   for (const nav of ['OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
     const trigger = page.getByRole('navigation').getByRole('button', { name: new RegExp(nav) });
     await trigger.click();
     await expect(page.getByRole('dialog', { name: nav + ' 工作面板' })).toBeVisible();
-    expect(await page.locator('.strategic-map').boundingBox()).toEqual(box);
-    await screenshot(page, nav.toLowerCase());
-    if (nav === 'PERSONNEL') {
-      const assignment = page.getByLabel(/分配操作者/).first(),
-        assigned = await assignment.inputValue();
-      await assignment.selectOption('');
-      await expect(assignment).toHaveValue('');
-      await assignment.selectOption(assigned);
-      await expect(assignment).toHaveValue(assigned);
-    }
+    if (nav === 'STARBASE')
+      for (const tab of [
+        'COMMAND',
+        'SHIPYARD',
+        'DRYDOCK',
+        'ARMORY',
+        'ENGINEERING',
+        'LOGISTICS',
+        'SENSOR CONTROL',
+        'DEFENSE GRID',
+      ]) {
+        await page.getByRole('tab', { name: tab, exact: true }).click();
+        await screenshot(page, 'v6-starbase-' + tab.replaceAll(' ', '-'));
+      }
+    await screenshot(page, 'v6-' + nav.toLowerCase());
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
   }
-  for (const kind of ['战斗／防御', '运输', '探索／侦察']) {
-    await page.getByRole('button', { name: /02 OPERATIONS/ }).click();
-    await page.getByRole('button', { name: '新建' + kind, exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: '创建行动' });
-    await expect(dialog).toBeVisible();
-    await screenshot(
-      page,
-      'form-' + (kind === '运输' ? 'transport' : kind === '战斗／防御' ? 'defense' : 'explore'),
-    );
-    const last = dialog.getByRole('checkbox').last();
-    await last.focus();
-    await page.keyboard.press('Tab');
-    await expect(dialog.getByRole('button', { name: '关闭行动编辑' })).toBeFocused();
-    await page.keyboard.press('Escape');
-  }
-  await page.getByRole('button', { name: '曙光基地', exact: true }).click();
-  await screenshot(page, 'inspector-location');
-  const shipName = (await page.evaluate(() => window.frontier.getState())).state.ships.find(
-    (s) => s.id === 'vigil',
-  )!.name;
-  await page.getByRole('button', { name: shipName, exact: true }).click();
-  await screenshot(page, 'inspector-ship');
-  await page.getByRole('button', { name: 'Recorded Raider', exact: true }).click();
-  await expect(page.locator('.inspector')).toContainText('观测 Hull');
-  await screenshot(page, 'inspector-contact');
-  await page.locator('.operation-chip').first().click();
-  await expect(page.locator('.decision-box')).toBeVisible();
-  await screenshot(page, 'inspector-decision');
-  await page.getByRole('button', { name: 'FIT', exact: true }).click();
-  const mapBox = (await page.locator('.strategic-map').boundingBox())!;
-  await page.mouse.click(mapBox.x + mapBox.width * 0.92, mapBox.y + mapBox.height * 0.9);
-  await expect(page.locator('.inspector h2')).toHaveText('未知区域');
-  await screenshot(page, 'inspector-point');
+  await page.locator('.operation-chip').filter({ hasText: 'VERITY' }).click();
+  await expect(page.locator('.inspector')).toContainText('FINAL ADMIRAL AUTHORITY');
+  await screenshot(page, 'v6-ship');
+  await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Admiral 指令' })).toBeVisible();
+  await screenshot(page, 'v6-directive');
+  await page.keyboard.press('Escape');
   expect(errors).toEqual([]);
 });
 test('preferences persist, three motion modes, real audio and rapid feedback are bounded', async () => {
@@ -217,8 +175,13 @@ test('preferences persist, three motion modes, real audio and rapid feedback are
   for (let i = 0; i < 60; i++) await page.keyboard.press('ArrowRight');
   await screenshot(page, 'settings');
   await page.keyboard.press('Escape');
+  const beforeZoom = JSON.parse(
+    (await page.locator('.strategic-map').getAttribute('data-view'))!,
+  ).k;
   await page.getByRole('button', { name: '放大地图' }).click();
-  expect(JSON.parse((await page.locator('.strategic-map').getAttribute('data-view'))!).k).toBe(1.4);
+  expect(
+    JSON.parse((await page.locator('.strategic-map').getAttribute('data-view'))!).k,
+  ).toBeCloseTo(beforeZoom * 1.4);
   await page.waitForTimeout(500);
   expect(
     await page.evaluate(() => (window as unknown as Window & { cues: string[] }).cues.length),
@@ -275,7 +238,7 @@ for (const scale of [1.25, 1.5, 2])
       await expect(page.locator('.inspector')).not.toBeVisible();
       const colony = page
         .locator('.strategic-map')
-        .getByRole('button', { name: '新曙殖民地', exact: true });
+        .getByRole('button', { name: 'NEW HORIZON / 新曙殖民地', exact: true });
       await colony.focus();
       await page.keyboard.press('Enter');
       await expect(page.locator('.inspector')).toBeVisible();
@@ -283,7 +246,7 @@ for (const scale of [1.25, 1.5, 2])
       await expect(colony).toBeFocused();
     }
     await page.getByRole('button', { name: /02 OPERATIONS/ }).click();
-    await page.getByRole('button', { name: '新建运输', exact: true }).click();
+    await page.getByRole('button', { name: 'Transport / Haul', exact: true }).click();
     await screenshot(page, 'scale-' + scale * 100 + '-form');
     await expect(page.getByRole('button', { name: '关闭行动编辑' })).toBeInViewport();
   });

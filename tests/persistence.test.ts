@@ -14,21 +14,56 @@ import { SaveStore } from '../electron/persistence';
 import { createWorld } from '../src/engine/data';
 import { worldSchema } from '../src/engine/save-schema';
 import { SimulationEngine } from '../src/engine/engine';
-import { applyDamage } from '../src/engine/lifecycle';
-import { quietEngine, run, spec } from './helpers';
+import { applyDamage } from '../src/engine/combat';
+import { parseSave } from '../src/engine/saves';
+import { quietEngine, run, issue } from './helpers';
 const dirs: string[] = [];
 const dir = () => {
-  const p = mkdtempSync(join(tmpdir(), 'frontier-v5-test-'));
+  const p = mkdtempSync(join(tmpdir(), 'frontier-v6-test-'));
   dirs.push(p);
   return p;
 };
 afterEach(() => {
   for (const p of dirs.splice(0)) rmSync(p, { recursive: true, force: true });
 });
-describe('v5 timeline persistence', () => {
+describe('v6 timeline persistence', () => {
+  it('loads isolated v6 fixtures and resumes the same physical world deterministically', () => {
+    const load = (name: string) =>
+      parseSave(JSON.parse(readFileSync(join('tests', 'fixtures', 'v6', name + '.json'), 'utf8')));
+    const initial = load('initial');
+    expect(initial.paused).toBe(true);
+    expect(initial.speed).toBe(1);
+    expect(initial.ships).toHaveLength(4);
+    const progress = load('in-progress');
+    expect(progress.ships.some((s) => s.cargo.materials > 0)).toBe(true);
+    expect(progress.systems.length).toBeGreaterThan(initial.systems.length);
+    const a = new SimulationEngine(progress),
+      b = new SimulationEngine(load('in-progress'));
+    run(a, 25);
+    run(b, 25);
+    expect(a.state).toEqual(b.state);
+    expect(load('continued').ships.some((s) => s.modules.includes('expandedCargo'))).toBe(true);
+    const terminal = new SimulationEngine(load('command-lost'));
+    const frozen = structuredClone(terminal.state);
+    expect(terminal.state.status).toBe('commandLost');
+    terminal.advanceFrame();
+    expect(terminal.state).toEqual(frozen);
+  });
   it('persists reservations, ammunition and deterministic continuation', () => {
     const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: spec('transport') });
+    issue(
+      e,
+      {
+        type: 'HAUL',
+        sourceId: 'base',
+        targetId: 'outpost',
+        cargoKind: 'supplies',
+        amount: 20,
+        route: 'direct',
+        repeat: false,
+      },
+      'meridian',
+    );
     const store = new SaveStore(dir());
     store.write(e.state);
     expect(store.read().world).toEqual(e.state);
@@ -40,12 +75,21 @@ describe('v5 timeline persistence', () => {
     run(resumed, 200);
     expect(resumed.state).toEqual(e.state);
   });
-  it('leaves legacy files unchanged and starts an independent v5 branch', () => {
+  it('leaves legacy files unchanged and starts an independent v6 branch', () => {
     const p = dir();
     writeFileSync(join(p, 'world-v4.json'), 'legacy');
+    mkdirSync(join(p, 'frontiers-v5', 'frontier-000001'), { recursive: true });
+    writeFileSync(join(p, 'frontiers-v5', 'frontier-000001', 'head.json'), 'legacy-v5');
+    writeFileSync(join(p, 'timeline-v5.json'), 'legacy-v5-index');
     const store = new SaveStore(p);
+    expect(store.read().world).toBeNull();
+    expect(store.read().blocked).toBe(false);
     store.write(createWorld());
     expect(readFileSync(join(p, 'world-v4.json'), 'utf8')).toBe('legacy');
+    expect(readFileSync(join(p, 'frontiers-v5', 'frontier-000001', 'head.json'), 'utf8')).toBe(
+      'legacy-v5',
+    );
+    expect(readFileSync(join(p, 'timeline-v5.json'), 'utf8')).toBe('legacy-v5-index');
     expect(existsSync(store.path)).toBe(true);
     expect(store.status(0).branches).toHaveLength(1);
     expect(existsSync(join(store.root, 'frontier-000001', 'day-1.json'))).toBe(true);
@@ -61,7 +105,7 @@ describe('v5 timeline persistence', () => {
     expect(
       readdirSync(join(store.root, 'frontier-000001')).some((n) => n.includes('corrupt')),
     ).toBe(true);
-    writeFileSync(store.path, JSON.stringify({ ...w, version: 6 }));
+    writeFileSync(store.path, JSON.stringify({ ...w, version: 7 }));
     expect(store.read().blocked).toBe(true);
     expect(() => store.write(w)).toThrow();
   });
@@ -144,10 +188,10 @@ describe('v5 timeline persistence', () => {
         w.assignments[0].shipId = w.assignments[1].shipId;
       },
       (w) => {
-        w.armory.reserved.photon = 1;
+        w.ships[0].modules = ['expandedCargo', 'longRangeSensors', 'deepScan'];
       },
       (w) => {
-        w.locations[0].reserved.supplies = 2;
+        w.locations[0].stock.supplies = -2;
       },
     ];
     for (const mutate of mutations) {

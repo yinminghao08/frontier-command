@@ -1,57 +1,136 @@
-# LV1 v5 architecture
+# Architecture
 
-## Authority and execution
+## Authority
 
-Electron main owns the only SimulationEngine. Renderer holds readonly snapshots and UI state (selection, drafts, camera, drawers). IPC accepts strict commands; renderer cannot submit a world, set a tick, choose damage or inspect hidden enemies. The preload exposes getState, command, save, timeline and onState only.
+Electron main owns the only authoritative `SimulationEngine`.
 
-World mutations use fixed 0.1 game-minute steps and the saved seeded PRNG. Speed 1/4/16 batches complete steps. Wall time schedules work but does not determine movement, cooldown, inventory, decisions or outcomes. Critical events pause at a completed step. COMMAND LOST prevents subsequent steps and gameplay commands.
+Renderer holds only UI state and readonly snapshots. Every world mutation enters the engine through validated structured commands. Hidden enemy state, faction intent, unrevealed world data and RNG state never enter the public snapshot.
 
-| Module                          | Responsibility                                                                                       |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| engine.ts                       | Authority entrypoints, step orchestration, deterministic random source, reports/events               |
-| command-system.ts / commands.ts | Strict validation, authority, transactional order and service commands, high-level intent validation |
-| rules-controller.ts             | Restricted Observation → defend / engage / scan / transport / retreat / hold intent                  |
-| order-system.ts                 | Reservations, mission phases, settlement, return and docking                                         |
-| execution.ts / navigation.ts    | Validated execution, physical movement, route graph and whole-segment border authorization           |
-| combat.ts / lifecycle.ts        | Range, cooldown, hit rolls, Core/ammo, damage, irreversible destruction and command loss             |
-| threats.ts                      | Faction observations and memory, utility decisions, scout coverage and shared reports                |
-| sensors.ts / projection.ts      | Player intelligence and explicit public snapshot projection                                          |
-| services.ts                     | Paid repair, physical ammunition transfer, timed manifests and facility recovery                     |
-| save-schema.ts / saves.ts       | Strict v5 domain validation and reference/inventory invariants                                       |
-| electron/persistence.ts         | Branch index, atomic head replacement, midnight snapshots, terminal records and restore transactions |
+Simulation rules use deterministic fixed steps and seeded randomness. Wall-clock time may schedule host work but never decides movement, combat, inventory or faction outcomes.
 
-Operator identities have availability and kind=rules. Independent assignments connect available operators to ships. Empty assignments and fleets are valid; defense is not capped to the initial fleet. controllerPort gives copied restricted observation, permitted commands and validated intents. Command authorization is revoked immediately after assignment changes or ship destruction. The rule decision layer never calculates position steps, hit rolls or damage.
+## World Model
 
-`shipDestroyed` carries shipId, operatorIds and tick. The loss record additionally preserves position, class, cargo, ammo and order identity. This is the future personnel-death integration boundary; no current LLM or death/rescue fiction is implemented.
+The strategic world is persistent and expandable.
 
-## Observation and intelligence
+- Space is organized as generated Sector / Star System data, not a fixed rectangular board.
+- Unknown sectors are materialized deterministically from the world seed when discovered.
+- Discovered systems, planets, anomalies and resource sites become persistent save data.
+- Stable internal IDs are separate from player-facing names so ships, colonies, facilities, planets and systems can be renamed safely.
+- Navigation, sensors, factions and rendering operate on the same world model.
 
-True enemy entities, intent, destinations, inventories, shared Romulan reports and RNG remain in main. Contacts only contain observed fields. Loss of coverage freezes last-known coordinates and state; visibility expires independently of evidence retained for old orders. Navigation uses public chart data and player-known contacts. Attack reports and effects are observable when own ships/facilities are involved. Own loss archives contain no hidden attacker state.
+The map may reveal more space indefinitely without requiring a global `WORLD_WIDTH` / `WORLD_HEIGHT`.
 
-Enemy decisions build observations from their own sensor coverage. Shared Romulan reports carry observer, time, confidence, target value and defense. Scouts select stale coverage areas and assess risk; warbirds may act on fresh reports or continue observation. Local physics resolves only attacks within real sensor/weapon range. Pirate fallback chart knowledge estimates facilities, while actual cargo and defense values require observation. Retreat/departure differs from destruction.
+## Command Model
 
-## Mission and resource invariants
+A Starfleet ship is always an independently controllable world entity.
 
-Cargo reserves source stock before dispatch, loads at source, and transfers only cargo actually carried at destination. Cancellation releases reservations; return transfers remaining cargo back to base. Loss records preserve destroyed cargo. Partial delivery fails without a success reward. Settlement is guarded once, and historical orders may reference archived ships.
+Each ship can hold:
 
-Defense waits for a protected window or observed destroyed/withdrawn contact. An expired contact is failure after search, not success. Surviving assets can continue after another withdraws. Priority weights recently observed attackers of the objective and orders communications; it does not add combat stats.
+- current directive
+- queued directives
+- standing orders
 
-Recon spends Core while working, requires real contact identification, and uses the common damage pipeline for close-survey hazards. Location revisions/region records suppress duplicate rewards. Surveyed hazard knowledge changes safe-route costs.
+New commands use `REPLACE`, `QUEUE` or `INTERRUPT`.
 
-Armory stock and reserved rounds are independent of materials. Each service transfer decrements both reservation and physical base stock, incrementing ship ammo exactly once. Repairs pay for a bounded amount of missing hull; new damage during service is not repaired for free. External manifests are explicit timed inventory sources, separate from commands.
+Admiral commands have final authority. Standing Orders and ROE govern autonomous behavior only; they must not block an explicit validated Admiral command.
 
-## Timeline transaction
+Directives describe intent such as move, patrol, escort, intercept, shadow, scan, attack, disable, retreat, dock or resupply. The engine resolves pathing, range, weapons, damage, cargo and timing.
 
-Each branch directory has head.json, head.json.bak, branch.json, immutable day-N.json, and failure.json after loss. The index points to an active branch and records parent snapshot relationships. New worlds start with Day 1 00:00. The host's afterStep hook persists midnight at the exact tick before the next speed-batched step.
+No long-lived Mission/Operation may own or lock a ship.
 
-Restore loads yesterday's snapshot, reliably seals the failed world, writes a new branch, then atomically changes the index. In-memory engine replacement occurs only after success. A failed index write may leave a recoverable orphan directory but cannot activate it or overwrite the old branch. Existing day/failure files are never rewritten. A terminal record takes precedence over a living backup; damaged terminal evidence blocks loading instead of resurrecting the pre-failure world.
+## Shared Activity Systems
 
-Day 3 restores Day 2 00:00. Day 1 offers only a new frontier. Previous snapshots can be found through parent branches without changing their bytes. Legacy formats are preserved and never migrated. Corrupt/unsupported files are protected. Schema checks clocks, references, assignments, active hull, class limits, cargo, ammunition reservations and stock reservations.
+Combat, exploration, mining and logistics operate on the same persistent world rather than separate mission pipelines.
 
-## LCARS UI and camera
+- Combat acts on real ships, facilities, positions, weapons and political consequences.
+- Exploration reveals real persistent systems, resources and hazards.
+- Mining extracts finite or renewable world resources into physical cargo/inventory.
+- Transport moves real goods between actual inventories and routes.
 
-App assembles LcarsShell, StrategicMap, Inspector, ManagementDrawer and OrderComposer. Six management sections are overlays; the map viewport stays mounted and unchanged. Shared LCARS styling covers native form controls as well as every button state. No unimplemented system is exposed as an actionable control.
+One system's output can create another system's opportunities.
 
-The independent pure camera module maps the whole 1600×800 sector onto actual viewport pixels, independently by axis. Scale is 1–8, translation is clamped to projected bounds. Pointer zoom and time-based interpolation preserve the anchor; ResizeObserver preserves fit or world center. Symbols and labels use screen pixels. Label placement is priority-based with collision avoidance. Semantic detail changes at 1.65× and 3×. TacticalView is intentionally absent.
+## Economy and Growth
 
-See acceptance and verification for reproducible behavior and actual Electron screenshots; build success alone is not visual acceptance.
+Core resources have explicit meaning:
+
+- `Credits`: strategic budget
+- `Materials`: construction, repair and industry
+- `Supplies`: colony/facility sustainment and logistics
+- `Photon` / `Quantum`: physical ammunition
+- `Special Finds`: rare capability unlocks
+
+Fleet growth uses limited module slots and capability-changing upgrades.
+
+Starbase growth modifies strategic systems such as Shipyard, Sensors, Armory, Logistics and Defense. Shipbuilding produces persistent new ships; permanent losses remain meaningful without creating an unrecoverable dead end.
+
+## Faction Simulation
+
+Faction actors are persistent entities with their own assets, information and constraints.
+
+### Orion Syndicate
+
+Orion ships, hideouts, cargo, ammunition and losses are real world state. They scout profitable routes, raid weak targets, carry stolen goods home and rebuild only when their economy permits.
+
+### Romulan Border Command
+
+Romulan scouts gather observations. Border Command acts on fresh reports, strategic value, tension and risk. Romulan vessels are not automatically hostile merely because of faction identity.
+
+Faction actions must originate from world state and knowledge, not periodic enemy spawning.
+
+## Agent Boundary
+
+Agent and ship are separate entities.
+
+Ships own physical state. Agents own personality, skills, memory, experience, career and relationships.
+
+Future LLM execution follows:
+
+`observation → model decision → structured action → validation → engine command`
+
+Models never edit `WorldState`, calculate frame-level physics or run every simulation step.
+
+## Persistence
+
+Save data is versioned and validates references, inventories, generated world data, directives, faction state and progression.
+
+Timeline branching and recovery remain transactional: immutable historical snapshots are never rewritten, and engine replacement occurs only after persistence succeeds.
+
+## UI Boundary
+
+The existing LCARS 26 Classic design system is the UI foundation.
+
+- `SECTOR`: expandable Strategic Map and context commands
+- `STARBASE`: dedicated full management interface
+- other management views present fleet, economy, colonies and history without owning simulation state
+
+Strategic Map uses semantic zoom and renders only known information. UI animation/audio preferences remain separate from world saves.
+
+## Code Boundaries
+
+- `src/engine/`: authoritative world, commands, simulation, factions, economy and save schema
+- `src/ui/`: LCARS presentation and interaction
+- `src/StrategicMap.*`: strategic world rendering/camera
+- `electron/`: engine host, IPC and persistence
+- `tests/`: deterministic rules, persistence and Electron E2E
+
+Prefer domain data over scattered constants, strict TypeScript over `any`, and root-cause refactors over compatibility patches around rejected architecture.
+
+## v6 Implementation
+
+The fixed step is 0.1 game-minute, scheduled every 100 ms by the Electron host. A 1x game minute is therefore approximately one real second. Speeds 4/16 repeat the same steps and stop the batch at a major pause. Sensors observe each game minute; faction decisions use simulation-time deadlines.
+
+A directive stores its own phase, work, travelled distance, loaded manifest, delivered amount and remaining physical reservations. Only active/suspended directives reserve stock; queued actions reserve nothing. REPLACE clears all three directive containers. INTERRUPT pushes the current directive onto a LIFO stack. Completion resumes the stack before the FIFO queue and validates what remains, including partially loaded magazines and exhausted mines already unloading. Failed targets release reservations and report the reason; actual cargo is retained.
+
+Sector IDs derive from coordinates; system/body IDs derive from their sector and local index. Coordinate generation uses initialSeed and a local derived PRNG, separate from the mutable combat/cloak RNG. The engine stores generated content and survey tiers; Renderer receives neither random source. Map transforms are unbounded and preserve world center on resize; FIT includes known locations/systems. Local-body labels are shown at local zoom or for a selected system.
+
+Physical inventory belongs to a location, construction site, ship cargo, magazine, enemy hideout or wreck. Credits are the command budget. HAUL reservations move into cargo only after loading; delivery uses the lesser of the actual cargo and remaining manifest. Cancelling does not restore consumed industry materials or unload cargo. Completed construction projects resolve later queued shipments into their resulting facility.
+
+Route forecasts clip both voyage legs against the union of charted Sector rectangles to show the uncharted distance fraction, using public geography only. Risky warp corridors are physically faster and damaging; while a ship is underway they amplify its detectable signature to 1.5x the observer's sensor radius. Docked/loading ships do not retain that exposure. Safe routes visit defensive nodes and avoid known hazard/contact crossings.
+
+Construction uses on-site stock and cannot start work while required goods are reserved for another delivery. Industry jobs independently complete shipbuilding, upgrades and manufacturing without owning vessels. The rear industrial accumulator produces a minimum hull's cost basket over 240 game minutes; a new hull takes 25 minutes and receives a fresh ID, independent operator identity and empty magazines.
+
+Orion reports record local observations, value, escort defense, freshness and position. Raiders pursue reported positions until acquiring their own sensor contact. Loot is physically transferred, returned and partly consumed by black-market sale; repairs, rearming and replacement hulls use the hideout's finite stock. Docked ships retain a service deadline and can redeploy after it. There is no periodic reinforcement source. Romulan reports plus tension determine command stance; actual boundary crossings, withdrawal, construction and attacks persist in history.
+
+Public Snapshot/Observation types are recursively readonly and detached by structuredClone. Snapshot uses an explicit field whitelist; enemy intent, assets, stocks, reports, seed and unrevealed geography stay private. Contacts retain the frozen last observed position during loss of signal. AgentControllerPort exposes only getObservation and submitAction for its assigned vessel; an active Admiral directive rejects an autonomous submission.
+
+v6 saves use timeline-v6.json and frontiers-v6, independently of all earlier roots. Schema checks clocks, references, stable-ID uniqueness, physical capacities, module slots, reservations, historical counters and industry recipes. Runtime target loss remains a valid historical reference until the directive can handle it. Midnight writes occur in the host's after-step callback before the next accelerated step. The host switches engines only after a restored/new branch has been persisted.

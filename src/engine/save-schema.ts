@@ -1,96 +1,118 @@
 import { z } from 'zod';
-import { orderSpecSchema } from './commands';
+import { actionSchema, ammoSchema, pointSchema, stockSchema, moduleSchema } from './commands';
 import { SHIP_CLASSES, type ShipClassId } from './definitions/ships';
-import { CRITICAL_KINDS } from './types';
+import { CRITICAL_KINDS, GOODS } from './types';
+import { capabilities, cargoUsed } from './capabilities';
 const n = z.number().finite(),
   nn = n.min(0),
-  id = z.string().min(1).max(100),
-  integer = nn.int();
-const point = z.object({ x: n.min(0).max(1600), y: n.min(0).max(800) }).strict();
-const ammo = z.object({ photon: integer, quantum: integer }).strict();
-const stock = z.object({ supplies: nn, medical: nn, materials: nn }).strict();
+  integer = nn.int(),
+  id = z.string().min(1).max(160),
+  name = z.string().min(1).max(160);
 const classId = z.custom<ShipClassId>(
   (x) => typeof x === 'string' && Object.hasOwn(SHIP_CLASSES, x),
 );
-const ship = point
+const cost = z.object({ credits: nn, materials: nn, supplies: nn, specialFinds: integer }).strict();
+const directive = z
+  .object({
+    id,
+    action: actionSchema,
+    created: nn,
+    phase: z.enum([
+      'starting',
+      'extracting',
+      'unloading',
+      'loading',
+      'delivering',
+      'refitting',
+      'rearming',
+    ]),
+    work: nn,
+    moved: nn,
+    carried: nn,
+    delivered: nn,
+    reserved: stockSchema,
+    paidCredits: nn,
+    search: nn,
+    note: z.string(),
+  })
+  .strict();
+const ship = pointSchema
   .extend({
     id,
-    name: z.string(),
+    name,
     classId,
-    factionId: z.enum(['starfleet', 'pirate', 'romulan']),
+    factionId: z.enum(['starfleet', 'orion', 'romulan']),
     hull: nn,
     shield: nn,
     core: nn,
     photon: integer,
     quantum: integer,
-    status: z.enum(['docked', 'mission', 'returning', 'repairing', 'rearming']),
-    orderId: id.nullable(),
-    targetId: id.nullable(),
-    path: z.array(point).max(30),
+    modules: z.array(moduleSchema),
+    engines: nn.max(100),
+    weapons: nn.max(100),
+    status: z.enum(['docked', 'active', 'idle']),
+    current: directive.nullable(),
+    queue: z.array(directive).max(32),
+    suspended: z.array(directive).max(16),
+    standing: z
+      .object({
+        roe: z.enum(['HOLD FIRE', 'RETURN FIRE', 'ENGAGE HOSTILES']),
+        retreatHull: nn.max(90),
+      })
+      .strict(),
+    path: z.array(pointSchema),
     heading: n,
-    cargo: stock,
+    cargo: stockSchema,
     cooldowns: z.record(nn),
-    service: nn,
-    rearm: ammo,
     lastAttackerId: id.nullable(),
     attackedAt: n,
     scanUntil: nn,
     cloak: z.enum(['off', 'on', 'decloaking']),
     cloakUntil: nn,
-    behavior: z.enum(['hold', 'defend', 'engage', 'retreat', 'scan', 'travel']),
   })
   .strict();
-const location = point
-  .extend({
-    id,
-    name: z.string(),
-    label: z.string(),
-    kind: z.enum(['base', 'colony', 'outpost', 'anomaly', 'border', 'mine', 'planet']),
-    regionId: z.enum(['federation', 'neutral', 'romulan']),
-    supply: nn,
-    stock,
-    reserved: stock,
-    hull: nn,
-    maxHull: nn,
-    shield: nn,
-    maxShield: nn,
-    attackedAt: n,
-    distress: z.boolean(),
-    surveyed: z.boolean(),
-    hazard: nn,
-    surveyRevision: integer,
-    rewardedRevision: integer,
+const facilityKind = z.enum(['base', 'colony', 'mine', 'outpost', 'platform']);
+const faction = z
+  .object({
+    reports: z.array(
+      pointSchema
+        .extend({
+          id,
+          observerId: id,
+          seenAt: nn,
+          value: nn,
+          defense: nn,
+          kind: z.enum(['ship', 'facility']),
+        })
+        .strict(),
+    ),
+    credits: nn,
+    production: nn,
+    losses: z.array(id),
+    stance: z.enum(['observe', 'probe', 'patrol', 'escalate']),
   })
   .strict();
-const order = orderSpecSchema
-  .extend({
-    id,
-    created: nn,
-    phase: z.enum(['preparing', 'outbound', 'decision', 'working', 'returning', 'complete']),
-    work: nn,
-    decisionAt: nn,
-    settled: z.boolean(),
-    outcome: z.enum(['success', 'failed', 'cancelled']).nullable(),
-    result: z.string(),
-    held: z.boolean(),
-    loaded: z.boolean(),
-    delivered: z.boolean(),
-    reserved: nn,
-    deadline: nn,
-    targetLastSeen: point.nullable(),
-    searchUntil: nn,
-    rewarded: z.boolean(),
+const communication = z
+  .object({
+    id: integer,
+    time: nn,
+    priority: z.enum(['normal', 'high', 'urgent']),
+    text: z.string(),
+    read: z.boolean(),
+    entityId: id.nullable(),
+    category: z.enum(['request', 'report', 'threat', 'decision']),
   })
   .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(5),
+    version: z.literal(6),
     tick: integer,
     time: nn,
     seed: integer.max(4294967295),
     initialSeed: integer.max(4294967295),
     paused: z.boolean(),
     speed: z.union([z.literal(1), z.literal(4), z.literal(16)]),
+    status: z.enum(['active', 'commandLost']),
     pauseReasons: z.array(
       z
         .object({
@@ -102,14 +124,14 @@ export const worldSchema = z
         })
         .strict(),
     ),
-    commander: z.object({ id, name: z.string(), rank: z.string() }).strict(),
+    commander: z.object({ id, name, rank: name }).strict(),
     operators: z.array(
       z
         .object({
           id,
-          availability: z.enum(['available', 'vesselLost']),
+          name,
           kind: z.literal('rules'),
-          name: z.string(),
+          availability: z.enum(['available', 'vesselLost']),
         })
         .strict(),
     ),
@@ -118,30 +140,14 @@ export const worldSchema = z
       z
         .object({
           shipId: id,
-          name: z.string(),
+          name,
           classId,
           tick: integer,
-          position: point,
+          position: pointSchema,
           reason: z.string(),
-          cargo: stock,
-          ammunition: ammo,
+          cargo: stockSchema,
+          ammunition: ammoSchema,
           operatorIds: z.array(id),
-          orderId: id.nullable(),
-        })
-        .strict(),
-    ),
-    status: z.enum(['active', 'commandLost']),
-    armory: z.object({ stock: ammo, reserved: ammo }).strict(),
-    romulanReports: z.array(
-      point
-        .extend({
-          id,
-          observerId: id,
-          seenAt: nn,
-          confidence: nn.max(1),
-          value: nn,
-          defense: nn,
-          kind: z.enum(['ship', 'facility']),
         })
         .strict(),
     ),
@@ -149,56 +155,148 @@ export const worldSchema = z
     enemies: z.array(
       ship
         .extend({
-          home: point,
-          destination: point.nullable(),
-          departed: z.boolean(),
-          visited: z.array(z.object({ id, time: nn }).strict()),
-          intent: z.enum(['observe', 'raid', 'probe', 'retreat']),
+          homeId: id,
+          role: z.enum(['scout', 'raider', 'warbird']),
+          intent: z.enum(['observe', 'raid', 'probe', 'patrol', 'retreat', 'docked']),
+          targetId: id.nullable(),
+          destination: pointSchema.nullable(),
           nextDecision: nn,
+          visited: z.array(z.string()),
           loot: nn,
-          knownTargets: z.array(point.extend({ id, seenAt: nn, score: n }).strict()),
         })
         .strict(),
     ),
-    intel: z.array(
-      point
+    sectors: z.array(
+      z
+        .object({
+          id,
+          q: n.int().safe(),
+          r: n.int().safe(),
+          systemIds: z.array(id),
+          discovered: z.boolean(),
+        })
+        .strict(),
+    ),
+    systems: z.array(
+      pointSchema
         .extend({
           id,
-          level: z.enum(['UNKNOWN', 'CONTACT', 'CLASSIFIED', 'IDENTIFIED', 'TRACKED']),
+          name,
+          sectorId: id,
+          discovered: z.boolean(),
+          survey: integer.max(2),
+          bodyIds: z.array(id),
+        })
+        .strict(),
+    ),
+    bodies: z.array(
+      pointSchema
+        .extend({
+          id,
+          name,
+          systemId: id,
+          kind: z.enum(['planet', 'resource', 'anomaly']),
+          survey: integer.max(2),
+          habitable: z.boolean(),
+          remaining: nn,
+          richness: nn,
+          hazard: nn,
+          hidden: z.boolean(),
+          specialClaimed: z.boolean(),
+          discovered: z.boolean(),
+        })
+        .strict(),
+    ),
+    locations: z.array(
+      pointSchema
+        .extend({
+          id,
+          name,
+          label: name,
+          kind: facilityKind,
+          owner: z.enum(['starfleet', 'orion', 'romulan']),
+          siteId: id.nullable(),
+          stock: stockSchema,
+          hull: nn,
+          maxHull: nn,
+          shield: nn,
+          maxShield: nn,
+          core: nn,
+          attackedAt: n,
+          cooldown: nn,
+          distress: z.boolean(),
+          discovered: z.boolean(),
+          production: nn,
+        })
+        .strict(),
+    ),
+    projects: z.array(
+      pointSchema
+        .extend({
+          id,
+          name,
+          kind: z.enum(['colony', 'mine', 'outpost', 'platform']),
+          siteId: id,
+          stock: stockSchema,
+          cost,
+          work: nn,
+          duration: nn,
+          complete: z.boolean(),
+        })
+        .strict(),
+    ),
+    jobs: z.array(
+      z
+        .object({
+          id,
+          kind: z.enum(['ship', 'upgrade', 'manufacture']),
+          key: id,
+          amount: integer,
+          work: nn,
+          duration: nn,
+          complete: z.boolean(),
+          name,
+        })
+        .strict(),
+    ),
+    wrecks: z.array(
+      pointSchema.extend({ id, name, stock: stockSchema, discovered: z.boolean() }).strict(),
+    ),
+    intel: z.array(
+      pointSchema
+        .extend({
+          id,
+          level: z.enum(['CONTACT', 'CLASSIFIED', 'IDENTIFIED', 'TRACKED']),
           strength: nn.max(12),
           lastSeen: nn,
           live: z.boolean(),
-          name: z.string().optional(),
-          factionId: z.enum(['starfleet', 'pirate', 'romulan']).optional(),
+          hostile: z.boolean(),
+          name: name.optional(),
+          factionId: z.enum(['starfleet', 'orion', 'romulan']).optional(),
           classId: classId.optional(),
           hull: nn.optional(),
           shield: nn.optional(),
+          velocity: pointSchema,
+          resolved: z.boolean(),
           lastAttackTargetId: id.optional(),
           lastAttackAt: nn.optional(),
-          hostile: z.boolean(),
-          resolved: z.boolean(),
-          resolution: z.enum(['destroyed', 'withdrawn']).optional(),
         })
         .strict(),
     ),
-    orders: z.array(order),
-    locations: z.array(location),
-    resources: z.object({ science: nn, intel: nn, allocation: nn }).strict(),
-    communications: z
-      .array(
-        z
-          .object({
-            id: integer,
-            time: nn,
-            priority: z.enum(['normal', 'high', 'urgent']),
-            text: z.string(),
-            read: z.boolean(),
-            entityId: id.nullable(),
-            category: z.enum(['request', 'report', 'threat', 'decision']),
-          })
-          .strict(),
-      )
-      .max(100),
+    factions: z.object({ orion: faction, romulan: faction }).strict(),
+    tension: nn.max(100),
+    resources: z.object({ credits: nn }).strict(),
+    upgrades: z
+      .object({
+        shipyard: integer.max(1),
+        armory: integer.max(1),
+        sensors: integer.max(1),
+        logistics: integer.max(1),
+        defense: integer.max(1),
+      })
+      .strict(),
+    rearProduction: nn,
+    communications: z.array(communication).max(100),
     logs: z
       .array(
         z
@@ -211,31 +309,58 @@ export const worldSchema = z
           .strict(),
       )
       .max(180),
-    beams: z.array(
+    history: z.array(
       z
-        .object({ from: point, to: point, enemy: z.boolean(), weapon: z.string(), expires: nn })
+        .object({ id: integer, time: nn, kind: id, text: z.string(), entityId: id.nullable() })
         .strict(),
     ),
+    beams: z.array(
+      z
+        .object({
+          from: pointSchema,
+          to: pointSchema,
+          enemy: z.boolean(),
+          weapon: z.string(),
+          expires: nn,
+        })
+        .strict(),
+    ),
+    nextId: integer,
     nextLog: integer,
     nextComms: integer,
-    nextOrder: integer,
-    nextEnemy: integer,
-    nextIncursion: nn,
-    explored: z.array(point.extend({ time: nn }).strict()),
+    nextHistory: integer,
   })
   .strict()
   .superRefine((w, ctx) => {
     const bad = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (Math.abs(w.time - w.tick / 10) > 1e-8) bad('Clock mismatch');
-    for (const entries of [w.ships, w.enemies, w.orders, w.locations, w.operators, w.intel])
-      if (new Set(entries.map((x) => x.id)).size !== entries.length) bad('Duplicate identifiers');
-    if (!w.locations.some((l) => l.id === 'base' && l.kind === 'base')) bad('Missing base');
-    const activeIds = new Set(w.ships.map((s) => s.id));
+    const collections = [
+      w.ships,
+      w.enemies,
+      w.sectors,
+      w.systems,
+      w.bodies,
+      w.locations,
+      w.projects,
+      w.jobs,
+      w.wrecks,
+      w.operators,
+    ];
+    const globalIds = collections.flatMap((c) => c.map((x) => x.id));
+    if (new Set(globalIds).size !== globalIds.length) bad('Duplicate stable entity identifiers');
+    const base = w.locations.find(
+      (l) => l.id === 'base' && l.kind === 'base' && l.owner === 'starfleet',
+    );
+    if (!base) bad('Missing Dawn');
+    if ((w.status === 'commandLost') !== (base?.hull === 0)) bad('Invalid command status');
+    const active = new Set(w.ships.map((s) => s.id));
     if (
-      new Set(w.losses.map((l) => l.shipId)).size !== w.losses.length ||
-      w.losses.some((l) => activeIds.has(l.shipId))
+      w.losses.some((l) => active.has(l.shipId)) ||
+      new Set(w.losses.map((l) => l.shipId)).size !== w.losses.length
     )
-      bad('Invalid loss archive');
+      bad('Invalid permanent loss archive');
+    if (w.ships.some((s) => s.factionId !== 'starfleet' || s.hull <= 0))
+      bad('Invalid active fleet');
     if (
       new Set(w.assignments.map((a) => a.shipId)).size !== w.assignments.length ||
       new Set(w.assignments.map((a) => a.operatorId)).size !== w.assignments.length
@@ -243,64 +368,134 @@ export const worldSchema = z
       bad('Duplicate assignments');
     for (const a of w.assignments)
       if (
-        !activeIds.has(a.shipId) ||
+        !active.has(a.shipId) ||
         !w.operators.some((o) => o.id === a.operatorId && o.availability === 'available')
       )
         bad('Invalid operator assignment');
-    for (const k of ['photon', 'quantum'] as const) {
+    for (const sec of w.sectors)
+      if (sec.systemIds.some((id) => !w.systems.some((s) => s.id === id && s.sectorId === sec.id)))
+        bad('Dangling sector reference');
+    for (const sys of w.systems)
       if (
-        w.armory.reserved[k] > w.armory.stock[k] ||
-        w.armory.reserved[k] !== w.ships.reduce((sum, s) => sum + s.rearm[k], 0)
+        !w.sectors.some((c) => c.id === sys.sectorId) ||
+        sys.bodyIds.some((id) => !w.bodies.some((b) => b.id === id && b.systemId === sys.id))
       )
-        bad('Invalid armory reservation');
+        bad('Dangling system reference');
+    for (const b of w.bodies)
+      if (!w.systems.some((s) => s.id === b.systemId)) bad('Dangling body reference');
+    for (const p of w.projects)
+      if (!w.bodies.some((b) => b.id === p.siteId) && !w.systems.some((s) => s.id === p.siteId))
+        bad('Dangling project site');
+    for (const l of w.locations) {
+      if (l.hull > l.maxHull || l.shield > l.maxShield) bad('Facility capacity exceeded');
+      if (
+        l.siteId &&
+        !w.bodies.some((b) => b.id === l.siteId) &&
+        !w.systems.some((s) => s.id === l.siteId)
+      )
+        bad('Dangling facility site');
     }
-    const base = w.locations.find((l) => l.id === 'base');
-    if ((w.status === 'commandLost') !== (base?.hull === 0)) bad('Invalid command status');
-    if (w.ships.some((s) => s.hull <= 0)) bad('Destroyed ship in active fleet');
+    const directives = w.ships.flatMap((s) =>
+      [s.current, ...s.queue, ...s.suspended].filter((d) => d !== null),
+    );
+    if (new Set(directives.map((d) => d.id)).size !== directives.length)
+      bad('Duplicate directives');
+    const refs = new Set([
+      ...globalIds,
+      ...w.intel.map((i) => i.id),
+      ...w.losses.map((l) => l.shipId),
+      ...w.factions.orion.losses,
+      ...w.factions.romulan.losses,
+    ]);
+    for (const d of directives) {
+      if (d.created > w.time) bad('Future directive');
+      const a = d.action;
+      const targets = [
+        ...('targetId' in a ? [a.targetId] : []),
+        ...('sourceId' in a ? [a.sourceId] : []),
+        ...('unloadId' in a ? [a.unloadId] : []),
+      ];
+      if (targets.some((target) => !refs.has(target))) bad('Dangling directive target');
+      if (GOODS.some((k) => d.reserved[k] > 0) && !['HAUL', 'REARM'].includes(a.type))
+        bad('Invalid directive reservation');
+      if (
+        a.type === 'HAUL' &&
+        (d.reserved[a.cargoKind] > a.amount ||
+          GOODS.some((k) => k !== a.cargoKind && d.reserved[k] > 0))
+      )
+        bad('Invalid haul reservation');
+      if (
+        a.type === 'REARM' &&
+        (d.reserved.photon > a.load.photon ||
+          d.reserved.quantum > a.load.quantum ||
+          d.reserved.materials + d.reserved.supplies + d.reserved.specialFinds > 0)
+      )
+        bad('Invalid magazine reservation');
+    }
+    for (const s of w.ships)
+      if (s.queue.some((d) => GOODS.some((k) => d.reserved[k] > 0)))
+        bad('Queued directive cannot reserve inventory');
     for (const s of [...w.ships, ...w.enemies]) {
-      const d = SHIP_CLASSES[s.classId];
-      if (!d) {
-        bad('Unknown ship class');
-        continue;
-      }
+      const c = capabilities(s);
       if (
-        s.hull > d.hull + 0.0001 ||
-        s.shield > d.shield + 0.0001 ||
-        s.core > d.core + 0.0001 ||
-        s.photon > d.photon ||
-        s.quantum > d.quantum
+        s.hull > c.hull + 1e-7 ||
+        s.shield > c.shield + 1e-7 ||
+        s.core > c.core + 1e-7 ||
+        s.photon > c.photon ||
+        s.quantum > c.quantum ||
+        cargoUsed(s) > c.cargo + 1e-7
       )
-        bad('Ship attributes exceed class limits');
-      if (Object.values(s.cargo).reduce((a, b) => a + b, 0) > d.cargo)
-        bad('Cargo capacity exceeded');
-      if (s.rearm.photon + s.photon > d.photon || s.rearm.quantum + s.quantum > d.quantum)
-        bad('Reserved ammunition exceeds capacity');
-      if (s.orderId && !w.orders.some((o) => o.id === s.orderId)) bad('Dangling order');
+        bad('Ship capacity exceeded');
+      if (s.modules.length > c.moduleSlots || new Set(s.modules).size !== s.modules.length)
+        bad('Invalid module slots');
     }
-    for (const o of w.orders) {
+    for (const enemy of w.enemies)
       if (
-        o.shipIds.some(
-          (id) => !w.ships.some((s) => s.id === id) && !w.losses.some((l) => l.shipId === id),
-        )
+        enemy.factionId === 'starfleet' ||
+        !w.locations.some((l) => l.id === enemy.homeId && l.owner === enemy.factionId) ||
+        w.factions[enemy.factionId as 'orion' | 'romulan'].losses.includes(enemy.id)
       )
-        bad('Missing order ship');
-      if (
-        o.settled !== (o.outcome !== null) ||
-        ((o.phase === 'returning' || o.phase === 'complete') && !o.settled)
-      )
-        bad('Invalid settlement');
-      if (
-        o.objective.type === 'location' &&
-        !w.locations.some((l) => o.objective.type === 'location' && l.id === o.objective.id)
-      )
-        bad('Missing objective');
-    }
-    for (const l of w.locations)
-      for (const k of ['supplies', 'medical', 'materials'] as const) {
-        const reserved = w.orders
-          .filter((o) => o.sourceId === l.id && o.cargoKind === k)
-          .reduce((sum, o) => sum + o.reserved, 0);
-        if (Math.abs(l.reserved[k] - reserved) > 1e-6 || l.reserved[k] > l.stock[k])
-          bad('Invalid inventory reservation');
+        bad('Invalid faction asset');
+    for (const holder of [...w.locations, ...w.projects])
+      for (const k of GOODS) {
+        const reserved = directives
+          .filter((d) => {
+            const ref =
+              'sourceId' in d.action
+                ? d.action.sourceId
+                : 'targetId' in d.action
+                  ? d.action.targetId
+                  : null;
+            const p = w.projects.find((p) => p.id === ref && p.complete),
+              canonical = p
+                ? w.locations.find((l) => l.siteId === p.siteId && l.kind === p.kind)?.id
+                : ref;
+            return canonical === holder.id;
+          })
+          .reduce((v, d) => v + d.reserved[k], 0);
+        if (reserved > holder.stock[k] + 1e-7) bad('Inventory reservation exceeds real stock');
       }
+    for (const j of w.jobs) {
+      if (j.kind === 'ship' && !['antares', 'peregrine', 'constitution', 'galaxy'].includes(j.key))
+        bad('Invalid shipyard recipe');
+      if (j.kind === 'upgrade' && !Object.hasOwn(w.upgrades, j.key))
+        bad('Invalid strategic upgrade');
+      if (j.kind === 'manufacture' && !['supplies', 'photon', 'quantum'].includes(j.key))
+        bad('Invalid manufacturing recipe');
+    }
+    for (const [entries, next] of [
+      [w.history, w.nextHistory],
+      [w.logs, w.nextLog],
+      [w.communications, w.nextComms],
+    ] as const) {
+      if (
+        new Set(entries.map((h) => h.id)).size !== entries.length ||
+        entries.some((h) => h.id >= next || h.time > w.time)
+      )
+        bad('Invalid historical sequence');
+    }
+    const numbered = [...globalIds, ...directives.map((d) => d.id)].map((id) =>
+      Number(id.match(/^(?:ship|job|facility|project|directive|orion-built)-(\d+)$/)?.[1] ?? 0),
+    );
+    if (numbered.some((n) => n >= w.nextId)) bad('Invalid entity sequence');
   });

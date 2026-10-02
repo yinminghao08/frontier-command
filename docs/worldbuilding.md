@@ -1,53 +1,161 @@
-# Dawn Frontier 指挥规则
+# Dawn Frontier
 
-玩家是 Admiral。LCARS 是高层指挥终端，所有执行者目前是规则 AI。舰船有物理装备；操作者有独立身份与分配关系。当前不实现人格、成长、制造、造船或模型决策。
+## Premise
 
-## 战略空间
+The player is the Admiral commanding **Dawn Frontier Command**, a Starfleet frontier administration in a non-canon post-Dominion-War timeline around 2381.
 
-1600×800世界由联邦后方、Dawn Frontier、中立区和罗慕兰边疆组成。中立区是折线边界围成的多边形，不再按固定x值划分。联邦补给经中继站连接曙光基地；殖民地与矿区组成支线，前哨和边境哨线连接中立区通道。路线评分使用交通网络、已知敌情和异常风险，整段路径均检查授权。
+The region lies between established Federation space, the Romulan frontier and a large expanse of incompletely charted space. Starfleet is reopening the area for exploration, settlement and strategic development.
 
-地点位置、边界与交通网络在 definitions/locations.ts；数据化参数是玩法尺度，不声称对应正史星图。Warp 是世界移动速度参数，投影拉伸不会改变距离或射程。
+The player's objective is not to clear a map of enemies. It is to make the frontier safer, richer and better understood while managing the consequences of expansion.
 
-世界从 Day 1 00:00 暂停开始。每步0.1游戏分钟，倍速增加步数；新敌情、调查决策、低舰体、舰损与任务失败暂停。失焦暂停，重启无离线追赶。日快照固定在午夜完整步结算之后，区别于普通自动保存。
+## Strategic Space
 
-## 舰船与装备
+The world has four broad strategic contexts:
 
-| 舰级                   | 主要角色                     | 武器                             |
-| ---------------------- | ---------------------------- | -------------------------------- |
-| Antares Transport      | 100货舱，运输优先            | 轻型 Phaser                      |
-| Peregrine Patrol Craft | 快速巡逻、近程防卫           | Pulse Phasers，无鱼雷            |
-| Constitution           | 科学90，240传感器，综合行动  | Phaser + Photon                  |
-| Galaxy                 | 主力防御、强护盾和舰体       | Phaser Arrays + Photon + Quantum |
-| Romulan Scout          | 覆盖缺口侦察，保持观测与自保 | Disruptor 自卫装备               |
-| Valdore / D’Deridex    | 根据共享情报选择袭击         | Disruptor + 实物鱼雷             |
-| Pirate Raider          | 逐利抢掠，收益／风险驱动撤退 | Pulse Phaser + Photon            |
+- **Federation Rear**: secure logistics and Dawn Starbase
+- **Dawn Frontier**: colonies, mines, outposts and contested routes
+- **Neutral Zone / Romulan Border**: politically sensitive contact space
+- **Unknown Space**: expandable sectors containing undiscovered systems, hazards and resources
 
-Hull、Shield及恢复、Core及恢复、Warp、Cargo、Sensors、Weapons、弹药均在舰级定义中真实参与规则。能量武器消耗Core，鱼雷消耗库存；未命中不返还。隐形耗能，隐形及解除隐形过渡中不能开火。护盾脱战恢复，Hull不自然恢复。
+Unknown space extends in multiple directions. Exploration permanently reveals generated sectors and systems; the world should not feel like a corridor from Federation to Romulan territory.
 
-基地装弹显式指定数量，先预留基地库存，再按发转入弹舱。维修材料只支付实际修复额度。设施维修消耗设施当地材料，运输材料入库不会同时免费加Hull。每180游戏分钟外部补给按清单增加资源与弹药，报告实际数量，不是本地制造。
+Newly catalogued systems and planets receive temporary Starfleet designations and may be named by the player. Owned ships, colonies and facilities may also be renamed.
 
-## Admiral 的三种任务
+## Dawn Starbase
 
-Battle / Defense 指定 Objective、Priority、ROE、Assets、Withdrawal。设施防卫要求目标存续、防卫窗口完成且附近没有可见敌对；护航跟随真实运输舰；拦截要求可观察战果。失联后搜索超时失败。高优先级偏重正在攻击保护目标的已知敌人。部分资产撤退不强制取消其他资产。
+Dawn Starbase is the secure strategic headquarters, not a front-line target.
 
-运输按预留、到源点、装货、航行、卸货、报告、返航进行。货舱容量、源库存、路线风险、期限、设施毁坏和抢掠均影响交付。实际交付不足不发成功收益；取消或失败返航保留剩余货物，舰损货物永久损失。
+Its dedicated interface contains:
 
-探索按舰级科学能力计算工作时间，远距扫描较低耗能与风险，近距采样更慢、消耗更多Core并承受异常损伤，首次成果更高。抵达后需要调查决策，若继续20分钟未决定则采用预设方案。接触侦察必须达到实际识别要求；地点调查更新知识，缩小后续安全路线的未知异常避让范围。失联、能源不足、舰损、超时和撤退均可能失败。同一成果不重复奖励。
+- COMMAND
+- SHIPYARD
+- DRYDOCK
+- ARMORY
+- ENGINEERING
+- LOGISTICS
+- SENSOR CONTROL
+- DEFENSE GRID
 
-HOLD FIRE 永不开火；RETURN FIRE 仅还击本舰或保护目标的已知攻击者；ENGAGE HOSTILES 可攻击已识别敌对；WEAPONS FREE 可攻击已识别非友军。未知信号不能直接当作交火目标。默认联邦授权，可显式批准中立区／罗慕兰空间；退回基地不被撤销授权锁死。
+The base has heavy shields and phaser arrays; Defense Grid unlocks new frontier platforms. Ordinary raiders should treat it as an unattractive target.
 
-## 情报与敌对势力
+Starbase converts frontier gains into new capability through ship construction, refits, repairs, ammunition, sensors, logistics and defenses.
 
-UNKNOWN无地图实体；CONTACT确认信号；CLASSIFIED分类；IDENTIFIED确认舰型；TRACKED充分跟踪。基地传感器范围290，不透视全图。失联后LKP冻结并逐渐淡出，30游戏分钟后过期；历史身份不会变成实时敌情。
+## Federation Frontier
 
-海盗从边缘入口来袭，用己方观测和记忆比较货物／设施库存、防御、距离和新鲜度。抢掠转移真实物资，获得20战利品、严重受损、缺弹或风险过高时撤退；撤离保留活舰状态，不以Hull=0表示离场。
+Colonies, mines, relays and outposts are persistent communities and infrastructure, not disposable mission props.
 
-Romulan Scout 从中立区方向寻找未覆盖或过期的观察区域，接近目标取得情报，选择时考虑距离与防御。报告保存来源、观测时间、置信度、价值与风险。大型Warbird根据共享情报评分，收益不足、强防御或过期报告可以导致继续观察而非袭击。没有固定巡逻waypoint脚本，也不要求每个敌人最终攻击。
+They possess defenses appropriate to their role and should normally survive long enough for Starfleet to respond.
 
-## 不可逆损失与恢复
+Their continued existence creates strategic value:
 
-Hull=0的舰船立即离开活动舰队，Archive记录位置、时间、货物、弹药、行动与关联操作者；授权撤销，关联任务按幸存资产结算。没有拖航复活。当前记录规则执行主体不可用；未来Agent死亡逻辑应接入shipDestroyed事件，当前不伪造。
+- colonies consume supplies and generate economic value
+- mines create materials and valuable transport routes
+- relays extend logistics and sensors
+- outposts improve warning and frontier presence
 
-Dawn Starbase有1200 Hull、600 Shield及恢复，属于合法攻击目标。基地毁灭即COMMAND LOST，游戏命令和模拟停止。恢复上一游戏日00:00创建新时间线，原失败记录保留；新开世界也创建独立分支。Day 1无昨日记录。
+Expansion creates both more income and more territory to protect.
 
-科研、情报和配额是当前成果，没有升级树或消费成长系统。防御保全资产，运输改变真实库存，调查改变知识和路线；这些是本阶段后续价值。
+## Core Ecology
+
+The frontier generates its own MMO content:
+
+**EXPLORE → DISCOVER → MINE → TRANSPORT → CREATE VALUE → ATTRACT THREATS → DEFEND → PROFIT → GROW → EXPLORE FARTHER**
+
+The four core activities share one world:
+
+### Combat / Security
+Patrol, escort, intercept, shadow, attack, disable, drive off and retreat. Combat affects real ships, facilities, cargo and political tension.
+
+### Exploration / Survey
+Unknown systems, planets, anomalies and resource sites are genuinely discovered. Remote and close survey trade safety for information and reward.
+
+### Mining / Extraction
+Persistent resource sites produce physical materials. Mining is lower-attention gameplay influenced by equipment, cargo, efficiency, risk and depletion.
+
+### Transport / Logistics
+Real goods move between real inventories. Route choice trades travel time against known and unknown risk.
+
+Activities should create opportunities for each other instead of behaving as independent task lists.
+
+## Admiral Authority
+
+Every Starfleet ship remains available to the Admiral at all times.
+
+Any ship may attempt any physically valid activity. Specialization changes efficiency and risk, not permission.
+
+The Admiral may replace, queue or interrupt a ship's directive. Explicit commands override standing autonomous policy after validation.
+
+ROE governs what a captain may do without new orders; it does not prevent the Admiral from deliberately ordering an attack and accepting the consequences.
+
+## Orion Syndicate
+
+The frontier's pirate/criminal faction is the **Orion Syndicate**.
+
+It has persistent hideouts, ships, supplies, ammunition, cargo and intelligence.
+
+Orion activity is economic:
+
+- scout profitable routes
+- identify weak escorts or facilities
+- raid real cargo
+- withdraw when risk becomes unacceptable
+- return stolen goods to a hideout
+- rebuild only when resources allow
+
+Destroyed Orion ships are actual losses. A retreating raider can be followed to discover its base. Orion pressure therefore emerges from the player's own frontier economy rather than a spawn timer.
+
+## Romulan Border Command
+
+Romulans are a political and military faction, not generic enemies.
+
+Scouts observe Federation expansion and report what they actually learn. Border Command may respond by observing, patrolling, probing or escalating depending on intelligence, tension, risk and strategic value.
+
+A Romulan vessel is not automatically a legal hostile target. Shadow, intercept, attack and withdrawal are distinct choices with persistent diplomatic consequences.
+
+## Growth
+
+Growth has two main forms.
+
+### Fleet Development
+Ships use limited module slots. Useful upgrades unlock new options such as deep scanning, long-range detection, precision subsystem targeting, stronger hazardous-route survival or expanded cargo.
+
+### Frontier Development
+Starbase and frontier infrastructure unlock wider strategic options through better sensors, shipbuilding, armory capacity, logistics and defenses.
+
+Growth should change what the player can do in the next activity, not merely add passive percentage bonuses.
+
+## Economy
+
+- **Credits**: strategic budget
+- **Materials**: construction, shipbuilding and repair
+- **Supplies**: colony and facility sustainment
+- **Photon / Quantum Torpedoes**: physical ammunition
+- **Special Finds**: rare discoveries enabling unique capabilities
+
+Exploration, trade, industry and security all feed the same economy.
+
+## Future Agents
+
+Future Agents will live inside this existing frontier rather than receive artificial task menus.
+
+They will observe real opportunities—escort demand, mining sites, unexplored systems, threats, logistics needs—and choose actions according to skills, personality, memory and relationships.
+
+The world must remain interesting and causally coherent even before LLM Agents are added.
+
+## V1 / Lv1 + Lv2 Playable Rules
+
+This build retains the existing LCARS console language and star-date presentation. It is a non-canon sandbox rather than an assertion about historical Star Trek events.
+
+Dawn sits at world (-240, 0), behind the frontier. Initial Federation assets are New Horizon colony, Helios mine and Beacon outpost. Each has an independent shield, hull, reactor and phaser; Dawn has heavy self-defense. Defense Grid adds platforms and strengthens Federation facility fire. New outposts add defended sensor/supply route nodes, mines consume finite deposits, and colonies consume physical supplies to produce budget.
+
+Unknown sectors form a sparse 400-unit grid in several directions. Each seed generates persistent systems, planets, normal anomalies and deposits, plus hidden anomalies unlocked by Deep Scan. Remote survey gives charted outlines; close survey confirms usable deposits, habitability and hazards. A normal anomaly's special sample can be collected once into cargo, then physically unloaded for an upgrade.
+
+Safe logistics detours through defended nodes and around observed dangers. Direct travel preserves uncertainty about uncharted space. Risky corridors trade a faster warp passage for physical turbulence and a stronger detectable signature while underway. Admiral route forecasts show the uncharted fraction from known geography, rather than suggesting certainty about hidden threats.
+
+The initial Orion hideout supports one scout and two raiders, finite stock and magazines. The scout inspects known frontier traffic and follows valuable locally observed cargo; it does not know all Federation assets. Raider opportunities depend on fresh reports, freight/stock value, distance and escort strength. Theft harms the actual source inventory, and the resulting cargo must survive the return journey. A quarter of returned goods is consumed by black-market export; the remainder supports maintenance and industry. Destroying assets or the hideout changes its ability to act. Shadow can follow a returning raider to the source of this pressure.
+
+The initial Romulan scout and warbird share Border Command intelligence. A neutral identity stays outside autonomous hostile selection. Crossing the Neutral Zone adds tension, entering Romulan space adds more, and withdrawal reduces it; deliberate fire on an unconfirmed Romulan creates a larger political change. Construction near the border also matters. Fresh intelligence and tension permit observe, patrol, probe or military escalation; escalation is a major communication and pause.
+
+Fleet roles are performance profiles. A Peregrine can mine or haul small batches; an Antares can deliberately attack with its phaser. Expanded Cargo changes batch size; Long Range Sensors changes contact/exploration reach; Deep Scan reveals otherwise absent opportunities; Precision Targeting changes the available disabling targets; Reinforced Shields supports exposed travel. Losses remain permanent, while actual Shipyard construction and Federation rear production allow recovery.
+
+There are no Science, Intel or Allocation currencies, mission payouts for moving the same goods, or menus that manufacture an enemy target. The OPERATIONS view reads discoverable sectors, shortages, valuable inventory, construction demand and observed threats. Hail, diplomacy conversations, LLM personality/career and formal online multiplayer are future work.

@@ -1,5 +1,10 @@
 import type { Point } from '../../engine/types';
-import { WORLD_WIDTH, WORLD_HEIGHT } from '../../engine/definitions/locations';
+export interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
 export interface Camera {
   x: number;
   y: number;
@@ -7,54 +12,55 @@ export interface Camera {
   width: number;
   height: number;
 }
-export const fitCamera = (width: number, height: number): Camera => ({
-  x: 0,
-  y: 0,
-  k: 1,
+export const boundsOf = (points: readonly Point[]): Bounds => ({
+  minX: Math.min(-350, ...points.map((p) => p.x)) - 100,
+  minY: Math.min(-200, ...points.map((p) => p.y)) - 100,
+  maxX: Math.max(500, ...points.map((p) => p.x)) + 100,
+  maxY: Math.max(200, ...points.map((p) => p.y)) + 100,
+});
+export function fitCamera(
+  width: number,
+  height: number,
+  b: Bounds = { minX: -450, minY: -300, maxX: 600, maxY: 300 },
+): Camera {
+  const k = Math.max(0.02, Math.min(width / (b.maxX - b.minX), height / (b.maxY - b.minY)) * 0.9);
+  return {
+    x: (b.minX + b.maxX) / 2,
+    y: (b.minY + b.maxY) / 2,
+    k,
+    width: Math.max(1, width),
+    height: Math.max(1, height),
+  };
+}
+export const clampCamera = (c: Camera): Camera => ({ ...c, k: Math.max(0.02, Math.min(12, c.k)) });
+export const project = (p: Point, c: Camera): Point => ({
+  x: c.width / 2 + (p.x - c.x) * c.k,
+  y: c.height / 2 + (p.y - c.y) * c.k,
+});
+export const unproject = (p: Point, c: Camera): Point => ({
+  x: c.x + (p.x - c.width / 2) / c.k,
+  y: c.y + (p.y - c.height / 2) / c.k,
+});
+export function zoomCamera(c: Camera, k: number, p: Point) {
+  const anchor = unproject(p, c),
+    next = clampCamera({ ...c, k });
+  return {
+    ...next,
+    x: anchor.x - (p.x - c.width / 2) / next.k,
+    y: anchor.y - (p.y - c.height / 2) / next.k,
+  };
+}
+export const resizeCamera = (c: Camera, width: number, height: number) => ({
+  ...c,
   width: Math.max(1, width),
   height: Math.max(1, height),
 });
-export function clampCamera(c: Camera): Camera {
-  const k = Math.max(1, Math.min(8, c.k));
-  return {
-    ...c,
-    k,
-    x: Math.max(c.width * (1 - k), Math.min(0, c.x)),
-    y: Math.max(c.height * (1 - k), Math.min(0, c.y)),
-  };
-}
-export const project = (p: Point, c: Camera): Point => ({
-  x: c.x + ((p.x * c.width) / WORLD_WIDTH) * c.k,
-  y: c.y + ((p.y * c.height) / WORLD_HEIGHT) * c.k,
+export const focusCamera = (c: Camera, p: Point) => ({
+  ...c,
+  x: p.x,
+  y: p.y,
+  k: Math.max(0.85, c.k),
 });
-export const unproject = (p: Point, c: Camera): Point => ({
-  x: (((p.x - c.x) / c.k) * WORLD_WIDTH) / c.width,
-  y: (((p.y - c.y) / c.k) * WORLD_HEIGHT) / c.height,
-});
-export function zoomCamera(c: Camera, k: number, p: Point): Camera {
-  const next = Math.max(1, Math.min(8, k)),
-    ratio = next / c.k;
-  return clampCamera({ ...c, k: next, x: p.x - (p.x - c.x) * ratio, y: p.y - (p.y - c.y) * ratio });
-}
-export function resizeCamera(c: Camera, width: number, height: number): Camera {
-  if (c.k === 1) return fitCamera(width, height);
-  const center = unproject({ x: c.width / 2, y: c.height / 2 }, c),
-    next = { ...c, width: Math.max(1, width), height: Math.max(1, height) };
-  return clampCamera({
-    ...next,
-    x: width / 2 - ((center.x * width) / WORLD_WIDTH) * c.k,
-    y: height / 2 - ((center.y * height) / WORLD_HEIGHT) * c.k,
-  });
-}
-export function focusCamera(c: Camera, p: Point): Camera {
-  const k = Math.max(2.5, c.k);
-  return clampCamera({
-    ...c,
-    k,
-    x: c.width / 2 - ((p.x * c.width) / WORLD_WIDTH) * k,
-    y: c.height / 2 - ((p.y * c.height) / WORLD_HEIGHT) * k,
-  });
-}
 export interface MapLabel extends Point {
   id: string;
   text: string;

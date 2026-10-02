@@ -56,7 +56,6 @@ app.whenReady().then(async () => {
   saveBlocked = loaded.blocked;
   engine = new SimulationEngine(loaded.world ?? createWorld());
   if (engine.state.status === 'active') engine.state.paused = true;
-  engine.clearInputs();
   if (!loaded.world && !loaded.blocked) store.write(engine.state);
   window = new BrowserWindow({
     show: process.env.FRONTIER_HEADLESS !== '1',
@@ -135,7 +134,7 @@ app.whenReady().then(async () => {
       typeof command === 'object' &&
       command &&
       (engine.state.pauseReasons.length > previousReasons ||
-        !['helm', 'target', 'fire', 'speed', 'pause'].includes((command as { type: string }).type))
+        !['speed', 'pause'].includes((command as { type: string }).type))
     ) {
       const saved = save();
       if (!saved.ok && engine.state.status === 'active') engine.log(saved.reason, 'danger');
@@ -151,13 +150,7 @@ app.whenReady().then(async () => {
     trusted(event);
     return store.status(engine.state.tick);
   });
-  window.on('blur', () => {
-    if (engine.state.status === 'active') engine.dispatchCommand({ type: 'pause', paused: true });
-    engine.clearInputs();
-    send();
-  });
   window.on('close', () => {
-    engine.clearInputs();
     const result = save();
     if (!result.ok) console.error(result.reason);
   });

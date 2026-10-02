@@ -3,9 +3,9 @@ export function DataCascade({ world }: { world: Snapshot }) {
   const numbers = [
     world.tick,
     world.ships.length,
-    world.orders.length,
+    world.projects.length,
     world.contacts.length,
-    world.resources.science,
+    Math.floor(world.resources.credits),
     world.armory.stock.photon,
     world.armory.stock.quantum,
     world.operators.length,

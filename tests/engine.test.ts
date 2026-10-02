@@ -1,531 +1,357 @@
 import { describe, it, expect } from 'vitest';
-import { quietEngine, run, spec, until } from './helpers';
-import { SimulationEngine } from '../src/engine/engine';
-import { makeEnemy, makeShip } from '../src/engine/data';
-import { WEAPONS } from '../src/engine/definitions/ships';
-import { attack, permittedTarget, regenerate, shouldRetreat } from '../src/engine/combat';
-import { decideThreat } from '../src/engine/threats';
-import { observe, updateSensors, visibleIntel } from '../src/engine/sensors';
-import { planRoute, dist } from '../src/engine/navigation';
-import type { ROE } from '../src/engine/types';
-describe('general orders and closed loops', () => {
-  it('the default live world demo completes all three operations including defense recovery after chasing a raider', () => {
-    const e = new SimulationEngine();
-    for (const kind of ['transport', 'defense', 'explore'] as const)
-      e.dispatchCommand({ type: 'createOrder', spec: spec(kind) });
-    until(e, () => e.state.orders.every((o) => o.phase === 'complete'));
-    expect(e.state.orders.map((o) => o.outcome)).toEqual(['success', 'success', 'success']);
-    expect(e.state.locations.find((l) => l.id === 'colony')!.hull).toBeGreaterThan(0);
-  });
-  it('runs three genuinely different orders in parallel and settles exactly once after return', () => {
-    const e = quietEngine();
-    for (const kind of ['transport', 'explore', 'defense'] as const)
-      expect(e.dispatchCommand({ type: 'createOrder', spec: spec(kind) }).ok).toBe(true);
-    const base = e.state.locations.find((l) => l.id === 'base')!,
-      colony = e.state.locations.find((l) => l.id === 'colony')!;
-    expect(base.reserved.supplies).toBe(30);
-    until(e, () => e.state.orders.every((o) => o.phase === 'complete'));
-    expect(e.state.orders.every((o) => o.outcome === 'success')).toBe(true);
-    expect(e.state.ships.every((s) => s.orderId === null && s.status === 'docked')).toBe(true);
-    expect(colony.stock.supplies).toBeGreaterThan(30);
-    expect(e.state.resources.science).toBeGreaterThan(0);
-    expect(e.state.resources.intel).toBeGreaterThan(0);
-    expect(e.state.resources.allocation).toBe(65);
-    expect(base.reserved.supplies).toBe(0);
-    const resources = structuredClone(e.state.resources);
-    run(e, 30);
-    expect(e.state.resources).toEqual(resources);
-  });
-  it('rejects duplicate assignments, capacity overflow, inventory overdraft and forged parameters without mutation', () => {
-    const e = quietEngine();
-    for (const s of [
-      { ...spec('transport', 'vigil'), amount: 60 },
-      { ...spec('transport'), amount: 100, cargoKind: 'medical' as const },
-      { ...spec('defense'), shipIds: ['vigil', 'vigil'] },
-    ]) {
-      if (s.cargoKind === 'medical') s.amount = 101;
-      const before = structuredClone(e.state);
-      expect(e.dispatchCommand({ type: 'createOrder', spec: s }).ok).toBe(false);
-      expect(e.state).toEqual(before);
-    }
-    expect(e.dispatchCommand({ type: 'createOrder', spec: spec('transport') }).ok).toBe(true);
-    const before = structuredClone(e.state);
-    expect(e.dispatchCommand({ type: 'createOrder', spec: spec('transport') }).ok).toBe(false);
-    expect(e.state).toEqual(before);
-    expect(
-      e.dispatchCommand({ type: 'createOrder', spec: { ...spec('defense'), reward: 10000 } }).ok,
-    ).toBe(false);
-  });
-  it('loads real cargo at a non-base origin and transfers it exactly once', () => {
-    const e = quietEngine(),
-      src = e.state.locations.find((l) => l.id === 'depot')!,
-      dest = e.state.locations.find((l) => l.id === 'outpost')!;
-    expect(
-      e.dispatchCommand({
-        type: 'createOrder',
-        spec: {
-          ...spec('transport'),
-          sourceId: src.id,
-          objective: { type: 'location', id: dest.id },
-          amount: 45,
-        },
-      }).ok,
-    ).toBe(true);
-    until(e, () => e.state.orders[0].delivered);
-    expect(src.stock.supplies).toBe(35);
-    expect(dest.stock.supplies).toBe(65);
-    expect(e.state.ships.find((s) => s.id === 'meridian')!.cargo.supplies).toBe(0);
-    until(e, () => e.state.orders[0].phase === 'complete');
-    expect(dest.stock.supplies).toBe(65);
-  });
-  it('cancellation releases reservations and returns loaded cargo', () => {
-    const e = quietEngine(),
-      s = spec('transport');
-    e.dispatchCommand({ type: 'createOrder', spec: s });
-    e.dispatchCommand({ type: 'cancelOrder', orderId: 'order-1' });
-    expect(e.state.locations.find((l) => l.id === 'base')!.reserved.supplies).toBe(0);
-    until(e, () => e.state.orders[0].phase === 'complete');
-    e.dispatchCommand({ type: 'createOrder', spec: s });
-    until(e, () => e.state.orders[1].loaded);
-    expect(e.state.ships.find((s) => s.id === 'meridian')!.cargo.supplies).toBe(30);
-    e.dispatchCommand({ type: 'cancelOrder', orderId: 'order-2' });
-    until(e, () => e.state.orders[1].phase === 'complete');
-    expect(e.state.locations.find((l) => l.id === 'base')!.stock.supplies).toBe(240);
-    expect(e.state.resources.allocation).toBe(0);
-  });
-  it('pirate theft removes cargo and destruction permanently archives the remainder', () => {
-    const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: spec('transport') });
-    until(e, () => e.state.orders[0].loaded);
-    const s = e.state.ships.find((s) => s.id === 'meridian')!;
-    s.shield = 0;
-    s.hull = 45;
-    const pirate = makeEnemy('robber', 'raider', 'pirate', { x: s.x + 35, y: s.y });
-    pirate.nextDecision = 1e6;
-    pirate.targetId = s.id;
-    pirate.knownTargets = [{ id: s.id, x: s.x, y: s.y, seenAt: e.state.time, score: 100 }];
-    e.state.enemies = [pirate];
-    e.state.seed = 1;
-    run(e, 0.1);
-    expect(pirate.loot).toBe(20);
-    expect(s.cargo.supplies).toBe(10);
-    expect(pirate.cargo.supplies).toBe(20);
-    expect(s.hull).toBe(0);
-    expect(e.state.ships.some((x) => x.id === s.id)).toBe(false);
-    expect(e.state.losses[0].cargo.supplies).toBe(10);
-    e.state.enemies = [];
-    until(e, () => e.state.orders[0].phase === 'complete');
-    expect(e.state.ships.some((x) => x.id === s.id)).toBe(false);
-    expect(e.state.losses).toHaveLength(1);
-    expect(s.hull).toBe(0);
-    expect(e.state.orders[0].outcome).toBe('failed');
-  });
-  it('a missed deadline returns cargo without delivery or reward', () => {
-    const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: spec('transport') });
-    until(e, () => e.state.orders[0].loaded);
-    e.state.orders[0].deadline = e.state.time + 0.1;
-    run(e, 1);
-    expect(e.state.orders[0].outcome).toBe('failed');
-    until(e, () => e.state.orders[0].phase === 'complete');
-    expect(e.state.resources.allocation).toBe(0);
-    expect(e.state.locations.find((l) => l.id === 'base')!.stock.supplies).toBe(240);
-  });
-  it('transported materials require a separate consuming repair command', () => {
-    const e = quietEngine(),
-      l = e.state.locations.find((l) => l.id === 'colony')!;
-    l.hull = 60;
-    e.dispatchCommand({
-      type: 'createOrder',
-      spec: { ...spec('transport'), cargoKind: 'materials', amount: 30 },
-    });
-    until(e, () => e.state.orders[0].delivered);
-    expect(l.hull).toBe(60);
-    expect(l.stock.materials).toBe(50);
-    expect(e.dispatchCommand({ type: 'repairFacility', locationId: l.id }).ok).toBe(true);
-    expect(l.hull).toBe(160);
-    expect(l.stock.materials).toBe(0);
-  });
-  it('near investigation has actual damage, longer work and greater science than remote', () => {
-    const results = ['remote', 'close'].map((approach) => {
-      const e = quietEngine();
-      e.dispatchCommand({ type: 'createOrder', spec: spec('explore') });
-      until(e, () => e.state.orders[0].phase === 'decision');
-      e.state.ships.find((s) => s.id === 'verity')!.shield = 0;
-      e.dispatchCommand({ type: 'investigate', orderId: 'order-1', approach });
-      until(e, () => e.state.orders[0].phase === 'complete');
-      return {
-        science: e.state.resources.science,
-        hull: e.state.ships.find((s) => s.id === 'verity')!.hull,
-        time: e.state.time,
-        work: e.state.orders[0].work,
-      };
-    });
-    expect(results[1].science).toBeGreaterThan(results[0].science);
-    expect(results[1].hull).toBeLessThan(results[0].hull);
-    expect(results[1].work).toBeGreaterThan(results[0].work);
-  });
-  it('does not farm an unchanged survey and allows unknown coordinate exploration', () => {
-    const e = quietEngine();
-    for (let i = 0; i < 2; i++) {
-      e.dispatchCommand({ type: 'createOrder', spec: spec('explore') });
-      until(e, () => e.state.orders[i].phase === 'complete');
-    }
-    expect(e.state.orders[0].rewarded).toBe(true);
-    expect(e.state.orders[1].rewarded).toBe(false);
-    expect(
-      e.dispatchCommand({
-        type: 'createOrder',
-        spec: { ...spec('explore'), objective: { type: 'point', x: 700, y: 180 } },
-      }).ok,
-    ).toBe(true);
-  });
-  it('enforces cross-border authorization on creation and policy changes', () => {
-    const e = quietEngine(),
-      s = { ...spec('explore'), objective: { type: 'point' as const, x: 1150, y: 250 } };
-    expect(e.dispatchCommand({ type: 'createOrder', spec: s }).ok).toBe(false);
-    expect(e.dispatchCommand({ type: 'createOrder', spec: { ...s, border: 'neutral' } }).ok).toBe(
-      true,
-    );
-    until(e, () => e.state.ships.find((s) => s.id === 'verity')!.x > 1040);
-    expect(
-      e.dispatchCommand({
-        type: 'updateOrder',
-        orderId: 'order-1',
-        changes: { border: 'federation' },
-      }).ok,
-    ).toBe(false);
-    e.dispatchCommand({ type: 'cancelOrder', orderId: 'order-1' });
-    until(e, () => e.state.orders[0].phase === 'complete');
-  });
-  it('holds, resumes, reroutes and withdraws without rewarding failure', () => {
-    const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: spec('transport') });
-    run(e, 5);
-    e.dispatchCommand({ type: 'holdOrder', orderId: 'order-1' });
-    const p = { ...e.state.ships[0] };
-    run(e, 5);
-    expect(e.state.ships[0].x).toBe(p.x);
-    e.dispatchCommand({ type: 'resumeOrder', orderId: 'order-1' });
-    expect(
-      e.dispatchCommand({ type: 'updateOrder', orderId: 'order-1', changes: { route: 'fast' } }).ok,
-    ).toBe(true);
-    e.state.ships[0].hull = 20;
-    run(e, 1);
-    expect(e.state.orders[0].outcome).toBe('failed');
-    until(e, () => e.state.orders[0].phase === 'complete');
-    expect(e.state.resources.allocation).toBe(0);
-  });
-  it('can add and release defense ships while keeping returning ships occupied', () => {
-    const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: spec('defense') });
-    run(e, 5);
-    expect(
-      e.dispatchCommand({
-        type: 'updateOrder',
-        orderId: 'order-1',
-        changes: { shipIds: ['vigil', 'horizon'] },
-      }).ok,
-    ).toBe(true);
-    expect(
-      e.dispatchCommand({
-        type: 'updateOrder',
-        orderId: 'order-1',
-        changes: { shipIds: ['horizon'] },
-      }).ok,
-    ).toBe(true);
-    expect(e.state.ships.find((s) => s.id === 'vigil')!.status).toBe('returning');
-    until(e, () => e.state.orders[0].phase === 'complete');
-  });
-  it('fails an unconfirmed interception when contact is lost instead of awarding a kill', () => {
-    const e = quietEngine(),
-      enemy = makeEnemy('lost', 'scout', 'romulan', { x: 1000, y: 500 });
-    observe(e.state, enemy, 10);
-    e.dispatchCommand({
-      type: 'createOrder',
-      spec: { ...spec('defense'), objective: { type: 'contact', id: 'lost' } },
-    });
-    run(e, 35);
-    expect(e.state.orders[0].outcome).toBe('failed');
-    expect(e.state.resources.allocation).toBe(0);
-  });
-  it('rejects free repair and transfers only reserved real torpedoes', () => {
-    const e = quietEngine(),
-      s = e.state.ships.find((s) => s.id === 'horizon')!,
-      base = e.state.locations.find((l) => l.id === 'base')!;
-    s.hull = 1;
-    s.photon = 0;
-    s.quantum = 0;
-    base.stock.materials = 0;
-    expect(e.dispatchCommand({ type: 'repair', shipId: s.id }).ok).toBe(false);
-    const before = e.state.armory.stock.photon;
-    expect(
-      e.dispatchCommand({ type: 'rearm', shipId: s.id, load: { photon: 3, quantum: 2 } }).ok,
-    ).toBe(true);
-    expect(e.state.armory.reserved).toEqual({ photon: 3, quantum: 2 });
-    run(e, 1);
-    expect(s.photon).toBe(1);
-    expect(s.quantum).toBe(0);
-    run(e, 5);
-    expect(s.photon).toBe(3);
-    expect(s.quantum).toBe(2);
-    expect(e.state.armory.stock.photon).toBe(before - 3);
-    expect(e.state.armory.reserved).toEqual({ photon: 0, quantum: 0 });
-    expect(base.stock.materials).toBe(0);
-    e.state.armory.stock.photon = 0;
-    expect(
-      e.dispatchCommand({ type: 'rearm', shipId: s.id, load: { photon: 1, quantum: 0 } }).ok,
-    ).toBe(false);
-  });
-  it('a configured hull retreat rule is evaluated before firing', () => {
-    const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: spec('defense') });
-    const s = e.state.ships.find((s) => s.id === 'vigil')!;
-    s.hull = 10;
-    expect(shouldRetreat(s, e.state.orders[0])).toBe(true);
-    run(e, 1);
-    expect(e.state.orders[0].outcome).toBe('failed');
-    expect(s.photon).toBe(0);
-  });
-});
-describe('combat rules', () => {
-  it('consumes torpedoes even on miss, consumes beam energy and respects cooldown and range', () => {
-    const w = quietEngine().state,
-      s = makeShip('s', 's', 'galaxy', 'starfleet', { x: 500, y: 500 }),
-      t = makeEnemy('t', 'raider', 'pirate', { x: 550, y: 500 });
-    let hits = 0;
-    const hooks = {
-      random: () => 1,
-      hit: () => {
-        hits++;
-      },
-      fired: () => {},
-    };
-    attack(w, s, t, hooks);
-    expect(hits).toBe(0);
-    expect(s.photon).toBe(35);
-    expect(s.quantum).toBe(11);
-    expect(s.core).toBe(240 - WEAPONS.arrays.cost - 2 - 3);
-    const core = s.core;
-    attack(w, s, t, hooks);
-    expect(s.core).toBe(core);
-    regenerate(s, 20, 20);
-    t.x = 1000;
-    attack(w, s, t, hooks);
-    expect(s.photon).toBe(35);
-    s.photon = 0;
-    s.quantum = 0;
-    s.core = 0;
-    t.x = 550;
-    attack(w, s, t, hooks);
-    expect(s.core).toBe(0);
-  });
-  it('cloak prevents fire and decloaks before an attack with real energy drain', () => {
-    const w = quietEngine().state,
-      s = makeEnemy('s', 'valdore', 'romulan', { x: 500, y: 500 }),
-      t = makeShip('t', 't', 'galaxy', 'starfleet', { x: 550, y: 500 });
-    let shots = 0;
-    const hooks = {
-      random: () => 0,
-      hit: () => {},
-      fired: () => {
-        shots++;
-      },
-    };
-    const before = s.core;
-    regenerate(s, 1, 1);
-    expect(s.core).toBeLessThan(before);
-    attack(w, s, t, hooks);
-    expect(s.cloak).toBe('decloaking');
-    expect(shots).toBe(0);
-    w.time = 1;
-    attack(w, s, t, hooks);
-    expect(shots).toBe(0);
-    w.time = 3;
-    regenerate(s, 3, 2);
-    attack(w, s, t, hooks);
-    expect(shots).toBeGreaterThan(0);
-  });
-  it.each(['HOLD FIRE', 'RETURN FIRE', 'ENGAGE HOSTILES', 'WEAPONS FREE'] as ROE[])(
-    'enforces %s and never attacks an unknown contact',
-    (roe) => {
-      const e = quietEngine();
-      e.dispatchCommand({ type: 'createOrder', spec: { ...spec('defense'), roe } });
-      const s = e.state.ships.find((s) => s.id === 'vigil')!,
-        t = makeEnemy('t', 'raider', 'pirate', { x: s.x + 30, y: s.y });
-      const o = e.state.orders[0];
-      observe(e.state, t, 1);
-      expect(permittedTarget(e.state, s, o, t)).toBe(false);
-      observe(e.state, t, 10);
-      s.lastAttackerId = t.id;
-      s.attackedAt = 0;
-      expect(permittedTarget(e.state, s, o, t)).toBe(roe !== 'HOLD FIRE');
-      s.lastAttackerId = null;
-      expect(permittedTarget(e.state, s, o, t)).toBe(
-        roe === 'ENGAGE HOSTILES' || roe === 'WEAPONS FREE',
-      );
-    },
-  );
-  it('actual combat damages shields then hull, resolves an intercept and returns', () => {
-    const e = quietEngine(),
-      s = e.state.ships.find((s) => s.id === 'horizon')!;
-    const t = makeEnemy('victim', 'raider', 'pirate', { x: s.x - 70, y: s.y });
-    t.hull = 60;
-    t.shield = 0;
-    t.nextDecision = 1e6;
-    t.targetId = s.id;
-    t.knownTargets = [{ id: s.id, x: s.x, y: s.y, seenAt: 0, score: 100 }];
-    e.state.enemies = [t];
-    observe(e.state, t, 10);
-    e.dispatchCommand({
-      type: 'createOrder',
-      spec: { ...spec('defense', 'horizon'), objective: { type: 'contact', id: t.id } },
-    });
-    s.cooldowns = { phaser: 100, photon: 100, quantum: 100 };
-    run(e, 0.1);
-    expect(s.shield).toBeLessThan(330);
-    expect(s.hull).toBe(380);
-    s.cooldowns = {};
-    until(e, () => e.state.orders[0].phase === 'complete');
-    expect(e.state.orders[0].outcome).toBe('success');
-    expect(s.photon).toBeLessThan(36);
-  });
-});
-describe('fog of war and rule threats', () => {
-  it('does not expose undiscovered positions, intent or raw enemy state anywhere in snapshot', () => {
-    const e = new SimulationEngine(),
-      json = JSON.stringify(e.snapshot());
-    expect(json).not.toContain('enemy-1');
-    expect(json).not.toContain('knownTargets');
-    expect(json).not.toContain('nextIncursion');
-    expect(json).not.toContain('"seed"');
-    expect(e.snapshot().contacts).toHaveLength(0);
-  });
-  it('advances CONTACT → CLASSIFIED → IDENTIFIED → TRACKED and expires last position', () => {
-    const e = quietEngine(),
-      enemy = makeEnemy('t', 'scout', 'romulan', { x: 950, y: 430 });
-    enemy.cloak = 'off';
-    e.state.enemies = [enemy];
-    observe(e.state, enemy, 1);
-    expect(visibleIntel(e.state)[0].level).toBe('CONTACT');
-    expect(visibleIntel(e.state)[0].name).toBeUndefined();
-    observe(e.state, enemy, 2);
-    expect(visibleIntel(e.state)[0].level).toBe('CLASSIFIED');
-    expect(visibleIntel(e.state)[0].classId).toBeUndefined();
-    observe(e.state, enemy, 3);
-    expect(visibleIntel(e.state)[0].level).toBe('IDENTIFIED');
-    observe(e.state, enemy, 4);
-    expect(visibleIntel(e.state)[0].level).toBe('TRACKED');
-    enemy.x = 1570;
-    enemy.y = 30;
-    e.state.time = 1;
-    updateSensors(
-      e.state,
-      () => 1,
-      () => {},
-    );
-    expect(e.snapshot().contacts[0].live).toBe(false);
-    expect(e.snapshot().contacts[0].x).toBe(950);
-    e.state.time = 31;
-    expect(e.snapshot().contacts).toHaveLength(0);
-    enemy.x = 950;
-    enemy.y = 430;
-    updateSensors(
-      e.state,
-      () => 0,
-      () => {},
-    );
-    expect(e.snapshot().contacts[0].live).toBe(true);
-  });
-  it('cloaking lowers detection probability even inside starbase range', () => {
-    const e = quietEngine(),
-      enemy = makeEnemy('t', 'scout', 'romulan', { x: 1000, y: 430 });
-    e.state.enemies = [enemy];
-    updateSensors(
-      e.state,
-      () => 0.8,
-      () => {},
-    );
-    expect(e.snapshot().contacts).toHaveLength(0);
-    enemy.cloak = 'off';
-    updateSensors(
-      e.state,
-      () => 0.8,
-      () => {},
-    );
-    expect(e.snapshot().contacts).toHaveLength(1);
-  });
-  it('RETURN FIRE requires observed aggression against the protected object, not a private AI intention', () => {
-    const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: { ...spec('defense'), roe: 'RETURN FIRE' } });
-    const s = e.state.ships.find((s) => s.id === 'vigil')!,
-      t = makeEnemy('t', 'raider', 'pirate', { x: s.x + 50, y: s.y });
-    t.targetId = 'colony';
-    t.behavior = 'engage';
-    t.attackedAt = 0;
-    const { record } = observe(e.state, t, 10),
-      o = e.state.orders[0];
-    expect(permittedTarget(e.state, s, o, t)).toBe(false);
-    record.lastAttackTargetId = 'colony';
-    record.lastAttackAt = 0;
-    expect(permittedTarget(e.state, s, o, t)).toBe(true);
-    e.state.time = 20;
-    expect(permittedTarget(e.state, s, o, t)).toBe(false);
-  });
-  it('no order or scan can address an unseen enemy or leak its identity through errors', () => {
-    const e = new SimulationEngine();
-    const before = structuredClone(e.state);
-    const result = e.dispatchCommand({
-      type: 'createOrder',
-      spec: { ...spec('defense'), objective: { type: 'contact', id: 'enemy-1' } },
-    });
-    expect(result.ok).toBe(false);
-    expect(result.reason).not.toContain('Pirate');
-    expect(e.state).toEqual(before);
-    expect(e.getObservation('ops-verity')!.contacts).toHaveLength(0);
-  });
-  it('safe routing uses known threats, not hidden enemy positions', () => {
-    const e = quietEngine(),
-      from = { x: 880, y: 430 },
-      to = { x: 440, y: 660 },
-      t = makeEnemy('hidden', 'raider', 'pirate', { x: 660, y: 545 });
-    const before = planRoute(e.state, from, to, true, 'federation');
-    e.state.enemies = [t];
-    expect(planRoute(e.state, from, to, true, 'federation')).toEqual(before);
-    observe(e.state, t, 10);
-    expect(planRoute(e.state, from, to, true, 'federation')).not.toEqual(before);
-    expect(planRoute(e.state, from, to, false, 'federation')).toEqual([to]);
-  });
-  it('pirates select profitable weak targets and retreat when damaged; Romulans can choose not to attack', () => {
+import { quietEngine, issue, run, until } from './helpers';
+import { makeEnemy } from '../src/engine/data';
+import { observe } from '../src/engine/sensors';
+import { capabilities, cargoUsed } from '../src/engine/capabilities';
+import { available } from '../src/engine/command-system';
+describe('Admiral directives and four physical activities', () => {
+  it('REPLACE discards queue and suspended directives, preserving loaded cargo and damage', () => {
     const e = quietEngine(),
       s = e.state.ships[0];
-    s.status = 'mission';
-    s.cargo.supplies = 60;
-    s.x = 300;
-    s.y = 650;
-    const pirate = makeEnemy('pirate', 'raider', 'pirate', { x: 250, y: 650 });
-    decideThreat(e.state, pirate);
-    expect(pirate.targetId).toBe(s.id);
-    pirate.hull = 10;
-    e.state.time = 6;
-    decideThreat(e.state, pirate);
-    expect(pirate.intent).toBe('retreat');
-    const romulan = makeEnemy('rom', 'valdore', 'romulan', { x: 1500, y: 100 });
-    decideThreat(e.state, romulan);
-    expect(romulan.targetId).toBeNull();
-    expect(romulan.intent).toBe('observe');
+    s.cargo.supplies = 8;
+    s.hull = 50;
+    issue(e, { type: 'MOVE', point: { x: 500, y: 0 } }, s.id);
+    issue(e, { type: 'DOCK', targetId: 'base' }, s.id, 'QUEUE');
+    issue(e, { type: 'MOVE', point: { x: 100, y: 300 } }, s.id, 'INTERRUPT');
+    expect(s.queue).toHaveLength(1);
+    expect(s.suspended).toHaveLength(1);
+    issue(e, { type: 'RETREAT', targetId: 'base' }, s.id);
+    expect(s.queue).toEqual([]);
+    expect(s.suspended).toEqual([]);
+    expect(s.cargo.supplies).toBe(8);
+    expect(s.hull).toBe(50);
   });
-  it('spawns incursions at world entries and moves continuously instead of spawning at an order', () => {
-    const e = new SimulationEngine();
+  it('QUEUE is FIFO; INTERRUPT resumes its actual progress before the queue', () => {
+    const e = quietEngine(),
+      s = e.state.ships[1];
+    issue(e, { type: 'MOVE', point: { x: 200, y: 0 } }, s.id);
+    const id = s.current!.id;
+    run(e, 3);
+    const moved = s.current!.moved;
+    issue(e, { type: 'MOVE', point: { x: -200, y: 45 } }, s.id, 'INTERRUPT');
+    issue(e, { type: 'DOCK', targetId: 'base' }, s.id, 'QUEUE');
+    until(e, () => s.current?.id === id);
+    expect(s.current!.moved).toBe(moved);
+    expect(s.queue).toHaveLength(1);
+    until(e, () => !s.current);
+    expect(s.status).toBe('docked');
+    const actions = e.state.history.filter((h) => h.kind === 'action');
+    expect(actions.map((h) => h.text.split(' / ')[2])).toEqual(['MOVE', 'MOVE', 'DOCK']);
+  });
+  it('invalid multi-ship action has no side effects', () => {
+    const e = quietEngine(),
+      before = structuredClone(e.state);
+    expect(
+      e.dispatchCommand({
+        type: 'issueDirective',
+        shipIds: ['verity', 'missing'],
+        mode: 'REPLACE',
+        action: { type: 'MOVE', point: { x: 2, y: 0 } },
+      }).ok,
+    ).toBe(false);
+    expect(e.state).toEqual(before);
+    for (const command of [
+      {
+        type: 'issueDirective',
+        shipIds: ['verity'],
+        mode: 'REPLACE',
+        action: {
+          type: 'HAUL',
+          sourceId: 'base',
+          targetId: 'colony',
+          amount: -5,
+          cargoKind: 'supplies',
+          route: 'safe',
+          repeat: false,
+        },
+      },
+      { type: 'renameEntity', entityId: 'base', name: '' },
+      { type: 'speed', speed: 99 },
+    ])
+      expect(e.dispatchCommand(command).ok).toBe(false);
+    expect(e.state).toEqual(before);
+  });
+  it('REPLACE releases unused inventory reservations, never unloads implicitly', () => {
+    const e = quietEngine(),
+      s = e.state.ships[0];
+    s.x = e.base.x;
+    s.y = e.base.y;
+    issue(
+      e,
+      {
+        type: 'HAUL',
+        sourceId: 'base',
+        targetId: 'colony',
+        cargoKind: 'supplies',
+        amount: 20,
+        route: 'direct',
+        repeat: false,
+      },
+      s.id,
+    );
+    run(e, 0.1);
+    expect(s.current!.reserved.supplies).toBe(20);
+    const stock = e.base.stock.supplies;
+    expect(available(e.state, 'base', 'supplies')).toBeCloseTo(stock - 20);
+    issue(e, { type: 'MOVE', point: { x: 0, y: 0 } }, s.id);
+    expect(available(e.state, 'base', 'supplies')).toBeCloseTo(stock);
+  });
+  it('interrupting a loaded freighter preserves its manifest and continues delivery exactly once', () => {
+    const e = quietEngine(),
+      s = e.state.ships[0];
+    s.x = e.base.x;
+    s.y = e.base.y;
+    issue(
+      e,
+      {
+        type: 'HAUL',
+        sourceId: 'base',
+        targetId: 'outpost',
+        cargoKind: 'photon',
+        amount: 8,
+        route: 'direct',
+        repeat: false,
+      },
+      s.id,
+    );
+    until(e, () => s.current?.phase === 'delivering');
+    expect(s.cargo.photon).toBe(8);
+    issue(e, { type: 'MOVE', point: { x: s.x + 5, y: s.y } }, s.id, 'INTERRUPT');
+    until(e, () => !s.current);
+    expect(s.cargo.photon).toBe(0);
+    expect(e.state.locations.find((l) => l.id === 'outpost')!.stock.photon).toBe(8);
+    expect(e.base.stock.photon).toBe(82);
+  });
+  it.each(['meridian', 'vigil', 'verity', 'horizon'])(
+    '%s can explore, mine, transport and explicitly attack',
+    (id) => {
+      const e = quietEngine(),
+        s = e.state.ships.find((s) => s.id === id)!,
+        b = e.state.bodies.find((b) => b.kind === 'resource' && b.survey === 2)!;
+      expect(
+        issue(e, { type: 'EXPLORE', sector: { q: 0, r: -1 }, approach: 'remote' }, id).ok,
+      ).toBe(true);
+      expect(
+        issue(e, { type: 'MINE', targetId: b.id, unloadId: 'base', repeat: false }, id).ok,
+      ).toBe(true);
+      s.x = b.x;
+      s.y = b.y;
+      run(e, 2);
+      expect(s.cargo.materials).toBeGreaterThan(0);
+      expect(
+        issue(
+          e,
+          {
+            type: 'HAUL',
+            sourceId: 'base',
+            targetId: 'colony',
+            cargoKind: 'supplies',
+            amount: Math.min(8, capabilities(s).cargo),
+            route: 'safe',
+            repeat: false,
+          },
+          id,
+        ).ok,
+      ).toBe(true);
+      const enemy = makeEnemy('test-raider', 'raider', 'orion', { x: s.x + 20, y: s.y });
+      e.state.enemies.push(enemy);
+      observe(e.state, enemy, 6);
+      s.standing.roe = 'HOLD FIRE';
+      expect(issue(e, { type: 'ATTACK', targetId: enemy.id }, id).ok).toBe(true);
+      run(e, 0.1);
+      expect(enemy.shield).toBeLessThan(capabilities(enemy).shield);
+    },
+  );
+  it('mining transfers finite ore, fills cargo and returns actual materials', () => {
+    const e = quietEngine(),
+      s = e.state.ships[1],
+      b = e.state.bodies.find((b) => b.kind === 'resource' && b.survey === 2)!;
+    b.remaining = 5;
+    s.x = b.x;
+    s.y = b.y;
+    e.state.locations.find((l) => l.id === 'mine')!.stock.supplies = 0;
+    const old = e.base.stock.materials;
+    issue(e, { type: 'MINE', targetId: b.id, unloadId: 'base', repeat: false }, s.id);
+    until(e, () => !s.current);
+    expect(b.remaining).toBe(0);
+    expect(cargoUsed(s)).toBe(0);
+    expect(e.base.stock.materials).toBeGreaterThanOrEqual(old + 5);
+    expect(e.state.history.some((h) => h.kind === 'cargo')).toBe(true);
+  });
+  it('remote discovery creates real permanent geography; close survey and Special Finds are one-time', () => {
+    const e = quietEngine(),
+      s = e.state.ships[2],
+      count = e.state.systems.length;
+    issue(e, { type: 'EXPLORE', sector: { q: 0, r: -1 }, approach: 'remote' }, s.id);
+    until(e, () => !s.current, 120);
+    expect(e.state.systems.length).toBeGreaterThan(count);
+    const ids = e.state.systems.map((x) => x.id),
+      b = e.state.bodies.find((b) => b.kind === 'anomaly' && b.discovered && !b.hidden)!;
+    const before = e.state.resources.credits;
+    issue(e, { type: 'EXPLORE', sector: { q: 0, r: -1 }, approach: 'remote' }, s.id);
+    until(e, () => !s.current);
+    expect(e.state.systems.map((x) => x.id)).toEqual(ids);
+    expect(
+      e.state.history.filter((h) => h.kind === 'discovery' && h.entityId === ids[count]),
+    ).toHaveLength(1);
+    expect(e.state.resources.credits - before).toBeLessThan(60);
+    issue(e, { type: 'SURVEY', targetId: b.id, approach: 'close', deep: false }, s.id);
+    until(e, () => !s.current);
+    expect(s.cargo.specialFinds).toBe(1);
+    issue(e, { type: 'SURVEY', targetId: b.id, approach: 'close', deep: false }, s.id);
+    until(e, () => !s.current);
+    expect(s.cargo.specialFinds).toBe(1);
+  });
+  it('transport conserves goods and selling consumes inventory instead of rewarding repeated transfers', () => {
+    const e = quietEngine(),
+      s = e.state.ships[0],
+      dest = e.state.locations.find((l) => l.id === 'outpost')!;
+    const total = e.base.stock.photon + dest.stock.photon;
+    issue(
+      e,
+      {
+        type: 'HAUL',
+        sourceId: 'base',
+        targetId: dest.id,
+        cargoKind: 'photon',
+        amount: 12,
+        route: 'direct',
+        repeat: false,
+      },
+      s.id,
+    );
+    until(e, () => !s.current);
+    expect(e.base.stock.photon + dest.stock.photon + s.cargo.photon).toBe(total);
+    const c = e.state.resources.credits;
+    expect(e.dispatchCommand({ type: 'sellStock', cargoKind: 'photon', amount: 10 }).ok).toBe(true);
+    expect(e.base.stock.photon + dest.stock.photon).toBe(total - 10);
+    expect(e.state.resources.credits).toBe(c + 120);
+  });
+  it('a lost target fails safely and runs the next directive', () => {
+    const e = quietEngine(),
+      s = e.state.ships[2],
+      target = makeEnemy('target', 'raider', 'orion', { x: 400, y: 400 });
+    e.state.enemies.push(target);
+    observe(e.state, target, 6);
+    issue(e, { type: 'SHADOW', targetId: target.id }, s.id);
+    issue(e, { type: 'DOCK', targetId: 'base' }, s.id, 'QUEUE');
     e.state.enemies = [];
-    e.state.nextIncursion = 0.1;
-    e.dispatchCommand({ type: 'pause', paused: false });
-    e.step();
-    expect(e.state.enemies).toHaveLength(1);
-    const enemy = e.state.enemies[0];
-    expect(enemy.x < 25 || enemy.x > 1560).toBe(true);
-    const p = { x: enemy.x, y: enemy.y };
-    e.step();
-    expect(dist(p, enemy)).toBeLessThan(2);
+    run(e, 31);
+    expect(s.current?.action.type === 'DOCK' || !s.current).toBe(true);
+    expect(e.state.history.some((h) => h.kind === 'actionFailed')).toBe(true);
+  });
+});
+
+describe('continuation and security edge cases', () => {
+  it('partly completed rearm can be interrupted and resumes remaining rounds without overfilling', () => {
+    const e = quietEngine(),
+      s = e.state.ships[2];
+    s.x = e.base.x;
+    s.y = e.base.y;
+    s.photon = 20;
+    issue(e, { type: 'REARM', targetId: 'base', load: { photon: 4, quantum: 0 } }, s.id);
+    run(e, 0.7);
+    expect(s.photon).toBe(21);
+    issue(e, { type: 'MOVE', point: { x: s.x, y: s.y } }, s.id, 'INTERRUPT');
+    until(e, () => !s.current);
+    expect(s.photon).toBe(24);
+    expect(e.base.stock.photon).toBe(86);
+  });
+  it('a depleted mine still resumes its suspended unloading leg', () => {
+    const e = quietEngine(),
+      s = e.state.ships[1],
+      b = e.state.bodies.find((b) => b.kind === 'resource' && b.survey === 2)!;
+    e.state.locations.find((l) => l.id === 'mine')!.stock.supplies = 0;
+    b.remaining = 2;
+    s.x = b.x;
+    s.y = b.y;
+    issue(e, { type: 'MINE', targetId: b.id, unloadId: 'base', repeat: false }, s.id);
+    until(e, () => s.current?.phase === 'unloading');
+    expect(b.remaining).toBe(0);
+    issue(e, { type: 'MOVE', point: { x: s.x + 2, y: s.y } }, s.id, 'INTERRUPT');
+    until(e, () => !s.current);
+    expect(s.cargo.materials).toBe(0);
+    expect(e.state.history.filter((h) => h.kind === 'actionFailed')).toEqual([]);
+  });
+  it('REPLACE remains legal even at maximum queue and interrupt depth', () => {
+    const e = quietEngine(),
+      s = e.state.ships[0];
+    issue(e, { type: 'MOVE', point: { x: 500, y: 0 } }, s.id);
+    for (let i = 0; i < 32; i++) issue(e, { type: 'DOCK', targetId: 'base' }, s.id, 'QUEUE');
+    expect(issue(e, { type: 'DOCK', targetId: 'base' }, s.id, 'QUEUE').ok).toBe(false);
+    for (let i = 0; i < 16; i++)
+      expect(issue(e, { type: 'MOVE', point: { x: 100, y: i } }, s.id, 'INTERRUPT').ok).toBe(true);
+    expect(issue(e, { type: 'DOCK', targetId: 'base' }, s.id, 'INTERRUPT').ok).toBe(false);
+    expect(issue(e, { type: 'DOCK', targetId: 'base' }, s.id).ok).toBe(true);
+    expect(s.queue).toEqual([]);
+    expect(s.suspended).toEqual([]);
+  });
+  it('arriving at the edge of a safe delivery radius unloads instead of starting another detour', () => {
+    const e = quietEngine(),
+      s = e.state.ships[0],
+      dest = e.state.locations.find((l) => l.id === 'outpost')!;
+    s.x = dest.x + 8.00000000000002;
+    s.y = dest.y;
+    s.cargo.photon = 4;
+    issue(
+      e,
+      {
+        type: 'HAUL',
+        sourceId: 'base',
+        targetId: dest.id,
+        cargoKind: 'photon',
+        amount: 4,
+        route: 'safe',
+        repeat: false,
+      },
+      s.id,
+    );
+    s.current!.phase = 'delivering';
+    s.current!.carried = 4;
+    run(e, 2.1);
+    expect(s.current).toBeNull();
+    expect(dest.stock.photon).toBe(4);
+    expect(s.path).toEqual([]);
+  });
+  it('Escort follows a moving vessel and protected-object ROE reacts to an actual attacker', () => {
+    const e = quietEngine(),
+      s = e.state.ships[1],
+      freighter = e.state.ships[0],
+      r = makeEnemy('escort-raider', 'raider', 'orion', { x: 100, y: 500 });
+    e.state.enemies = [r];
+    s.x = 90;
+    s.y = 500;
+    freighter.x = 110;
+    freighter.y = 500;
+    r.intent = 'raid';
+    r.targetId = freighter.id;
+    r.nextDecision = 1e9;
+    observe(e.state, r, 6);
+    issue(e, { type: 'MOVE', point: { x: 300, y: 500 } }, freighter.id);
+    issue(e, { type: 'ESCORT', targetId: freighter.id }, s.id);
+    e.fire(r, freighter);
+    run(e, 3);
+    expect(s.x).toBeGreaterThan(90);
+    expect(r.shield).toBeLessThan(capabilities(r).shield);
+  });
+  it('Intercept resolves a real contact and Drive Off ends on observed risk-driven retreat', () => {
+    const e = quietEngine(),
+      s = e.state.ships[2],
+      r = makeEnemy('intercept-raider', 'raider', 'orion', { x: 300, y: 500 });
+    s.x = 250;
+    s.y = 500;
+    r.nextDecision = 1e9;
+    e.state.enemies = [r];
+    observe(e.state, r, 6);
+    issue(e, { type: 'INTERCEPT', targetId: r.id }, s.id);
+    until(e, () => !s.current, 10);
+    expect(e.state.history.some((h) => h.text.includes('已截获接触'))).toBe(true);
+    r.hull = 35;
+    r.shield = 0;
+    r.nextDecision = 0;
+    issue(e, { type: 'DRIVE_OFF', targetId: r.id }, s.id);
+    until(e, () => !s.current, 30);
+    expect(r.intent).toBe('retreat');
+    expect(e.state.history.some((h) => h.text.includes('已观测到目标撤退'))).toBe(true);
   });
 });

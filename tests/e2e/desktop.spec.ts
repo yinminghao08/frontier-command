@@ -5,555 +5,255 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdtempSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { makeEnemy } from '../../src/engine/data';
+import { join, resolve } from 'node:path';
 import { SaveStore } from '../../electron/persistence';
-import { quietEngine, spec, until } from '../helpers';
+import { quietEngine } from '../helpers';
+import { createWorld } from '../../src/engine/data';
+import type { Action, Snapshot } from '../../src/engine/types';
 let app: ElectronApplication | undefined;
-const launch = async (directory: string) => {
+const temp = () => mkdtempSync(join(tmpdir(), 'frontier-e2e-v6-'));
+async function launch(directory: string) {
   app = await electron.launch({
     args: [resolve('.')],
     env: { ...process.env, FRONTIER_USER_DATA: directory, FRONTIER_HEADLESS: '1' },
   });
-  const page = await app.firstWindow();
-  await page.getByRole('navigation', { name: '主导航' }).waitFor();
-  return page;
-};
+  const p = await app.firstWindow();
+  await p.getByRole('navigation', { name: '主导航' }).waitFor();
+  return p;
+}
 test.afterEach(async () => {
   await app?.close().catch(() => {});
   app = undefined;
 });
-async function create(
-  page: Page,
-  kind: 'defense' | 'transport' | 'explore',
-  ship: string,
-  target: string,
-) {
-  await page.getByRole('button', { name: /02 OPERATIONS/ }).click();
+const state = (page: Page) => page.evaluate(() => window.frontier.getState()).then((x) => x.state);
+async function nav(page: Page, name: string) {
   await page
-    .getByRole('button', {
-      name: '新建' + { defense: '战斗／防御', transport: '运输', explore: '探索／侦察' }[kind],
-      exact: true,
-    })
+    .getByRole('navigation')
+    .getByRole('button', { name: new RegExp(name) })
     .click();
-  const dialog = page.getByRole('dialog', { name: '创建行动' });
-  await dialog.getByLabel('行动目标').selectOption('location:' + target);
-  await dialog.getByLabel('分配 ' + ship, { exact: true }).check();
-  await dialog.getByRole('button', { name: '授权派遣', exact: true }).click();
-  await expect(dialog).not.toBeVisible();
 }
-test('real Electron: create three concurrent orders, decisions, settlement, return, restart', async () => {
-  test.setTimeout(120000);
-  const directory = mkdtempSync(join(tmpdir(), 'frontier-e2e-v5-'));
-  const engine = quietEngine();
-  new SaveStore(directory).write(engine.state);
-  let page = await launch(directory);
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  await page.context().setOffline(true);
-  await create(page, 'transport', 'Antares Transport', 'colony');
-  await create(page, 'defense', 'Peregrine Patrol Craft', 'colony');
-  await create(page, 'explore', 'Constitution', 'anomaly1');
-  let state = (await page.evaluate(() => window.frontier.getState())).state;
-  expect(state.orders).toHaveLength(3);
-  expect(state.orders.every((o) => o.phase === 'preparing')).toBe(true);
+async function directive(
+  page: Page,
+  shipId: string,
+  type: Action['type'],
+  fields: Record<string, string> = {},
+  mode = 'REPLACE',
+) {
+  await page.locator('.operation-chip').filter({ hasText: shipId.toUpperCase() }).click();
+  await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
+  const d = page.getByRole('dialog', { name: 'Admiral 指令' });
+  await d.getByLabel('指令类型', { exact: true }).selectOption(type);
+  await d.getByLabel('提交模式').selectOption(mode);
+  for (const [label, value] of Object.entries(fields)) {
+    const field = d.getByLabel(label, { exact: true });
+    if (await field.evaluate((el) => el.tagName === 'SELECT')) await field.selectOption(value);
+    else await field.fill(value);
+  }
+  await d.getByRole('button', { name: '下达 Admiral 指令', exact: true }).click();
+  await expect(d).not.toBeVisible();
+}
+async function running(page: Page) {
   await page.getByRole('button', { name: '16×', exact: true }).click();
-  await page.getByRole('button', { name: '继续', exact: true }).click();
-  let decided = false;
+  if ((await state(page)).paused)
+    await page.getByRole('button', { name: '继续', exact: true }).click();
+}
+async function waitFor(page: Page, predicate: (s: Snapshot) => boolean, timeout = 30000) {
   await expect
     .poll(
       async () => {
-        state = (await page.evaluate(() => window.frontier.getState())).state;
-        const decision = state.orders.find((o) => o.phase === 'decision');
-        if (decision) {
-          await page.locator('.operation-chip').filter({ hasText: decision.id }).click();
-          await page.getByRole('button', { name: '近距调查 · 高精度', exact: true }).click();
-          decided = true;
-        }
-        if (state.paused) await page.getByRole('button', { name: '继续', exact: true }).click();
-        return state.orders.every((o) => o.phase === 'complete');
+        const s = await state(page);
+        if (s.paused && s.status === 'active')
+          await page.getByRole('button', { name: '继续', exact: true }).click();
+        return predicate(s);
       },
-      { timeout: 75000, intervals: [300, 500] },
+      { timeout, intervals: [200] },
     )
     .toBe(true);
-  expect(decided).toBe(true);
-  expect(state.orders.every((o) => o.outcome === 'success')).toBe(true);
-  await page.getByRole('button', { name: '暂停', exact: true }).click();
-  await page.getByRole('button', { name: /06 ARCHIVE/ }).click();
-  await page.getByRole('button', { name: '立即保存', exact: true }).click();
-  const saved = (await page.evaluate(() => window.frontier.getState())).state;
-  expect(saved.ships.every((s) => s.orderId === null)).toBe(true);
-  expect(saved.resources.science).toBeGreaterThan(0);
-  await page.screenshot({ animations: 'disabled', path: 'test-results/v5-complete.png' });
-  expect(errors).toEqual([]);
-  await app!.close();
-  app = undefined;
-  page = await launch(directory);
-  const restored = (await page.evaluate(() => window.frontier.getState())).state;
-  expect(restored.time).toBe(saved.time);
-  expect(restored.orders).toEqual(saved.orders);
-  expect(restored.paused).toBe(true);
-});
-test('pending decision, action editing and invalid orders show engine feedback', async () => {
-  const e = quietEngine();
-  e.dispatchCommand({ type: 'createOrder', spec: spec('explore') });
-  until(e, () => e.state.orders[0].phase === 'decision');
-  const directory = mkdtempSync(join(tmpdir(), 'frontier-decision-v5-'));
-  new SaveStore(directory).write(e.state);
-  const page = await launch(directory);
-  await page.locator('.operation-chip').click();
-  await expect(page.locator('.decision-box')).toBeVisible();
-  await page.getByRole('button', { name: '远距扫描 · 保守', exact: true }).click();
-  expect((await page.evaluate(() => window.frontier.getState())).state.orders[0].phase).toBe(
-    'working',
-  );
-  await page.getByRole('button', { name: '修改指令', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '修改行动' });
-  await dialog.getByLabel('交战规则').selectOption('HOLD FIRE');
-  await dialog.getByRole('button', { name: '更新指令' }).click();
-  expect((await page.evaluate(() => window.frontier.getState())).state.orders[0].roe).toBe(
-    'HOLD FIRE',
-  );
-  await page.getByRole('button', { name: /02 OPERATIONS/ }).click();
-  await page.getByRole('button', { name: '新建运输', exact: true }).click();
-  const createDialog = page.getByRole('dialog', { name: '创建行动' });
-  await createDialog.getByLabel('行动目标').selectOption('location:colony');
-  await createDialog.getByLabel('分配 Peregrine Patrol Craft', { exact: true }).check();
-  await createDialog.getByLabel('货物数量').fill('60');
-  await createDialog.getByRole('button', { name: '授权派遣', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('货舱容量不足');
-  await expect(createDialog).toBeVisible();
-  expect((await page.evaluate(() => window.frontier.getState())).state.orders).toHaveLength(1);
-});
-
-test('LCARS map boundaries, pointer zoom, resize and overlay geometry at both required sizes', async () => {
-  test.setTimeout(180000);
-  const page = await launch(mkdtempSync(join(tmpdir(), 'frontier-map-v5-')));
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  const map = page.locator('.strategic-map');
-  const camera = async () =>
-    JSON.parse((await map.getAttribute('data-view'))!) as {
-      x: number;
-      y: number;
-      k: number;
-      width: number;
-      height: number;
-    };
-  const bounded = async () => {
-    const c = await camera();
-    expect(c.k).toBeGreaterThanOrEqual(1);
-    expect(c.k).toBeLessThanOrEqual(8);
-    expect(c.x).toBeLessThanOrEqual(0.01);
-    expect(c.y).toBeLessThanOrEqual(0.01);
-    expect(c.x + c.width * c.k).toBeGreaterThanOrEqual(c.width - 0.01);
-    expect(c.y + c.height * c.k).toBeGreaterThanOrEqual(c.height - 0.01);
-  };
-  for (const [width, height] of [
-    [1920, 1080],
-    [1600, 900],
-  ]) {
-    await app!.evaluate(
-      ({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setContentSize(s.width, s.height),
-      { width, height },
-    );
-    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
-    await page.getByRole('button', { name: 'FIT', exact: true }).click();
-    await expect.poll(async () => (await camera()).k).toBe(1);
-    await expect
-      .poll(async () => (await camera()).width)
-      .toBeCloseTo((await map.boundingBox())!.width, 0);
-    const original = await map.boundingBox();
-    await page.screenshot({ animations: 'disabled', path: `test-results/v5-sector-${width}.png` });
-    for (const nav of ['OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
-      await page
-        .getByRole('navigation')
-        .getByRole('button', { name: new RegExp(nav) })
-        .click();
-      await expect(page.getByRole('dialog', { name: nav + ' 工作面板' })).toBeVisible();
-      expect(await map.boundingBox()).toEqual(original);
-      await page.screenshot({
-        animations: 'disabled',
-        path: `test-results/v5-${nav.toLowerCase()}-${width}.png`,
-      });
-      await page.getByRole('button', { name: '关闭管理面板' }).click();
-    }
-    const b = (await map.boundingBox())!,
-      px = b.width * 0.43,
-      py = b.height * 0.58;
-    await page.mouse.move(b.x + px, b.y + py);
-    await page.mouse.wheel(0, -650);
-    await expect.poll(async () => (await camera()).k).toBeGreaterThan(2);
-    await page.waitForTimeout(600);
-    const z = await camera();
-    expect((px - z.x) / z.k).toBeCloseTo(px, 0);
-    expect((py - z.y) / z.k).toBeCloseTo(py, 0);
-    await page.mouse.wheel(0, -10000);
-    await expect.poll(async () => (await camera()).k).toBe(8);
-    for (const [dx, dy] of [
-      [-20000, 0],
-      [20000, 0],
-      [0, -20000],
-      [0, 20000],
-    ]) {
-      await page.mouse.move(b.x + 4, b.y + 4);
-      await page.mouse.down();
-      await page.mouse.move(b.x + 4 + dx, b.y + 4 + dy, { steps: 4 });
-      await page.mouse.up();
-      await bounded();
-      const edge = await camera();
-      if (dx) expect(edge.x).toBeCloseTo(dx < 0 ? edge.width * (1 - edge.k) : 0, 3);
-      if (dy) expect(edge.y).toBeCloseTo(dy < 0 ? edge.height * (1 - edge.k) : 0, 3);
-    }
-    await page.getByRole('button', { name: 'FIT', exact: true }).click();
-    await bounded();
-    await expect(page.getByRole('button', { name: '缩小地图' })).toBeDisabled();
-    await page.getByRole('button', { name: '曙光基地', exact: true }).click();
-    await expect(page.locator('.inspector h2')).toHaveText('曙光基地');
-    await page
-      .getByRole('navigation')
-      .getByRole('button', { name: /OPERATIONS/ })
-      .click();
-    await page.getByRole('button', { name: '新建战斗／防御', exact: true }).click();
-    await page.screenshot({
-      animations: 'disabled',
-      path: `test-results/v5-composer-${width}.png`,
-    });
-    const form = page.getByRole('dialog', { name: '创建行动' });
-    await form.getByLabel('分配 Peregrine Patrol Craft', { exact: true }).check();
-    await form.getByRole('button', { name: '授权派遣', exact: true }).scrollIntoViewIfNeeded();
-    await page.screenshot({
-      animations: 'disabled',
-      path: `test-results/v5-composer-controls-${width}.png`,
-    });
-    await page
-      .getByRole('dialog', { name: '创建行动' })
-      .getByRole('button', { name: /关闭/ })
-      .click();
-    expect(
-      await page.evaluate(
-        () =>
-          document.documentElement.scrollWidth <= innerWidth &&
-          document.documentElement.scrollHeight <= innerHeight,
-      ),
-    ).toBe(true);
-  }
-  await page.getByRole('button', { name: '放大地图' }).click();
-  await page.waitForTimeout(600);
-  const c = await camera(),
-    center = {
-      x: (c.width / 2 - c.x) / (c.width * c.k),
-      y: (c.height / 2 - c.y) / (c.height * c.k),
-    };
-  await app!.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0].setContentSize(1920, 1080),
-  );
-  await expect.poll(async () => (await camera()).width).toBeGreaterThan(c.width);
-  const r = await camera();
-  expect((r.width / 2 - r.x) / (r.width * r.k)).toBeCloseTo(center.x, 5);
-  expect((r.height / 2 - r.y) / (r.height * r.k)).toBeCloseTo(center.y, 5);
-  await bounded();
-  expect(errors).toEqual([]);
-});
-
-test('real hostile fire destroys a vessel; Archive and restart never resurrect it', async () => {
-  const e = quietEngine();
-  e.dispatchCommand({ type: 'createOrder', spec: spec('transport') });
-  until(e, () => e.state.ships[0].cargo.supplies > 0);
-  const s = e.state.ships[0];
-  Object.assign(s, { x: 250, y: 650, hull: 1, shield: 0 });
-  s.path = [];
-  e.state.ships
-    .filter((x) => x !== s)
-    .forEach((x) => {
-      x.x = 1400;
-      x.y = 50;
-    });
-  e.state.enemies = [makeEnemy('pirate-loss', 'raider', 'pirate', { x: 270, y: 650 })];
-  e.state.seed = 1;
-  e.state.paused = true;
-  const dir = mkdtempSync(join(tmpdir(), 'frontier-loss-v5-'));
+}
+test('real UI: discoveries, construction cargo, directives, refit, strategic upgrade, shipyard and restart', async () => {
+  test.setTimeout(210000);
+  const dir = temp(),
+    e = quietEngine();
+  e.state.resources.credits = 1200;
+  e.base.stock.materials = 200;
   new SaveStore(dir).write(e.state);
   let page = await launch(dir);
-  await page.getByRole('button', { name: '继续', exact: true }).click();
-  await expect
-    .poll(async () => (await page.evaluate(() => window.frontier.getState())).state.losses.length)
-    .toBe(1);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.context().setOffline(true);
+  const count = (await state(page)).systems.length;
+  await directive(page, 'verity', 'EXPLORE', { 探索星区: 'sector:0:-1', 调查方式: 'close' });
+  await directive(page, 'meridian', 'HAUL', {
+    指令目标: 'outpost',
+    货运起点: 'base',
+    货物种类: 'supplies',
+    货物数量: '20',
+    航线: 'direct',
+  });
+  await directive(page, 'vigil', 'MOVE', { '坐标 x': '100', '坐标 y': '100' });
+  await directive(page, 'vigil', 'DOCK', { 指令目标: 'base' }, 'QUEUE');
+  await directive(page, 'vigil', 'MOVE', { '坐标 x': '-180', '坐标 y': '45' }, 'INTERRUPT');
+  let s = await state(page);
+  expect(s.ships.find((s) => s.id === 'vigil')!.suspended).toHaveLength(1);
+  expect(s.ships.find((s) => s.id === 'vigil')!.queue).toHaveLength(1);
+  await running(page);
+  await waitFor(page, (s) => s.systems.length > count);
+  s = await state(page);
+  const resource = s.bodies.find(
+    (b) => b.kind === 'resource' && b.survey === 2 && b.systemId.startsWith('sector:0:-1'),
+  )!;
+  await nav(page, 'OPERATIONS');
   await page
-    .getByRole('navigation')
-    .getByRole('button', { name: /ARCHIVE/ })
+    .getByRole('dialog', { name: 'OPERATIONS 工作面板' })
+    .getByRole('button')
+    .filter({ hasText: resource.name })
     .click();
-  await expect(page.locator('.loss-row')).toContainText('子午号');
-  await page.screenshot({ animations: 'disabled', path: 'test-results/v5-vessel-loss.png' });
-  await page.getByRole('button', { name: '立即保存' }).click();
-  await page.locator('.loss-row').click();
-  await expect(page.locator('.inspector')).toContainText('PERMANENT LOSS');
-  await page.screenshot({ animations: 'disabled', path: 'test-results/lcars-inspector-loss.png' });
+  await page.getByLabel('设施类型', { exact: true }).selectOption('mine');
+  await page.getByLabel('新设施名称').fill('Admiral Mine');
+  await page.getByRole('button', { name: '建立现场建设项目', exact: true }).click();
+  await nav(page, 'COLONIES');
+  await page
+    .getByRole('dialog', { name: 'COLONIES 工作面板' })
+    .getByRole('button')
+    .filter({ hasText: 'Admiral Mine' })
+    .click();
+  await page.getByRole('button', { name: '安排建设物资 / 分批真实货运', exact: true }).click();
+  await waitFor(
+    page,
+    (s) => s.projects.some((p) => p.name === 'Admiral Mine' && p.complete),
+    65000,
+  );
+  await page.locator('.operation-chip').filter({ hasText: 'VERITY' }).click();
+  await page.getByLabel('显示名称').fill('USS NAMED');
+  await page.getByRole('button', { name: '保存名称', exact: true }).click();
+  expect((await state(page)).ships.find((s) => s.id === 'verity')!.name).toBe('USS NAMED');
+  await nav(page, 'STARBASE');
+  await page.getByRole('tab', { name: 'ENGINEERING', exact: true }).click();
+  await page.getByLabel('基地舰船').selectOption('meridian');
+  await page.getByLabel('基地模块').selectOption('expandedCargo');
+  await page.getByRole('button', { name: '安装 / 调整模块', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Admiral 指令' })
+    .getByRole('button', { name: '下达 Admiral 指令', exact: true })
+    .click();
+  await waitFor(
+    page,
+    (s) => s.ships.find((s) => s.id === 'meridian')!.modules.includes('expandedCargo'),
+    30000,
+  );
+  await nav(page, 'STARBASE');
+  await page.getByRole('tab', { name: 'LOGISTICS', exact: true }).click();
+  await page.getByRole('button', { name: '升级 Logistics', exact: true }).click();
+  await waitFor(page, (s) => s.upgrades.logistics === 1);
+  await page.getByRole('tab', { name: 'SHIPYARD', exact: true }).click();
+  await page.getByLabel('新舰名称').fill('USS REBUILT');
+  await page.getByRole('button', { name: '建造新舰', exact: true }).click();
+  await waitFor(page, (s) => s.ships.some((s) => s.name === 'USS REBUILT'));
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '暂停', exact: true }).click();
+  await nav(page, 'ARCHIVE');
+  await page.getByRole('button', { name: '立即保存', exact: true }).click();
+  const saved = await state(page);
+  await page.screenshot({ path: 'test-results/v6-playable.png', animations: 'disabled' });
+  expect(errors).toEqual([]);
   await app!.close();
   app = undefined;
   page = await launch(dir);
-  const w = (await page.evaluate(() => window.frontier.getState())).state;
-  expect(w.ships.some((s) => s.id === 'meridian')).toBe(false);
-  expect(w.losses[0].shipId).toBe('meridian');
-  expect(w.orders[0].outcome).toBe('failed');
+  const restored = await state(page);
+  expect(restored.ships).toEqual(saved.ships);
+  expect(restored.projects).toEqual(saved.projects);
+  expect(restored.history).toEqual(saved.history);
+  expect(restored.version).toBe(6);
+  expect(restored.paused).toBe(true);
+  expect('factions' in restored || 'seed' in restored || 'enemies' in restored).toBe(false);
 });
-
-test('COMMAND LOST freezes real Electron, restores yesterday into a new branch, preserves failure', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'frontier-terminal-v5-')),
-    store = new SaveStore(dir),
+test('ordinary contacts and focus changes do not pause; illegal directives have no mutations', async () => {
+  const dir = temp();
+  new SaveStore(dir).write(createWorld());
+  const page = await launch(dir),
+    before = await state(page);
+  const r = await page.evaluate(() =>
+    window.frontier.command({
+      type: 'issueDirective',
+      shipIds: ['verity'],
+      mode: 'REPLACE',
+      action: { type: 'SURVEY', targetId: 'hidden', approach: 'close', deep: true },
+    }),
+  );
+  expect(r.ok).toBe(false);
+  expect((await state(page)).ships).toEqual(before.ships);
+  await directive(page, 'meridian', 'HAUL', {
+    指令目标: 'colony',
+    货运起点: 'base',
+    货物数量: '-5',
+  }).catch(() => {});
+  const d = page.getByRole('dialog', { name: 'Admiral 指令' });
+  await expect(d).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('命令格式');
+  await d.getByLabel('航线', { exact: true }).selectOption('risky');
+  await expect(d).toContainText('exposed corridor');
+  await expect(d).toContainText('航段已测绘');
+  await page.screenshot({ path: 'test-results/v6-risky-route.png', animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await running(page);
+  await waitFor(page, (s) => s.contacts.length > 0);
+  expect((await state(page)).paused).toBe(false);
+  const tick = (await state(page)).tick;
+  await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('blur'));
+  await expect.poll(async () => (await state(page)).tick).toBeGreaterThan(tick);
+  expect((await state(page)).paused).toBe(false);
+});
+test('midnight snapshot and permanent ship loss survive restart', async () => {
+  const dir = temp(),
     e = quietEngine();
+  e.hit(e.state.ships[0], 10000);
+  e.finishCritical();
+  e.state.tick = 14399;
+  e.state.time = 1439.9;
+  new SaveStore(dir).write(e.state);
+  let page = await launch(dir);
+  await running(page);
+  await waitFor(page, (s) => s.tick >= 14400);
+  await page.getByRole('button', { name: '暂停', exact: true }).click();
+  const daily = JSON.parse(
+    readFileSync(join(dir, 'frontiers-v6', 'frontier-000001', 'day-2.json'), 'utf8'),
+  );
+  expect(daily.tick).toBe(14400);
+  expect(daily.losses).toHaveLength(1);
+  await app!.close();
+  app = undefined;
+  page = await launch(dir);
+  expect((await state(page)).losses).toHaveLength(1);
+  expect((await state(page)).ships).toHaveLength(3);
+});
+test('failed restoration preserves the terminal engine and frozen branch; successful retry creates a branch', async () => {
+  const dir = temp(),
+    e = quietEngine(),
+    store = new SaveStore(dir);
   store.write(e.state);
   e.state.tick = 14400;
   e.state.time = 1440;
   store.daily(e.state);
-  e.state.tick = 28810;
-  e.state.time = 2881;
-  e.state.ships.forEach((s) => {
-    s.x = 100;
-    s.y = 100;
-  });
-  e.base.hull = 1;
-  e.base.shield = 0;
-  e.state.seed = 1;
-  e.state.enemies = [
-    makeEnemy('pirate-terminal', 'raider', 'pirate', { x: e.base.x + 30, y: e.base.y }),
-  ];
+  e.state.tick = 28800;
+  e.state.time = 2880;
+  e.hit(e.base, 10000);
+  e.finishCritical();
   store.write(e.state);
-  let page = await launch(dir);
-  await page.evaluate(() => {
-    const w = window as unknown as Window & { terminalCue: boolean };
-    w.terminalCue = false;
-    window.addEventListener('lcars:cue', (event) => {
-      if ((event as CustomEvent<{ cue: string }>).detail.cue === 'terminal') w.terminalCue = true;
-    });
-  });
-  await page.getByRole('button', { name: '继续', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'COMMAND LOST', exact: true })).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(() => (window as unknown as Window & { terminalCue: boolean }).terminalCue),
-    )
-    .toBe(true);
-  const terminal = (await page.evaluate(() => window.frontier.getState())).state;
-  expect(
-    (await page.evaluate(() => window.frontier.command({ type: 'pause', paused: false }))).ok,
-  ).toBe(false);
-  await page.waitForTimeout(500);
-  expect((await page.evaluate(() => window.frontier.getState())).state.tick).toBe(terminal.tick);
-  for (const [width, height] of [
-    [1920, 1080],
-    [1600, 900],
-  ]) {
-    await app!.evaluate(
-      ({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setContentSize(s.width, s.height),
-      { width, height },
-    );
-    await page.waitForTimeout(100);
-    await page.screenshot({
-      animations: 'disabled',
-      path: `test-results/v5-command-lost-${width}.png`,
-    });
-  }
-  const failurePath = join(dir, 'frontiers-v5', 'frontier-000001', 'failure.json'),
-    failure = readFileSync(failurePath, 'utf8');
-  await app!.close();
-  app = undefined;
-  page = await launch(dir);
-  await expect(page.getByRole('dialog', { name: 'COMMAND LOST', exact: true })).toBeVisible();
+  const bytes = readFileSync(join(store.root, 'frontier-000001', 'failure.json'), 'utf8');
+  const page = await launch(dir);
+  await expect(page.getByRole('dialog', { name: 'COMMAND LOST' })).toBeVisible();
+  mkdirSync(store.indexPath + '.tmp');
   await page.getByRole('button', { name: 'RESTORE PREVIOUS DAY', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'COMMAND LOST', exact: true })).not.toBeVisible();
-  const restored = await page.evaluate(() => window.frontier.getState());
-  expect(restored.state.tick).toBe(14400);
-  expect(restored.state.status).toBe('active');
-  expect(restored.timeline.activeId).toBe('frontier-000002');
-  expect(readFileSync(failurePath, 'utf8')).toBe(failure);
-});
-
-test('16x midnight writes exact independent daily snapshot in Electron', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'frontier-midnight-v5-')),
-    store = new SaveStore(dir),
-    e = quietEngine();
-  store.write(e.state);
-  e.state.tick = 14399;
-  e.state.time = 1439.9;
-  store.write(e.state);
-  const page = await launch(dir);
-  await page.getByRole('button', { name: '16×', exact: true }).click();
-  await page.getByRole('button', { name: '继续', exact: true }).click();
-  const path = join(dir, 'frontiers-v5', 'frontier-000001', 'day-2.json');
-  await expect.poll(() => existsSync(path)).toBe(true);
-  await page.getByRole('button', { name: '暂停', exact: true }).click();
-  expect(JSON.parse(readFileSync(path, 'utf8')).tick).toBe(14400);
-  expect(
-    JSON.parse(readFileSync(join(dir, 'frontiers-v5', 'frontier-000001', 'day-1.json'), 'utf8'))
-      .tick,
-  ).toBe(0);
-});
-
-test('explicit ammunition loading uses stock and rejects unavailable rounds through the LCARS inspector', async () => {
-  const e = quietEngine(),
-    s = e.state.ships.find((s) => s.id === 'horizon')!;
-  s.photon = 0;
-  s.quantum = 0;
-  e.state.armory.stock = { photon: 3, quantum: 1 };
-  const dir = mkdtempSync(join(tmpdir(), 'frontier-armory-v5-'));
-  new SaveStore(dir).write(e.state);
-  const page = await launch(dir);
-  await page.getByRole('button', { name: s.name, exact: true }).click();
-  await page.getByLabel('装弹 photon').fill('4');
-  await page.getByLabel('装弹 quantum').fill('0');
-  await page.getByRole('button', { name: '授权装弹' }).click();
-  await expect(page.getByRole('status')).toContainText('弹药库存或弹舱余量不足');
-  await page.getByLabel('装弹 photon').fill('3');
-  await page.getByLabel('装弹 quantum').fill('1');
-  await page.getByRole('button', { name: '授权装弹' }).click();
-  let w = (await page.evaluate(() => window.frontier.getState())).state;
-  expect(w.armory.reserved).toEqual({ photon: 3, quantum: 1 });
-  expect(w.ships.find((s) => s.id === 'horizon')!.photon).toBe(0);
-  await page.screenshot({ animations: 'disabled', path: 'test-results/v5-armory-loading.png' });
-  await page.getByRole('button', { name: '16×', exact: true }).click();
-  await page.getByRole('button', { name: '继续', exact: true }).click();
-  await expect
-    .poll(
-      async () =>
-        (await page.evaluate(() => window.frontier.getState())).state.ships.find(
-          (s) => s.id === 'horizon',
-        )!.status,
-    )
-    .toBe('docked');
-  await page.getByRole('button', { name: '暂停', exact: true }).click();
-  w = (await page.evaluate(() => window.frontier.getState())).state;
-  expect(w.armory.stock).toEqual({ photon: 0, quantum: 0 });
-  expect(w.armory.reserved).toEqual({ photon: 0, quantum: 0 });
-  expect(w.ships.find((s) => s.id === 'horizon')).toMatchObject({ photon: 3, quantum: 1 });
-});
-
-test('Scout intelligence changes a distant Warbird decision in the actual Electron simulation', async () => {
-  for (const defended of [false, true]) {
-    const e = quietEngine();
-    e.state.ships.forEach((s) => {
-      s.x = 100;
-      s.y = 100;
-    });
-    const cargo = e.state.ships[0];
-    Object.assign(cargo, { x: 1120, y: 600 });
-    cargo.cargo.supplies = 80;
-    if (defended) {
-      for (const id of ['horizon', 'verity'])
-        Object.assign(e.state.ships.find((s) => s.id === id)!, { x: 1130, y: 605 });
-    }
-    const bird = makeEnemy('intelligence-bird', 'valdore', 'romulan', { x: 1530, y: 600 }),
-      scout = makeEnemy('intelligence-scout', 'scout', 'romulan', { x: 1160, y: 600 });
-    e.state.enemies = [bird, scout];
-    const dir = mkdtempSync(join(tmpdir(), 'frontier-scout-v5-'));
-    new SaveStore(dir).write(e.state);
-    const page = await launch(dir);
-    await page.getByRole('button', { name: '16×', exact: true }).click();
-    await page.getByRole('button', { name: '继续', exact: true }).click();
-    await expect
-      .poll(
-        async () => {
-          const w = (await page.evaluate(() => window.frontier.getState())).state;
-          if (w.paused && w.time < 6)
-            await page.getByRole('button', { name: '继续', exact: true }).click();
-          return w.time;
-        },
-        { timeout: 15000 },
-      )
-      .toBeGreaterThanOrEqual(6);
-    const view = await page.evaluate(() => window.frontier.getState());
-    if (!view.state.paused) await page.getByRole('button', { name: '暂停', exact: true }).click();
-    await page.evaluate(() => window.frontier.save());
-    const truth = new SaveStore(dir).read().world!;
-    expect(
-      truth.romulanReports.some(
-        (r) => r.id === 'meridian' && r.observerId === 'intelligence-scout',
-      ),
-    ).toBe(true);
-    expect(truth.enemies.find((s) => s.id === 'intelligence-bird')!.intent).toBe(
-      defended ? 'observe' : 'probe',
-    );
-    expect(view.state).not.toHaveProperty('romulanReports');
-    expect(view.state).not.toHaveProperty('enemies');
-    await app!.close();
-    app = undefined;
-  }
-});
-
-test('failed defense and energy-starved recon report real failure in Electron', async () => {
-  for (const kind of ['defense', 'explore'] as const) {
-    const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: spec(kind) });
-    if (kind === 'explore') {
-      until(e, () => e.state.orders[0].phase === 'decision');
-      e.state.ships.find((s) => s.id === 'verity')!.core = 0;
-    } else {
-      const colony = e.state.locations.find((l) => l.id === 'colony')!;
-      colony.hull = 1;
-      colony.shield = 0;
-      e.state.enemies = [
-        makeEnemy('defense-failure', 'raider', 'pirate', { x: colony.x + 25, y: colony.y }),
-      ];
-      e.state.seed = 1;
-    }
-    e.state.paused = true;
-    const dir = mkdtempSync(join(tmpdir(), 'frontier-failed-operation-'));
-    new SaveStore(dir).write(e.state);
-    const page = await launch(dir);
-    await page.locator('.operation-chip').click();
-    if (kind === 'explore')
-      await page.getByRole('button', { name: '远距扫描 · 保守', exact: true }).click();
-    await page.getByRole('button', { name: '继续', exact: true }).click();
-    await expect
-      .poll(
-        async () => (await page.evaluate(() => window.frontier.getState())).state.orders[0].outcome,
-      )
-      .toBe('failed');
-    await expect(page.locator('.result-box')).toContainText(
-      kind === 'explore' ? '调查能源不足' : '设施已摧毁',
-    );
-    await app!.close();
-    app = undefined;
-  }
-});
-
-test('Day 1 has no restore; BEGIN NEW FRONTIER keeps terminal files and legacy saves', async () => {
-  const e = quietEngine(),
-    dir = mkdtempSync(join(tmpdir(), 'frontier-new-v5-')),
-    store = new SaveStore(dir);
-  store.write(e.state);
-  e.state.ships.forEach((s) => {
-    s.x = 100;
-    s.y = 100;
-  });
-  e.base.hull = 1;
-  e.base.shield = 0;
-  e.state.seed = 1;
-  e.state.enemies = [
-    makeEnemy('day-one-loss', 'raider', 'pirate', { x: e.base.x + 30, y: e.base.y }),
-  ];
-  store.write(e.state);
-  writeFileSync(join(dir, 'world-v4.json'), 'legacy untouched');
-  const page = await launch(dir);
-  await page.getByRole('button', { name: '继续', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'COMMAND LOST', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'RESTORE PREVIOUS DAY' })).toBeDisabled();
-  await page.screenshot({ animations: 'disabled', path: 'test-results/v5-day-one-lost.png' });
-  const path = join(dir, 'frontiers-v5', 'frontier-000001', 'failure.json'),
-    bytes = readFileSync(path, 'utf8');
-  await page.getByRole('button', { name: 'BEGIN NEW FRONTIER', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: '新世界确认' })).toBeVisible();
-  await page.screenshot({
-    animations: 'disabled',
-    path: 'test-results/v5-new-frontier-confirm.png',
-  });
-  await page.getByRole('button', { name: '保留记录并创建新世界' }).click();
-  await expect(page.getByRole('dialog')).not.toBeVisible();
-  const next = await page.evaluate(() => window.frontier.getState());
-  expect(next.state.tick).toBe(0);
-  expect(next.timeline.branches).toHaveLength(2);
-  expect(readFileSync(path, 'utf8')).toBe(bytes);
-  expect(readFileSync(join(dir, 'world-v4.json'), 'utf8')).toBe('legacy untouched');
+  expect((await state(page)).status).toBe('commandLost');
+  expect((await page.evaluate(() => window.frontier.timeline())).activeId).toBe('frontier-000001');
+  expect(readFileSync(join(store.root, 'frontier-000001', 'failure.json'), 'utf8')).toBe(bytes);
+  // The blocked .tmp directory is a deliberate isolated failure fixture.
+  const { rmdirSync } = await import('node:fs');
+  rmdirSync(store.indexPath + '.tmp');
+  await page.getByRole('button', { name: 'RESTORE PREVIOUS DAY', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'COMMAND LOST' })).not.toBeVisible();
+  expect((await state(page)).tick).toBe(14400);
+  expect(existsSync(join(store.root, 'frontier-000003', 'head.json'))).toBe(true);
 });

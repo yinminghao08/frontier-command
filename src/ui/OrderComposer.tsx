@@ -1,352 +1,481 @@
 import { useState } from 'react';
-import type { OperationOrder, OrderKind, OrderSpec, Snapshot } from '../engine/types';
-import { defaultOrder } from '../engine/data';
-import { SHIP_CLASSES } from '../engine/definitions/ships';
+import type { Action, Snapshot, ModuleId } from '../engine/types';
 import type { Selection } from '../StrategicMap';
 import type { CommandSender } from './types';
-import { LcarsDialog, LcarsButton, LcarsField } from './components/Lcars';
-export const KIND = { defense: '战斗／防御', transport: '运输', explore: '探索／侦察' };
-export const PHASE = {
-  preparing: '准备／装载',
-  outbound: '前往目标',
-  decision: '等待决策',
-  working: '执行中',
-  returning: '返航',
-  complete: '已归档',
-};
+import { LcarsDialog, LcarsButton, LcarsField, LcarsTextBar } from './components/Lcars';
+import { ACTION_LABELS } from './format';
+import { frontierSectors, sectorId } from '../engine/world-generation';
+import { capabilities, cargoUsed } from '../engine/capabilities';
+import { MODULES } from '../engine/definitions/progression';
+import { routeEstimate } from '../engine/navigation';
+export type ComposerRequest = { action: Action; shipId?: string };
+export function defaultAction(
+  type: Action['type'],
+  w: Snapshot,
+  selection: Selection | null = null,
+): Action {
+  const id = selection && 'id' in selection ? selection.id : '',
+    site = w.bodies.find((b) => b.id === id),
+    facility = w.locations.find((l) => l.id === id),
+    target = site?.id ?? facility?.id ?? w.contacts[0]?.id ?? 'base';
+  switch (type) {
+    case 'MOVE':
+      return {
+        type,
+        point: selection?.type === 'point' ? { x: selection.x, y: selection.y } : { x: 200, y: 0 },
+      };
+    case 'EXPLORE':
+      return {
+        type,
+        sector: selection?.type === 'sector' ? { q: selection.q, r: selection.r } : { q: 0, r: -1 },
+        approach: 'remote',
+      };
+    case 'SURVEY':
+      return {
+        type,
+        targetId:
+          site?.id ??
+          w.systems.find((s) => s.id === id)?.id ??
+          w.bodies.find((b) => b.kind === 'anomaly')?.id ??
+          target,
+        approach: 'close',
+        deep: false,
+      };
+    case 'MINE':
+      return {
+        type,
+        targetId:
+          site?.kind === 'resource'
+            ? site.id
+            : (w.bodies.find((b) => b.kind === 'resource' && b.survey >= 2)?.id ?? target),
+        unloadId: 'base',
+        repeat: false,
+      };
+    case 'HAUL':
+      return {
+        type,
+        sourceId: facility?.kind === 'mine' ? facility.id : 'base',
+        targetId:
+          facility?.kind === 'mine'
+            ? 'base'
+            : (w.projects.find((p) => p.id === id)?.id ?? facility?.id ?? 'colony'),
+        cargoKind: facility?.kind === 'mine' ? 'materials' : 'supplies',
+        amount: 20,
+        route: 'safe',
+        repeat: false,
+      };
+    case 'ATTACK':
+    case 'DISABLE':
+    case 'DRIVE_OFF':
+    case 'INTERCEPT':
+    case 'SHADOW':
+      return { type, targetId: id || w.contacts[0]?.id || '' };
+    case 'ESCORT':
+      return { type, targetId: selection?.type === 'ship' ? id : (w.ships[0]?.id ?? '') };
+    case 'PATROL':
+      return {
+        type,
+        targetId: facility?.owner === 'starfleet' ? facility.id : 'colony',
+        duration: 60,
+      };
+    case 'REARM':
+      return { type, targetId: 'base', load: { photon: 4, quantum: 0 } };
+    case 'REFIT':
+      return { type, targetId: 'base', moduleId: 'expandedCargo', remove: false };
+    case 'RECOVER':
+      return { type, targetId: id || w.wrecks[0]?.id || '' };
+    default:
+      return { type, targetId: facility?.owner === 'starfleet' ? facility.id : 'base' };
+  }
+}
 export function OrderComposer({
   world,
-  kind,
-  selection,
-  existing,
-  onClose,
+  request,
   command,
+  onClose,
 }: {
   world: Snapshot;
-  kind: OrderKind;
-  selection: Selection | null;
-  existing?: OperationOrder;
-  onClose: () => void;
+  request: ComposerRequest;
   command: CommandSender;
+  onClose: () => void;
 }) {
-  const [spec, setSpec] = useState<OrderSpec>(() => {
-    if (existing) return structuredClone(existing);
-    const s = defaultOrder(kind);
-    if (selection?.type === 'point' && kind === 'explore') s.objective = { ...selection };
-    if (selection?.type === 'location') {
-      const l = world.locations.find((l) => l.id === selection.id);
-      if (
-        l &&
-        ((kind === 'transport' && ['colony', 'outpost', 'base', 'mine'].includes(l.kind)) ||
-          (kind === 'defense' && ['colony', 'outpost', 'base', 'mine'].includes(l.kind)) ||
-          kind === 'explore')
-      )
-        s.objective = { type: selection.type as 'location' | 'ship' | 'contact', id: selection.id };
-    }
-    if (selection?.type === 'contact' && kind !== 'transport')
-      s.objective = { type: selection.type as 'location' | 'ship' | 'contact', id: selection.id };
-    if (selection?.type === 'ship' && kind === 'defense')
-      s.objective = { type: selection.type as 'location' | 'ship' | 'contact', id: selection.id };
-    return s;
-  });
-  const [busy, setBusy] = useState(false);
-  const patch = (p: Partial<OrderSpec>) => setSpec((s) => ({ ...s, ...p }));
-  const objectiveKey =
-    spec.objective.type === 'point' ? 'point' : spec.objective.type + ':' + spec.objective.id;
-  const options = [
-    ...world.locations
-      .filter(
-        (l) =>
-          spec.kind === 'explore' ||
-          (l.regionId === 'federation' && ['base', 'colony', 'outpost', 'mine'].includes(l.kind)),
-      )
-      .map((l) => ({ value: 'location:' + l.id, label: l.name })),
-    ...(spec.kind === 'defense'
-      ? world.ships.map((s) => ({ value: 'ship:' + s.id, label: '保护 ' + s.name }))
-      : []),
-    ...(spec.kind !== 'transport'
-      ? world.contacts.map((c) => ({
-          value: 'contact:' + c.id,
-          label: c.name ?? '未识别接触 ' + c.id,
-        }))
-      : []),
-  ];
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    const result = existing
-      ? await command({
-          type: 'updateOrder',
-          orderId: existing.id,
-          changes: {
-            priority: spec.priority,
-            roe: spec.roe,
-            border: spec.border,
-            retreat: spec.retreat,
-            route: spec.route,
-            ...(spec.kind === 'defense'
-              ? { objective: spec.objective, shipIds: spec.shipIds }
-              : {}),
-            ...(spec.kind === 'explore' && existing.phase !== 'working'
-              ? { approach: spec.approach }
-              : {}),
-          },
-        })
-      : await command({ type: 'createOrder', spec });
-    setBusy(false);
-    if (result.ok) onClose();
-  };
+  const [action, setAction] = useState<Action>(request.action),
+    [shipIds, setShipIds] = useState<string[]>([
+      world.ships.find(
+        (s) =>
+          s.id ===
+          (request.shipId ??
+            (request.action.type === 'EXPLORE' || request.action.type === 'SURVEY'
+              ? 'verity'
+              : request.action.type === 'HAUL'
+                ? 'meridian'
+                : 'vigil')),
+      )?.id ??
+        world.ships[0]?.id ??
+        '',
+    ]),
+    [mode, setMode] = useState<'REPLACE' | 'QUEUE' | 'INTERRUPT'>('REPLACE');
+  const update = (patch: Partial<Action>) => setAction((a) => ({ ...a, ...patch }) as Action);
+  const ships = world.ships.filter((s) => shipIds.includes(s.id)),
+    inventory = [
+      ...world.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0),
+      ...world.projects.filter((p) => !p.complete),
+    ];
+  const targets =
+    action.type === 'SURVEY'
+      ? [...world.systems, ...world.bodies]
+      : action.type === 'MINE'
+        ? world.bodies.filter((b) => b.kind === 'resource')
+        : action.type === 'RECOVER'
+          ? world.wrecks
+          : action.type === 'ESCORT'
+            ? world.ships
+            : ['ATTACK', 'DISABLE', 'DRIVE_OFF', 'SHADOW', 'INTERCEPT'].includes(action.type)
+              ? [...world.contacts, ...world.locations.filter((l) => l.owner !== 'starfleet')]
+              : inventory;
+  const dest = 'targetId' in action ? inventory.find((l) => l.id === action.targetId) : undefined;
+  const origin =
+    action.type === 'HAUL' ? inventory.find((l) => l.id === action.sourceId) : undefined;
+  const firstLeg =
+    action.type === 'HAUL' && ships[0] && origin
+      ? routeEstimate(world, ships[0], origin, action.route)
+      : null;
+  const secondLeg =
+    action.type === 'HAUL' && ships[0] && dest && origin
+      ? routeEstimate(world, { ...ships[0], x: origin.x, y: origin.y }, dest, action.route)
+      : null;
+  const estimate =
+    firstLeg && secondLeg
+      ? {
+          ...secondLeg,
+          eta: firstLeg.eta + secondLeg.eta - 4,
+          distance: firstLeg.distance + secondLeg.distance,
+          unknownDistance: firstLeg.unknownDistance + secondLeg.unknownDistance,
+        }
+      : null;
   return (
     <LcarsDialog
+      title="ADMIRAL DIRECTIVE"
+      label="Admiral 指令"
       className="order-composer"
-      label={existing ? '修改行动' : '创建行动'}
-      title={"ADMIRAL'S ORDERS / " + (existing ? '修改行动' : KIND[spec.kind])}
       onClose={onClose}
     >
-      <form noValidate onSubmit={submit}>
-        <p className="muted">
-          {spec.kind === 'defense'
-            ? '选择保护目标与交战规则；拦截必须确认驱离或击毁。'
-            : spec.kind === 'transport'
-              ? '预留真实库存，装货、航行、卸货后结算。安全路线依据当前已知风险。'
-              : '调查未知区域与异常；扫描真实消耗 Core，近距采样提高精度并承担辐射及暴露风险。'}
-        </p>
+      <LcarsTextBar>INTENT / FINAL COMMAND AUTHORITY</LcarsTextBar>
+      <div className="composer-grid">
         <LcarsField>
-          Objective / 目标
+          ACTIVITY
           <select
-            aria-label="行动目标"
-            value={objectiveKey}
-            disabled={!!existing && spec.kind !== 'defense'}
-            onChange={(e) => {
-              const [type, id] = e.target.value.split(':');
-              if (type !== 'point')
-                patch({ objective: { type: type as 'location' | 'ship' | 'contact', id } });
-            }}
+            aria-label="指令类型"
+            value={action.type}
+            onChange={(e) => setAction(defaultAction(e.target.value as Action['type'], world))}
           >
-            {spec.objective.type === 'point' && (
-              <option value="point">
-                未知区域 {spec.objective.x} / {spec.objective.y}
-              </option>
-            )}
-            {options.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
+            {Object.entries(ACTION_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
               </option>
             ))}
           </select>
         </LcarsField>
-        <fieldset className="assets-fieldset">
-          <legend>Assets / 执行舰船 {spec.kind === 'defense' ? '· 可多舰' : '· 单舰'}</legend>
-          {world.ships.map((s) => {
-            const d = SHIP_CLASSES[s.classId],
-              allowed = (s.status === 'docked' && !s.orderId) || s.orderId === existing?.id;
-            return (
-              <LcarsField className="ship-option" key={s.id}>
-                <input
-                  aria-label={'分配 ' + d.name}
-                  type="checkbox"
-                  checked={spec.shipIds.includes(s.id)}
-                  disabled={!allowed || (!!existing && spec.kind !== 'defense')}
-                  onChange={(e) =>
-                    patch({
-                      shipIds: e.target.checked
-                        ? spec.kind === 'defense'
-                          ? [...spec.shipIds, s.id]
-                          : [s.id]
-                        : spec.shipIds.filter((id) => id !== s.id),
-                    })
-                  }
-                />
-                <span>
-                  <b>{d.name}</b>
-                  <small>
-                    {s.name.split(' / ')[1]} · 货舱 {d.cargo} · 科学 {d.science} ·{' '}
-                    {allowed ? '可用' : '忙碌'}
-                  </small>
-                </span>
-              </LcarsField>
-            );
-          })}
-        </fieldset>
-        <div className="form-grid">
+        <LcarsField>
+          COMMAND MODE
+          <select
+            aria-label="提交模式"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as typeof mode)}
+          >
+            <option>REPLACE</option>
+            <option>QUEUE</option>
+            <option>INTERRUPT</option>
+          </select>
+        </LcarsField>
+        {'targetId' in action && (
           <LcarsField>
-            Priority
+            TARGET
             <select
-              value={spec.priority}
-              onChange={(e) => patch({ priority: e.target.value as OrderSpec['priority'] })}
+              aria-label="指令目标"
+              value={action.targetId}
+              onChange={(e) => update({ targetId: e.target.value })}
             >
-              <option value="normal">常规</option>
-              <option value="high">高</option>
-              <option value="urgent">紧急</option>
-            </select>
-          </LcarsField>
-          <LcarsField>
-            ROE
-            <select
-              aria-label="交战规则"
-              value={spec.roe}
-              onChange={(e) => patch({ roe: e.target.value as OrderSpec['roe'] })}
-            >
-              {['HOLD FIRE', 'RETURN FIRE', 'ENGAGE HOSTILES', 'WEAPONS FREE'].map((x) => (
-                <option key={x}>{x}</option>
+              {targets.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {'name' in t ? (t.name ?? t.id) : t.id}
+                </option>
               ))}
             </select>
           </LcarsField>
-        </div>
-        <LcarsField>
-          跨境授权
-          <select
-            aria-label="跨境授权"
-            value={spec.border}
-            onChange={(e) => patch({ border: e.target.value as OrderSpec['border'] })}
-          >
-            <option value="federation">仅联邦空间</option>
-            <option value="neutral">授权进入中立区</option>
-            <option value="romulan">授权进入罗慕兰空间</option>
-          </select>
-        </LcarsField>
-        {spec.border !== 'federation' && (
-          <p className="warning">跨境会暴露舰队并可能引发罗慕兰响应；授权不会解除交战规则。</p>
         )}
-        {spec.kind === 'defense' && !existing && (
+        {action.type === 'EXPLORE' && (
           <LcarsField>
-            防御窗口（游戏分钟）
-            <input
-              aria-label="防御时长"
-              type="number"
-              min="10"
-              max="180"
-              value={spec.duration}
-              onChange={(e) => patch({ duration: Number(e.target.value) })}
-            />
-          </LcarsField>
-        )}
-        {spec.kind === 'transport' && (
-          <>
-            <LcarsField>
-              起点
-              <select
-                aria-label="运输起点"
-                value={spec.sourceId}
-                disabled={!!existing}
-                onChange={(e) => patch({ sourceId: e.target.value })}
-              >
-                {world.locations
-                  .filter(
-                    (l) =>
-                      l.regionId === 'federation' &&
-                      ['base', 'colony', 'outpost', 'mine'].includes(l.kind),
-                  )
-                  .map((l) => (
-                    <option value={l.id} key={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-              </select>
-            </LcarsField>
-            <div className="form-grid">
-              <LcarsField>
-                货物
-                <select
-                  aria-label="货物类型"
-                  value={spec.cargoKind}
-                  disabled={!!existing}
-                  onChange={(e) => patch({ cargoKind: e.target.value as OrderSpec['cargoKind'] })}
-                >
-                  <option value="supplies">补给</option>
-                  <option value="medical">医疗物资</option>
-                  <option value="materials">维修材料</option>
-                </select>
-              </LcarsField>
-              <LcarsField>
-                数量
-                <input
-                  aria-label="货物数量"
-                  type="number"
-                  min="1"
-                  max={Math.max(
-                    1,
-                    ...world.ships
-                      .filter((s) => spec.shipIds.includes(s.id))
-                      .map((s) => SHIP_CLASSES[s.classId].cargo),
-                  )}
-                  disabled={!!existing}
-                  value={spec.amount}
-                  onChange={(e) => patch({ amount: Number(e.target.value) })}
-                />
-              </LcarsField>
-            </div>
-            <p className="muted">
-              起点可用：
-              {(() => {
-                const l = world.locations.find((l) => l.id === spec.sourceId);
-                return l ? l.stock[spec.cargoKind] - l.reserved[spec.cargoKind] : 0;
-              })()}{' '}
-              · 超容量或超库存命令会由引擎拒绝。
-            </p>
-          </>
-        )}
-        <LcarsField>
-          航线
-          <select
-            aria-label="航线"
-            value={spec.route}
-            onChange={(e) => patch({ route: e.target.value as 'safe' | 'fast' })}
-          >
-            <option value="safe">安全 · 绕开已知威胁／异常</option>
-            <option value="fast">快速 · 直达目标</option>
-          </select>
-        </LcarsField>
-        {spec.kind === 'explore' && (
-          <LcarsField>
-            默认调查方案
+            UNKNOWN SECTOR
             <select
-              value={spec.approach}
-              disabled={existing?.phase === 'working'}
-              onChange={(e) => patch({ approach: e.target.value as 'remote' | 'close' })}
+              aria-label="探索星区"
+              value={sectorId(action.sector)}
+              onChange={(e) => {
+                const c = frontierSectors(world.sectors).find(
+                  (c) => sectorId(c) === e.target.value,
+                );
+                if (c) update({ sector: c });
+              }}
             >
-              <option value="remote">远距扫描</option>
-              <option value="close">近距调查</option>
+              {frontierSectors(world.sectors).map((c) => (
+                <option key={sectorId(c)} value={sectorId(c)}>
+                  UNKNOWN {c.q}/{c.r}
+                </option>
+              ))}
             </select>
           </LcarsField>
         )}
-        <fieldset className="withdrawal-fieldset">
-          <legend>Withdrawal / 自动撤退阈值（0 表示关闭）</legend>
-          <div className="form-grid three">
-            {(['hull', 'shield', 'core'] as const).map((key, i) => (
-              <LcarsField key={key}>
-                {['Hull %', 'Shield %', 'Core %'][i]}
-                <input
-                  aria-label={'撤退 ' + key}
-                  type="number"
-                  min="0"
-                  max="90"
-                  value={spec.retreat[key]}
-                  onChange={(e) =>
-                    patch({ retreat: { ...spec.retreat, [key]: Number(e.target.value) } })
-                  }
-                />
-              </LcarsField>
-            ))}
-          </div>
-          <LcarsField className="check">
+        {(action.type === 'EXPLORE' || action.type === 'SURVEY') && (
+          <LcarsField>
+            SURVEY APPROACH
+            <select
+              aria-label="调查方式"
+              value={action.approach}
+              onChange={(e) => update({ approach: e.target.value as 'remote' | 'close' })}
+            >
+              <option value="remote">REMOTE SCAN / 安全测绘</option>
+              <option value="close">CLOSE SURVEY / 现场调查</option>
+            </select>
+          </LcarsField>
+        )}
+        {action.type === 'SURVEY' && (
+          <LcarsField>
+            <input
+              aria-label="Deep Scan"
+              type="checkbox"
+              checked={action.deep}
+              onChange={(e) => update({ deep: e.target.checked })}
+            />
+            DEEP SCAN / 隐藏异常
+          </LcarsField>
+        )}
+        {action.type === 'MINE' && (
+          <>
+            <LcarsField>
+              UNLOAD AT
+              <select
+                aria-label="采矿卸货点"
+                value={action.unloadId}
+                onChange={(e) => update({ unloadId: e.target.value })}
+              >
+                {inventory.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </LcarsField>
+            <LcarsField>
+              <input
+                type="checkbox"
+                aria-label="循环采矿"
+                checked={action.repeat}
+                onChange={(e) => update({ repeat: e.target.checked })}
+              />
+              持续采集及卸货
+            </LcarsField>
+          </>
+        )}
+        {action.type === 'HAUL' && (
+          <>
+            <LcarsField>
+              ORIGIN
+              <select
+                aria-label="货运起点"
+                value={action.sourceId}
+                onChange={(e) => update({ sourceId: e.target.value })}
+              >
+                {inventory.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </LcarsField>
+            <LcarsField>
+              CARGO
+              <select
+                aria-label="货物种类"
+                value={action.cargoKind}
+                onChange={(e) => update({ cargoKind: e.target.value as typeof action.cargoKind })}
+              >
+                {['materials', 'supplies', 'photon', 'quantum', 'specialFinds'].map((k) => (
+                  <option key={k}>{k}</option>
+                ))}
+              </select>
+            </LcarsField>
+            <LcarsField>
+              AMOUNT
+              <input
+                aria-label="货物数量"
+                type="number"
+                min="1"
+                value={action.amount}
+                onChange={(e) => update({ amount: Number(e.target.value) })}
+              />
+            </LcarsField>
+            <LcarsField>
+              ROUTE
+              <select
+                aria-label="航线"
+                value={action.route}
+                onChange={(e) => update({ route: e.target.value as typeof action.route })}
+              >
+                <option value="safe">SAFE / 防御航道</option>
+                <option value="direct">DIRECT / 直接航线</option>
+                <option value="risky">RISKY / 高速危险航段</option>
+              </select>
+            </LcarsField>
+            <LcarsField>
+              <input
+                type="checkbox"
+                aria-label="循环货运"
+                checked={action.repeat}
+                onChange={(e) => update({ repeat: e.target.checked })}
+              />
+              循环货运 / Logistics
+            </LcarsField>
+            {estimate && (
+              <p>
+                ETA {estimate.eta}m · {estimate.risk} ·{' '}
+                {estimate.unknownDistance > 0.01
+                  ? '未知航段约 ' +
+                    Math.round((estimate.unknownDistance / estimate.distance) * 100) +
+                    '% / 风险不确定'
+                  : '航段已测绘 / 接触情报仍可能变化'}
+              </p>
+            )}
+          </>
+        )}
+        {action.type === 'PATROL' && (
+          <LcarsField>
+            DURATION
+            <input
+              aria-label="巡逻时间"
+              type="number"
+              value={action.duration}
+              onChange={(e) => update({ duration: Number(e.target.value) })}
+            />
+          </LcarsField>
+        )}
+        {action.type === 'DISABLE' && (
+          <LcarsField>
+            TARGETING
+            <select
+              aria-label="禁用子系统"
+              value={action.subsystem ?? 'suppression'}
+              onChange={(e) =>
+                setAction({
+                  ...action,
+                  subsystem:
+                    e.target.value === 'suppression'
+                      ? undefined
+                      : (e.target.value as 'engines' | 'weapons'),
+                })
+              }
+            >
+              <option value="suppression">广域推进压制</option>
+              <option value="engines">ENGINES / Precision Targeting</option>
+              <option value="weapons">WEAPONS / Precision Targeting</option>
+            </select>
+          </LcarsField>
+        )}
+        {action.type === 'REARM' &&
+          (['photon', 'quantum'] as const).map((k) => (
+            <LcarsField key={k}>
+              {k.toUpperCase()}
+              <input
+                aria-label={'装载 ' + k}
+                type="number"
+                min="0"
+                value={action.load[k]}
+                onChange={(e) => update({ load: { ...action.load, [k]: Number(e.target.value) } })}
+              />
+            </LcarsField>
+          ))}
+        {action.type === 'REFIT' && (
+          <>
+            <LcarsField>
+              MODULE
+              <select
+                aria-label="安装模块"
+                value={action.moduleId}
+                onChange={(e) => update({ moduleId: e.target.value as ModuleId })}
+              >
+                {Object.entries(MODULES).map(([id, m]) => (
+                  <option key={id} value={id}>
+                    {m.label} · {m.cost.credits}C / {m.cost.materials}M / {m.cost.specialFinds}F
+                  </option>
+                ))}
+              </select>
+            </LcarsField>
+            <p>{MODULES[action.moduleId].description}</p>
+            <LcarsField>
+              <input
+                type="checkbox"
+                aria-label="拆除模块"
+                checked={action.remove}
+                onChange={(e) => update({ remove: e.target.checked })}
+              />
+              拆除 / 消费与货舱校验
+            </LcarsField>
+          </>
+        )}
+        {action.type === 'MOVE' &&
+          (['x', 'y'] as const).map((k) => (
+            <LcarsField key={k}>
+              {k.toUpperCase()}
+              <input
+                aria-label={'坐标 ' + k}
+                type="number"
+                value={action.point[k]}
+                onChange={(e) =>
+                  update({ point: { ...action.point, [k]: Number(e.target.value) } })
+                }
+              />
+            </LcarsField>
+          ))}
+      </div>
+      <LcarsTextBar>FLEET / ALL OWNED VESSELS</LcarsTextBar>
+      <div className="asset-list">
+        {world.ships.map((s) => (
+          <LcarsField key={s.id}>
             <input
               type="checkbox"
-              checked={spec.retreat.emptyAmmo}
-              onChange={(e) => patch({ retreat: { ...spec.retreat, emptyAmmo: e.target.checked } })}
+              aria-label={'分配 ' + s.id}
+              checked={shipIds.includes(s.id)}
+              onChange={(e) =>
+                setShipIds((ids) =>
+                  e.target.checked ? [...ids, s.id] : ids.filter((id) => id !== s.id),
+                )
+              }
             />
-            鱼雷耗尽时撤退（装备鱼雷的舰型）
+            {s.name} · {s.current?.action.type ?? 'AVAILABLE'} · CARGO {Math.floor(cargoUsed(s))}/
+            {capabilities(s).cargo}
           </LcarsField>
-        </fieldset>
+        ))}
+      </div>
+      <p className="muted">
+        {mode === 'REPLACE'
+          ? '替换当前、挂起及排队指令；货物与损伤保留'
+          : mode === 'QUEUE'
+            ? '当前指令结束后按顺序执行；持续命令需取消或替换'
+            : '临时行动结束后自动接续原指令；目标失效会报告'}
+        。
+      </p>
+      <div className="dialog-actions">
         <LcarsButton
-          className="primary wide"
-          type="submit"
-          disabled={busy || spec.shipIds.length === 0}
+          onClick={async () => {
+            const r = await command({ type: 'issueDirective', shipIds, mode, action });
+            if (r.ok) onClose();
+          }}
         >
-          {busy ? '提交中…' : existing ? '更新指令' : '授权派遣'}
+          下达 Admiral 指令
         </LcarsButton>
-        {!spec.shipIds.length && <small className="muted">请选择执行舰船。</small>}
-      </form>
+        <LcarsButton tone="secondary" onClick={onClose}>
+          取消
+        </LcarsButton>
+      </div>
     </LcarsDialog>
   );
 }

@@ -28,7 +28,7 @@ export function CommandLost({
       </p>
       <div className="loss-summary">
         {world.losses.length} VESSEL LOSSES ·{' '}
-        {world.orders.filter((o) => o.outcome === 'failed').length} FAILED OPERATIONS
+        {world.history.filter((o) => o.kind === 'actionFailed').length} FAILED DIRECTIVES
       </div>
       <div className="dialog-actions">
         <LcarsButton

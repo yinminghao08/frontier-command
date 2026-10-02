@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Starfleet Frontier Command — LV1 deterministic fleet simulation",
+  "description": "Frontier Command — Lv1 + Lv2 deterministic frontier ecology",
   "author": "Frontier Command Project",
   "main": "dist-electron/electron/main.js",
   "scripts": {

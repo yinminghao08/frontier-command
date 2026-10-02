@@ -1,78 +1,108 @@
 import type { SimulationSpeed } from './clock';
 import type { ShipClassId } from './definitions/ships';
 export type Point = { x: number; y: number };
-export type FactionId = 'starfleet' | 'pirate' | 'romulan';
-export type CargoKind = 'supplies' | 'medical' | 'materials';
-export type Ammunition = { photon: number; quantum: number };
+export type FactionId = 'starfleet' | 'orion' | 'romulan';
+export const GOODS = ['materials', 'supplies', 'photon', 'quantum', 'specialFinds'] as const;
+export type CargoKind = (typeof GOODS)[number];
 export type Stock = Record<CargoKind, number>;
-export interface GeographicLocation extends Point {
+export type Ammunition = { photon: number; quantum: number };
+export type ROE = 'HOLD FIRE' | 'RETURN FIRE' | 'ENGAGE HOSTILES';
+export type ModuleId =
+  | 'deepScan'
+  | 'longRangeSensors'
+  | 'precisionTargeting'
+  | 'reinforcedShields'
+  | 'expandedCargo';
+export type UpgradeId = 'shipyard' | 'armory' | 'sensors' | 'logistics' | 'defense';
+export type FacilityKind = 'base' | 'colony' | 'mine' | 'outpost' | 'platform';
+export type RouteKind = 'safe' | 'direct' | 'risky';
+export type SectorCoord = { q: number; r: number };
+export interface Sector extends SectorCoord {
+  id: string;
+  systemIds: string[];
+  discovered: boolean;
+}
+export interface StarSystem extends Point {
+  id: string;
+  name: string;
+  sectorId: string;
+  discovered: boolean;
+  survey: number;
+  bodyIds: string[];
+}
+export interface Body extends Point {
+  id: string;
+  name: string;
+  systemId: string;
+  kind: 'planet' | 'resource' | 'anomaly';
+  survey: number;
+  habitable: boolean;
+  remaining: number;
+  richness: number;
+  hazard: number;
+  hidden: boolean;
+  specialClaimed: boolean;
+  discovered: boolean;
+}
+export interface Location extends Point {
   id: string;
   name: string;
   label: string;
-  kind: 'base' | 'colony' | 'outpost' | 'anomaly' | 'border' | 'mine' | 'planet';
-  regionId: 'federation' | 'neutral' | 'romulan';
-  supply: number;
-}
-export interface Location extends GeographicLocation {
+  kind: FacilityKind;
+  owner: FactionId;
+  siteId: string | null;
   stock: Stock;
-  reserved: Stock;
   hull: number;
   maxHull: number;
   shield: number;
   maxShield: number;
+  core: number;
   attackedAt: number;
+  cooldown: number;
   distress: boolean;
-  surveyed: boolean;
-  hazard: number;
-  surveyRevision: number;
-  rewardedRevision: number;
+  discovered: boolean;
+  production: number;
 }
-export type ROE = 'HOLD FIRE' | 'RETURN FIRE' | 'ENGAGE HOSTILES' | 'WEAPONS FREE';
-export type BorderPolicy = 'federation' | 'neutral' | 'romulan';
-export type Priority = 'normal' | 'high' | 'urgent';
-export type OrderKind = 'defense' | 'transport' | 'explore';
-export type Objective =
-  | { type: 'location' | 'ship' | 'contact'; id: string }
-  | { type: 'point'; x: number; y: number; id?: never };
-export interface OrderSpec {
-  kind: OrderKind;
-  objective: Objective;
-  shipIds: string[];
-  priority: Priority;
-  roe: ROE;
-  border: BorderPolicy;
-  retreat: { hull: number; shield: number; core: number; emptyAmmo: boolean };
-  duration: number;
-  sourceId: string;
-  cargoKind: CargoKind;
-  amount: number;
-  route: 'safe' | 'fast';
-  approach: 'remote' | 'close';
-}
-export type OrderPhase =
-  | 'preparing'
-  | 'outbound'
-  | 'decision'
-  | 'working'
-  | 'returning'
-  | 'complete';
-export interface OperationOrder extends OrderSpec {
+export type Action =
+  | { type: 'MOVE'; point: Point }
+  | { type: 'EXPLORE'; sector: SectorCoord; approach: 'remote' | 'close' }
+  | { type: 'SURVEY'; targetId: string; approach: 'remote' | 'close'; deep: boolean }
+  | { type: 'MINE'; targetId: string; unloadId: string; repeat: boolean }
+  | {
+      type: 'HAUL';
+      sourceId: string;
+      targetId: string;
+      cargoKind: CargoKind;
+      amount: number;
+      route: RouteKind;
+      repeat: boolean;
+    }
+  | {
+      type: 'ATTACK' | 'DISABLE' | 'DRIVE_OFF' | 'INTERCEPT' | 'SHADOW';
+      targetId: string;
+      subsystem?: 'engines' | 'weapons';
+    }
+  | { type: 'ESCORT'; targetId: string }
+  | { type: 'PATROL'; targetId: string; duration: number }
+  | { type: 'RETREAT' | 'DOCK'; targetId: string }
+  | { type: 'REPAIR'; targetId: string }
+  | { type: 'REARM'; targetId: string; load: Ammunition }
+  | { type: 'REFIT'; targetId: string; moduleId: ModuleId; remove: boolean }
+  | { type: 'UNLOAD'; targetId: string }
+  | { type: 'RECOVER'; targetId: string };
+export interface Directive {
   id: string;
+  action: Action;
   created: number;
-  phase: OrderPhase;
+  phase: string;
   work: number;
-  decisionAt: number;
-  settled: boolean;
-  outcome: 'success' | 'failed' | 'cancelled' | null;
-  result: string;
-  held: boolean;
-  loaded: boolean;
-  delivered: boolean;
-  reserved: number;
-  deadline: number;
-  targetLastSeen: Point | null;
-  searchUntil: number;
-  rewarded: boolean;
+  moved: number;
+  carried: number;
+  delivered: number;
+  reserved: Stock;
+  paidCredits: number;
+  search: number;
+  note: string;
 }
 export interface Ship extends Point {
   id: string;
@@ -84,54 +114,127 @@ export interface Ship extends Point {
   core: number;
   photon: number;
   quantum: number;
-  status: 'docked' | 'mission' | 'returning' | 'repairing' | 'rearming';
-  orderId: string | null;
-  targetId: string | null;
+  modules: ModuleId[];
+  engines: number;
+  weapons: number;
+  status: 'docked' | 'active' | 'idle';
+  current: Directive | null;
+  queue: Directive[];
+  suspended: Directive[];
+  standing: { roe: ROE; retreatHull: number };
   path: Point[];
   heading: number;
   cargo: Stock;
   cooldowns: Record<string, number>;
-  service: number;
-  rearm: Ammunition;
   lastAttackerId: string | null;
   attackedAt: number;
   scanUntil: number;
   cloak: 'off' | 'on' | 'decloaking';
   cloakUntil: number;
-  behavior: 'hold' | 'defend' | 'engage' | 'retreat' | 'scan' | 'travel';
 }
 export interface Enemy extends Ship {
-  home: Point;
+  homeId: string;
+  role: 'scout' | 'raider' | 'warbird';
+  intent: 'observe' | 'raid' | 'probe' | 'patrol' | 'retreat' | 'docked';
+  targetId: string | null;
   destination: Point | null;
-  departed: boolean;
-  visited: { id: string; time: number }[];
-  intent: 'observe' | 'raid' | 'probe' | 'retreat';
   nextDecision: number;
+  visited: string[];
   loot: number;
-  knownTargets: { id: string; x: number; y: number; seenAt: number; score: number }[];
 }
-export type IntelLevel = 'UNKNOWN' | 'CONTACT' | 'CLASSIFIED' | 'IDENTIFIED' | 'TRACKED';
+export type IntelLevel = 'CONTACT' | 'CLASSIFIED' | 'IDENTIFIED' | 'TRACKED';
 export interface IntelRecord extends Point {
   id: string;
   level: IntelLevel;
   strength: number;
   lastSeen: number;
   live: boolean;
+  hostile: boolean;
   name?: string;
   factionId?: FactionId;
   classId?: ShipClassId;
-  hostile: boolean;
   hull?: number;
   shield?: number;
+  velocity: Point;
+  resolved: boolean;
   lastAttackTargetId?: string;
   lastAttackAt?: number;
-  resolved: boolean;
-  resolution?: 'destroyed' | 'withdrawn';
+}
+export interface ThreatReport extends Point {
+  id: string;
+  observerId: string;
+  seenAt: number;
+  value: number;
+  defense: number;
+  kind: 'ship' | 'facility';
+}
+export interface FactionState {
+  reports: ThreatReport[];
+  credits: number;
+  production: number;
+  losses: string[];
+  stance: 'observe' | 'probe' | 'patrol' | 'escalate';
+}
+export interface Cost {
+  credits: number;
+  materials: number;
+  supplies: number;
+  specialFinds: number;
+}
+export interface Construction extends Point {
+  id: string;
+  name: string;
+  kind: Exclude<FacilityKind, 'base'>;
+  siteId: string;
+  stock: Stock;
+  cost: Cost;
+  work: number;
+  duration: number;
+  complete: boolean;
+}
+export interface IndustryJob {
+  id: string;
+  kind: 'ship' | 'upgrade' | 'manufacture';
+  key: string;
+  amount: number;
+  work: number;
+  duration: number;
+  complete: boolean;
+  name: string;
+}
+export interface Operator {
+  id: string;
+  name: string;
+  kind: 'rules';
+  availability: 'available' | 'vesselLost';
+}
+export interface Assignment {
+  operatorId: string;
+  shipId: string;
+  since: number;
+}
+export interface LossRecord {
+  shipId: string;
+  name: string;
+  classId: ShipClassId;
+  tick: number;
+  position: Point;
+  reason: string;
+  cargo: Stock;
+  ammunition: Ammunition;
+  operatorIds: string[];
+}
+export interface HistoryEntry {
+  id: number;
+  time: number;
+  kind: string;
+  text: string;
+  entityId: string | null;
 }
 export interface Communication {
   id: number;
   time: number;
-  priority: Priority;
+  priority: 'normal' | 'high' | 'urgent';
   text: string;
   read: boolean;
   entityId: string | null;
@@ -151,13 +254,11 @@ export interface Beam {
   expires: number;
 }
 export const CRITICAL_KINDS = [
-  'investigation',
-  'contactDetected',
-  'hostility',
   'lowHull',
   'shipDestroyed',
+  'facilityDestroyed',
+  'escalation',
   'commandLost',
-  'missionFailed',
 ] as const;
 export interface CriticalReason {
   kind: (typeof CRITICAL_KINDS)[number];
@@ -171,130 +272,129 @@ export type SimulationEvent =
   | { type: 'criticalPause'; reasons: CriticalReason[] }
   | { type: 'shipDestroyed'; shipId: string; operatorIds: string[]; tick: number }
   | { type: 'commandLost'; tick: number };
-export interface Operator {
+export interface Wreck extends Point {
   id: string;
-  availability: 'available' | 'vesselLost';
-  kind: 'rules';
   name: string;
+  stock: Stock;
+  discovered: boolean;
 }
-export interface Assignment {
-  operatorId: string;
-  shipId: string;
-  since: number;
-}
-export interface LossRecord {
-  shipId: string;
-  name: string;
-  classId: ShipClassId;
-  tick: number;
-  position: Point;
-  reason: string;
-  cargo: Stock;
-  ammunition: Ammunition;
-  operatorIds: string[];
-  orderId: string | null;
-}
-export interface ThreatReport extends Point {
-  id: string;
-  observerId: string;
-  seenAt: number;
-  confidence: number;
-  value: number;
-  defense: number;
-  kind: 'ship' | 'facility';
-}
-export type ControllerIntent =
-  | { type: 'hold' | 'defend' | 'transport' | 'scan' | 'retreat' }
-  | { type: 'engage'; contactId: string };
 export interface WorldState {
-  version: 5;
+  version: 6;
   tick: number;
   time: number;
   seed: number;
   initialSeed: number;
   paused: boolean;
-  pauseReasons: CriticalReason[];
   speed: SimulationSpeed;
+  status: 'active' | 'commandLost';
+  pauseReasons: CriticalReason[];
   commander: { id: string; name: string; rank: string };
   operators: Operator[];
   assignments: Assignment[];
   losses: LossRecord[];
-  status: 'active' | 'commandLost';
-  armory: { stock: Ammunition; reserved: Ammunition };
   ships: Ship[];
   enemies: Enemy[];
-  romulanReports: ThreatReport[];
-  intel: IntelRecord[];
-  orders: OperationOrder[];
+  sectors: Sector[];
+  systems: StarSystem[];
+  bodies: Body[];
   locations: Location[];
-  resources: { science: number; intel: number; allocation: number };
+  projects: Construction[];
+  jobs: IndustryJob[];
+  wrecks: Wreck[];
+  intel: IntelRecord[];
+  factions: { orion: FactionState; romulan: FactionState };
+  tension: number;
+  resources: { credits: number };
+  upgrades: Record<UpgradeId, number>;
+  rearProduction: number;
   communications: Communication[];
   logs: LogEntry[];
+  history: HistoryEntry[];
   beams: Beam[];
+  nextId: number;
   nextLog: number;
   nextComms: number;
-  nextOrder: number;
-  nextEnemy: number;
-  nextIncursion: number;
-  explored: { x: number; y: number; time: number }[];
+  nextHistory: number;
 }
-/** Deliberate projection: never expose enemy entities or their AI goals. */
-export interface Snapshot {
-  version: 5;
+export interface Opportunity {
+  id: string;
+  kind: 'exploration' | 'mining' | 'logistics' | 'security' | 'construction';
+  targetId: string;
+  text: string;
+}
+/** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
+interface SnapshotData {
+  version: 6;
   tick: number;
   time: number;
   paused: boolean;
   speed: SimulationSpeed;
+  status: WorldState['status'];
   pauseReasons: CriticalReason[];
   commander: WorldState['commander'];
   operators: Operator[];
   assignments: Assignment[];
   losses: LossRecord[];
-  status: 'active' | 'commandLost';
-  armory: { stock: Ammunition; reserved: Ammunition };
   ships: Ship[];
   contacts: IntelRecord[];
-  orders: OperationOrder[];
+  sectors: Sector[];
+  systems: StarSystem[];
+  bodies: Body[];
   locations: Location[];
+  projects: Construction[];
+  jobs: IndustryJob[];
+  wrecks: Wreck[];
   resources: WorldState['resources'];
+  upgrades: WorldState['upgrades'];
+  tension: number;
   communications: Communication[];
   logs: LogEntry[];
+  history: HistoryEntry[];
   beams: Beam[];
-  explored: WorldState['explored'];
+  opportunities: Opportunity[];
+  armory: { stock: Ammunition; reserved: Ammunition };
 }
-export type SessionCommand = { type: 'restorePreviousDay' | 'beginNewFrontier' };
 export type Command =
-  | { type: 'createOrder'; spec: OrderSpec }
   | {
-      type: 'updateOrder';
-      orderId: string;
-      changes: Partial<
-        Pick<
-          OrderSpec,
-          'priority' | 'roe' | 'retreat' | 'border' | 'route' | 'approach' | 'objective' | 'shipIds'
-        >
-      >;
+      type: 'issueDirective';
+      shipIds: string[];
+      mode: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
+      action: Action;
     }
-  | { type: 'cancelOrder' | 'holdOrder' | 'resumeOrder'; orderId: string }
-  | { type: 'investigate'; orderId: string; approach: 'remote' | 'close' }
-  | { type: 'scan' | 'recall' | 'repair'; shipId: string }
-  | { type: 'rearm'; shipId: string; load: Ammunition }
-  | { type: 'assignOperator'; operatorId: string; shipId: string | null }
+  | { type: 'cancelDirective'; shipId: string }
+  | { type: 'standingOrders'; shipId: string; roe: ROE; retreatHull: number }
+  | { type: 'renameEntity'; entityId: string; name: string }
+  | { type: 'startConstruction'; siteId: string; kind: Exclude<FacilityKind, 'base'>; name: string }
+  | { type: 'buildShip'; classId: ShipClassId; name: string }
+  | { type: 'upgrade'; upgradeId: UpgradeId }
+  | { type: 'manufacture'; cargoKind: 'supplies' | 'photon' | 'quantum'; amount: number }
+  | { type: 'sellStock'; cargoKind: CargoKind; amount: number }
   | { type: 'repairFacility'; locationId: string }
   | { type: 'acknowledge'; communicationId: number }
   | { type: 'pause'; paused: boolean }
   | { type: 'speed'; speed: SimulationSpeed };
+export type SessionCommand = { type: 'restorePreviousDay' | 'beginNewFrontier' };
 export type CommandResult = { ok: boolean; reason: string };
-export interface Observation {
+interface ObservationData {
   time: number;
   operatorId: string;
   ship: Ship;
   contacts: IntelRecord[];
-  orders: OperationOrder[];
+  systems: StarSystem[];
+  bodies: Body[];
+  opportunities: Opportunity[];
   legalActions: string[];
 }
 export interface AgentControllerPort {
   getObservation(): Observation | null;
-  dispatchCommand(command: Command): CommandResult;
-  submitIntent(intent: ControllerIntent): CommandResult;
+  submitAction(action: Action): CommandResult;
 }
+
+/** Renderer and decision-layer observations cannot be mutated by consumers. */
+export type ReadonlyDeep<T> = T extends readonly (infer Item)[]
+  ? readonly ReadonlyDeep<Item>[]
+  : T extends object
+    ? { readonly [Key in keyof T]: ReadonlyDeep<T[Key]> }
+    : T;
+export type Snapshot = ReadonlyDeep<SnapshotData>;
+export type Observation = ReadonlyDeep<ObservationData>;

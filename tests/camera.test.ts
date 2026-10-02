@@ -7,35 +7,47 @@ import {
   project,
   unproject,
   placeLabels,
+  boundsOf,
 } from '../src/ui/map/camera';
-describe('strategic camera invariants', () => {
+describe('unbounded semantic camera', () => {
   it.each([
     [1360, 740],
     [1100, 550],
     [900, 700],
-  ])('FIT covers the entire sector with no off-world area %sx%s', (w, h) => {
-    const c = fitCamera(w, h);
-    expect(project({ x: 0, y: 0 }, c)).toEqual({ x: 0, y: 0 });
-    expect(project({ x: 1600, y: 800 }, c)).toEqual({ x: w, y: h });
-    expect(zoomCamera(c, 0.1, { x: w / 2, y: h / 2 })).toEqual(c);
+  ])('fits known space and accepts negative coordinates %sx%s', (w, h) => {
+    const b = boundsOf([
+        { x: -2000, y: 3000 },
+        { x: 2500, y: -3000 },
+      ]),
+      c = fitCamera(w, h, b);
+    for (const p of [
+      { x: -2000, y: 3000 },
+      { x: 2500, y: -3000 },
+    ]) {
+      const view = project(p, c);
+      expect(view.x).toBeGreaterThan(0);
+      expect(view.y).toBeGreaterThan(0);
+      expect(view.x).toBeLessThan(w);
+      expect(view.y).toBeLessThan(h);
+    }
   });
-  it('preserves the pointed world coordinate through zoom and bounds extreme pans', () => {
+  it('zoom preserves pointed world coordinate; pans have no world boundaries', () => {
     const c = fitCamera(1100, 600),
       p = { x: 413, y: 290 },
-      z = zoomCamera(c, 3, p);
+      z = zoomCamera(c, c.k * 3, p);
     expect(unproject(p, z).x).toBeCloseTo(unproject(p, c).x, 8);
     expect(unproject(p, z).y).toBeCloseTo(unproject(p, c).y, 8);
     const a = clampCamera({ ...z, x: 1e6, y: -1e6 });
-    expect(a.x).toBe(0);
-    expect(a.y).toBe(-1200);
+    expect(a.x).toBe(1e6);
+    expect(a.y).toBe(-1e6);
   });
-  it('resize preserves world center and zoom then re-clamps camera', () => {
+  it('resize preserves world center and scale', () => {
     const c = zoomCamera(fitCamera(1100, 600), 3, { x: 550, y: 300 }),
       r = resizeCamera(c, 800, 700);
     expect(unproject({ x: 400, y: 350 }, r)).toEqual(unproject({ x: 550, y: 300 }, c));
     expect(r.k).toBe(3);
   });
-  it('label layout culls overlaps and remains inside viewport', () => {
+  it('labels avoid overlapping viewport entries', () => {
     const labels = placeLabels(
       Array.from({ length: 20 }, (_, i) => ({
         id: String(i),

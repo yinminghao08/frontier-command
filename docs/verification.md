@@ -1,110 +1,76 @@
-# LCARS 26 Classic 验证记录
+# Frontier Command / Lv1 + Lv2 / v6 验证记录
 
-日期：2026-10-02。本轮只重构 UI，视觉来源为用户提供的 `LCARS-26.zip` Classic 模板。模板六套 HTML/CSS、公共 JS、字体、标志和五段音效均已审计；24 个原文件与 ZIP 逐文件字节相同。实现细节见 [模板审计与设计系统](lcars26-refactor.md)。
+日期：2026-10-02，Windows x64。本文记录当前玩法重构；之前的 LCARS / v5 记录已封存到 [verification-v5.md](verification-v5.md)，其中旧测试数量和旧玩法不作为 v6 验收证据。
 
-## 本轮结果
+## 构建与自动化
 
-| 检查 | 结果 |
+| 检查 | 当前结果 |
 | --- | --- |
-| `npm run build` | TypeScript、Vite、Electron 编译通过；原字体及五段 MP3 已打包 |
-| `npm test` | 8 个文件、94 项通过 |
-| `npm run test:e2e` | 完整 15 项真实 Electron E2E 通过，保留既有 10 项规则及存档断言 |
-| 最终反馈与布局复验 | 6 项反馈/显示测试、4 项布局/缩放测试通过；200% 下 SVG 地图对象的键盘选中、Inspector 关闭与焦点恢复复验通过；舰损/重启和 Day 1 新世界两项最终复验通过 |
-| 模板与数据边界 | `src/engine/`、世界规则、存档 schema、持久化和 preload 接口无改动；界面偏好独立保存 |
+| `npm run build` | 严格 TypeScript、Vite、Electron 生产构建通过；原 LCARS 字体、动画、音效继续打包 |
+| `npm test` | 8 个文件、88 项通过 |
+| `npx playwright test --reporter=list,json` | 9 项真实 Electron E2E 通过；机器结果见 [electron-last-run.json](electron-last-run.json) |
+| 最终通信与失焦定向复验 | 1 项 Electron E2E 再次通过；普通接触与 BrowserWindow 失焦均不暂停，非法命令无部分副作用 |
+| 实际游玩 | 默认 seed 236807 连续 20 分 30 秒；seed 42、1701 各连续 20 分 43 秒；均为 1× |
 
-实际使用生产 Electron、隔离临时用户数据、原有 preload 与 Command 接口。显示缩放通过 Electron `--force-device-scale-factor` 检查，没有修改用户的 Windows 系统设置；DIP 舍入最多允许一个 CSS 像素差异。没有重新制作发布包，已有 release 目录仍是旧版。
+本轮交付源码与可运行构建，没有重做 EXE / ZIP；已有 release 文件仍属于此前版本。
 
-## 显示与视觉检查
+引擎断言涵盖固定步长、种子与命令序列确定性、独立 Sector 生成、途中保存续跑、FIFO / LIFO 指令接续、跨活动改令、ROE 下明确攻击、全部舰级参与四类活动、货物与预留守恒、矿藏枯竭、重复调查收益抑制、三种现场建设、五模块与五基地升级、舰损后从零库存重建、有限 Orion 资产与返港维修、护航风险判断、Shadow 发现 Hideout、Romulan 中立与报告驱动升级、公开快照隐藏信息以及冻结 LKP。严格 v6 校验也加载四个静态 [隔离场景](../tests/fixtures/v6/README.md)。
 
-已打开实际截图检查六种尺寸、125% / 150% / 200% 缩放、五个管理页面、三类任务表单、六类 Inspector、通知、Console Settings、COMMAND LOST 和新世界确认。对照 Classic 的内外弧、双横条分段、黑色切口、按钮与 Antonio 字体层级；修正了圆角内的颜色泄漏、150% 下侧轨标题裁切和暂停提示遮挡地图区域标签。
+Electron 通过生产 main / preload / IPC 运行，验证真实 UI 的探索、建设物资货运、REPLACE / QUEUE / INTERRUPT、改名、模块安装、基地升级、造舰、保存重启、永久舰损、午夜快照、恢复失败不切换以及恢复成功后创建新分支。六种视口、125% / 150% / 200% 缩放、八个 STARBASE 页签、动画和音效偏好继续验证。
 
-| 内容视口 | 实际截图 |
-| --- | --- |
-| 1600×900 | [主控制台](screenshots/lcars-console-1600x900.png) |
-| 1920×1080 | [主控制台](screenshots/lcars-console-1920x1080.png) |
-| 1920×1200 | [主控制台](screenshots/lcars-console-1920x1200.png) |
-| 2560×1440 | [主控制台](screenshots/lcars-console-2560x1440.png) |
-| 2560×1600 | [主控制台](screenshots/lcars-console-2560x1600.png) |
-| 3840×2160 | [主控制台](screenshots/lcars-console-3840x2160.png) |
-| 125% 显示缩放 | [控制台](screenshots/lcars-scale-125.png)、[表单](screenshots/lcars-scale-125-form.png) |
-| 150% 显示缩放 | [控制台](screenshots/lcars-scale-150.png)、[表单](screenshots/lcars-scale-150-form.png) |
-| 200% 显示缩放 | [控制台](screenshots/lcars-scale-200.png)、[表单](screenshots/lcars-scale-200-form.png)、[Inspector 覆盖层](screenshots/lcars-compact-inspector.png) |
+## 真实游玩方法
 
-地图始终占主工作区最大面积；抽屉开启前后地图 viewport 不变。六项导航在高缩放下仍可访问。FIT、8× 上限、指针缩放、四向平移边界、窗口调整、语义缩放与标签避让均通过实际交互检查。模态表单 Tab 循环、Escape 及关闭后焦点恢复已验证；COMMAND LOST 保留明确的恢复、档案和新世界入口。
+使用 [play-v6.mjs](../scripts/play-v6.mjs) 启动生产 Electron，进入独立临时 userData。没有给 Renderer 添加测试写入接口，没有通过引擎 step、直接修改世界或 16× 快进代替游玩。脚本通过实际按钮、表单、下拉框和键盘执行操作，仅从公开 Snapshot 读取观察结果。Electron 窗口以测试隐藏模式启动，但完整渲染页面并保存截图，截图已实际打开检查。
 
-管理页面：[Operations](screenshots/lcars-operations.png)、[Personnel](screenshots/lcars-personnel.png)、[Starbase](screenshots/lcars-starbase.png)、[Colonies](screenshots/lcars-colonies.png)、[Archive](screenshots/lcars-archive.png)。任务表单：[Defense](screenshots/lcars-form-defense.png)、[Transport](screenshots/lcars-form-transport.png)、[Explore](screenshots/lcars-form-explore.png)。
+默认种子直接进入工厂新世界；另两个种子只在启动前生成各自的新世界。开局暂停、1×，下达四舰探索、采矿、运输及巡逻后点击“继续”，之后保持持续运行。新矿场必须通过实际 Materials / Supplies 航程完成施工。保存、日志与历史也使用生产逻辑。
 
-Inspector：[地点](screenshots/lcars-inspector-location.png)、[舰船](screenshots/lcars-inspector-ship.png)、[接触](screenshots/lcars-inspector-contact.png)、[调查决策](screenshots/lcars-inspector-decision.png)、[坐标](screenshots/lcars-inspector-point.png)、[永久舰损](screenshots/lcars-inspector-loss.png)。其他状态：[设置](screenshots/lcars-settings.png)、[COMMAND LOST](screenshots/v5-command-lost-1920.png)、[新世界确认](screenshots/v5-new-frontier-confirm.png)。
+| 种子 | 真实开始 → 结束（UTC） | 连续时长 | 最终游戏分钟 | 新探索 0/-1 | 游戏页面错误 |
+| --- | --- | --- | --- | --- | --- |
+| 236807 | 06:31:08.244 → 06:51:38.765 | 20:30.521 | 1125.0 | 1 个新星系 | 0 |
+| 42 | 06:55:29.278 → 07:16:12.764 | 20:43.486 | 1136.6 | 2 个新星系 | 0 |
+| 1701 | 06:55:30.303 → 07:16:13.808 | 20:43.505 | 1136.6 | 1 个新星系 | 0 |
 
-## 反馈、持久化与功能
+原始记录：[默认种子](verification/v6/play-default.jsonl)、[42](verification/v6/play-42.jsonl)、[1701](verification/v6/play-1701.jsonl)，整理后的事件与时间见 [play-summary.json](verification/v6/play-summary.json)。事件 time 是引擎记录的游戏分钟；`firstObservedWall` 是读取历史时刻，不能当作事件发生时刻。以下现实时间是根据运行中的公开时钟采样估算，保留“约”以区别精确的游戏时间。此次机器在完整渲染、自动保存和多个 Electron 进程下平均每现实秒推进约 0.91 游戏分钟；1× 不进行追帧跳步。
 
-三档动画使用实际计算样式检查：ON 保留原模板级联节奏，REDUCED 停用循环与位移，OFF 关闭动画并使摄像机直接定位。关键文字和操作按钮始终可见。
+## 节奏与因果实测
 
-音频检查观察实际 AudioBufferSource 启动：导航、选项提交、命令成功和 COMMAND LOST 使用对应原始样本；静音后不再启动音源，音量与动画模式在 Electron 重启后恢复。快速连续导航、事件去重、最多两路播放、告警两秒间隔、终态延迟提示与静音取消分别通过 E2E 或 Audio Manager 单元测试。初始快照和刷新不会重复播历史告警。
+| 阶段 | 默认世界结果 | 节奏判断 |
+| --- | --- | --- |
+| 开局 | 四艘原始舰船、己方资产、六导航和当前指令入口直接呈现 | 进入画面即可查看，不需要解锁任务菜单 |
+| 首次发现 | 87.6 游戏分钟发现真实新星系，拨款 60 Credits，随后确认行星、矿物与异常 | 约 1 分 36 秒 |
+| 实物收益 | 185.1 分钟运回 100 Materials；245.4 分钟 HORIZON 采矿运回 65 Materials | 约 3 分 23 秒 / 4 分 29 秒 |
+| 可见成长 | 243.1 分钟 VIGIL 安装 Expanded Cargo，货舱由 12 增至 62，随后接续被中断巡逻 | 约 4 分 26 秒 |
+| Orion 响应 | 370 分钟左右开始袭击增长中的矿场；396.6 分钟实际抢走 16 + 8 单位货物并撤回 | 约 6 分 45 秒开始，7 分 14 秒发生货损 |
+| 基地与舰队增长 | Logistics 升级完成；703.0 分钟 USS REBUILD 以独立舰籍服役 | 收益有真实消费与能力变化 |
+| 现场建设 | Admiral Mine 在 30 Materials、27 Supplies 实际送达后，于 764.6 分钟建成 | 本次较晚安排货运，完成时间约 14 分钟，非开工即凭空出现 |
 
-原有任务创建、修改、取消、调查决策、人员分配、维修、装弹、保存、档案、新世界和时间线恢复入口接回原处理函数。既有 Electron 场景继续验证真实结算、资源守恒、舰损、冻结、午夜快照、重启和失败记录保持。
+两个复查种子都在 87.6 游戏分钟首次发现。VERITY 随后从**新发现矿藏**采集并分别在 284.2 / 291.9 分钟交付 35 Materials。Orion 在 538.6 / 533.6 分钟首次抢走实物，约现实 9 分 50 秒 / 9 分 44 秒；之后返港、维修补弹，再次出动，于 718.2 / 713.2 分钟产生下一轮货损。它们不是返回后删除并重新生成的敌人。
 
----
+复查时模块命令较晚下达，348.9 分钟才完成；新矿场分别在 597.6 / 595.1 分钟完工。因此，2–5 分钟的“收益 → 成长”窗口由默认演示路线实测达到，不声称所有任意操作路线都自动达到。两个种子最后都建出第五艘舰船。VIGIL 抵达 Helios 防御后，实际击毁一艘 Raider，另一艘带着损伤撤退；矿场与全部己方舰船仍存活。玩家拖延响应时货物会被抢，设施护盾则提供了反应窗口。
 
-## LV1 v5 历史验证记录
+## 观察到的问题与修复
 
-以下为 2026-09-29 的引擎/存档基线记录；其中引擎修复属于上一轮。本轮截图已更新为 LCARS Classic，历史测试数量不代表本轮结果。
+- 安全航线的抵达判定在距离边界可能重复规划绕行，导致货运迟迟不能卸货。统一移动前后的抵达容差，新增到场回归断言，真实 UI 建设货运重新通过。
+- Orion 停泊状态每次决策都推迟离港期限，导致返港后不再出动。停泊维修先处理，满足物资与状态条件后重新决策；复查两个种子的第二、第三轮货损已证明持续行为。
+- 工厂曾把整个地点对象当作坐标展开，覆盖新舰 / 设施稳定 ID。工厂现在只复制 x / y；造舰、建设与存档引用重新验证。
+- Drive Off 曾可能在敌方风险判断前直接将目标击毁。现在使用降低强度的警告相位炮、不发射鱼雷，以敌方实际撤退决定行动结束。
+- 旧窗口失焦逻辑会暂停持续世界。已移除旧直接操舰输入残留，新增实际 Electron 失焦继续推进断言。
+- 设施补给紧缺曾同时派生防卫机会，并可能遮住后来的遭袭报告。防卫机会现在依据真实近期受击时间；物流短缺保持独立机会，实际攻击仍发出紧急报告。
+- 最终航线核对补入按已知 Sector 计算的未知航程比例；Risky 仅在实际航行时增加曲速暴露，可被更远处的势力侦察舰观测，停航不会保留此放大效果。
 
-日期：2026-09-29。源码版本1.1.0，世界格式v5。Windows x64，Node.js24.18.0、npm11.16.0、Electron41.10.7、Vite6.4.3。
+默认实玩日志保留八条**控制脚本错误**：选择了已经失联的接触、未关闭表单阻挡后续点击，以及早期按名称定位护航提示产生重复匹配。它们不计为游戏页面异常，也没有删除记录掩盖失败。已改为稳定舰籍定位并在控制失败后关闭表单；两个随后种子的脚本错误为零。默认文件还保留正式连续游玩前两个 time=0 的启动尝试，时长统计只使用最后一次完整运行。
 
-## 实际结果
+## 截图检查
 
-| 检查                                                                                                 | 结果                                                               |
-| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `npm test`                                                                                           | 7个文件，86项通过                                                  |
-| `npm run build`                                                                                      | TypeScript、Vite、Electron编译通过                                 |
-| `npx tsc --noEmit --noUnusedLocals --noUnusedParameters`                                             | 通过                                                               |
-| `npx playwright test`                                                                                | 完整10项真实Electron测试通过；最终结果副本见electron-last-run.json |
-| `npx playwright test --grep 'COMMAND LOST\|Day 1 has no restore' --output .test-data/final-terminal` | 最后消除时间控制的过时通知后，2项终态／新世界场景复验通过          |
+- [初始控制台](verification/v6/seed-42-start.png)：LCARS 布局、四舰与即时选择。
+- [默认发现与成长](verification/v6/default-discovery-growth.png)：已知空间扩展、模块与指令接续。
+- [新矿场与舰队](verification/v6/default-grown-frontier.png)：独立现场项目 / 资产及造舰结果。
+- [种子 42 防御结果](verification/v6/seed-42-final.png)、[1701 防御结果](verification/v6/seed-1701-final.png)：Orion 残骸、受损撤退者、第五艘舰船。
+- [UI 完整闭环档案](verification/v6/ui-playable.png)、[SHIPYARD](verification/v6/ui-shipyard.png)、[ENGINEERING](verification/v6/ui-engineering.png)、[三模式指令](verification/v6/ui-directive.png)、[200% 表单](verification/v6/ui-scale-200.png)。
+- [最终 Risky 航线反馈](verification/v6/ui-risky-route.png)：实际表单同时显示 ETA、暴露风险与测绘状态；负数量提交由引擎拒绝并保留表单。
 
-没有运行发布打包、EXE或ZIP烟测；已有release目录仍是旧版，不能作为v5产物。本次交付是源码及可运行构建。
+`default-first-discovery.png` 的截图实际拍摄于 77.1 游戏分钟、首次发现完成前；保留原文件名，但不将其作为发现完成证据。重启、重大终态、午夜与恢复异常依赖隔离 E2E 场景，未在实玩日志中伪造发生。
 
-## Electron场景
+## 边界
 
-1. 用UI创建运输、防御、探索三项并发任务，16×推进，选择近距方案，全部成功结算并返航；保存、关闭、重启后行动记录一致。
-2. 从调查待决继续、修改ROE；超货舱运输由引擎拒绝并显示LCARS错误通知，未创建部分行动。
-3. 1920×1080与1600×900内容视口：遍历五个管理抽屉并关闭，地图边界盒不变；鼠标中心缩放、8×极限、四方向拖至相机边界、FIT、地图选择、Resize保留世界中心、表单开启与滚动提交均验证。不存在页面级溢出。
-4. 真实海盗火力使运输舰Hull归零，Archive显示永久损失；保存／重启不复活，任务失败。
-5. Day3基地被真实海盗武器摧毁，COMMAND LOST出现；继续命令被拒绝、tick冻结。重启仍为终态；RESTORE PREVIOUS DAY恢复Day2 00:00并建立新分支，原failure.json字节不变。
-6. 16×从午夜前一tick跨日，day-2.json恰为tick14400；day-1.json仍为tick0。
-7. UI装弹4 Photon而库存只有3时拒绝；3 Photon＋1 Quantum先预留、再按时间转入舰船，基地与预留最终归零，舰船得到精确数量。
-8. 独立弱防御／强防御世界中，Scout报告使远处Valdore分别选择probe／observe；Renderer始终不包含敌方实体和Romulan报告。
-9. 防御设施被摧毁和调查Core不足分别产生实际失败反馈。
-10. Day1 COMMAND LOST恢复按钮禁用；BEGIN NEW FRONTIER经LCARS确认后创建新世界，失败记录和旧版文件保持不变。
-
-测试使用临时用户数据目录，通过生产Electron、preload、命令校验和引擎运行。边界测试在启动前生成隔离场景；没有给正式Renderer开放修改世界的测试接口。两种分辨率通过Electron BrowserWindow.setContentSize设置，系统125%显示缩放使PNG物理尺寸为2400×1350／2000×1125。
-
-## 规则证据
-
-- Pirate对货物价值和护航变化改变目标，殖民地／矿场／前哨均可被真实抢掠；取得20战利品后活着离场，撤离不同于Hull归零。
-- Scout报告来源与观测时间保留；强防御、无目标和过期报告可以阻止Warbird袭击。
-- Phaser／鱼雷发射的Core、弹药与未命中消耗；零弹药不能开火；真实装弹守恒；新增伤害不被既有维修额度免费修复。
-- 舰损事件撤销操作者权限，销毁货物和任务关联归档；允许全部舰船被毁、操作者未分配；28舰防御编队不受初始舰数限制。
-- Priority按已观测攻击证据改变目标排序；规则操作者不能调任自己或越过暂停命令。
-- 隐藏位置、意图与库存改变不改变Snapshot；失联位置冻结，超过30分钟不再提供地图接触。
-- 固定步长、同种子复现、存档续跑一致、库存预留与取消回收、调查重复奖励抑制、整段跨境授权。
-- 1×／4×／16×的午夜快照、Day3→Day2分支、恢复写入失败不切换、损坏终态不回退至存活备份、旧版／未来版本保护。
-- 默认世界运行一个游戏日或至终态，持续满足v5保存校验。
-
-## 实际视觉检查
-
-已打开检查以下真实Electron截图：主界面、两种尺寸的全部管理抽屉、Commander Intent表单及底部提交状态、装弹禁用状态、Archive舰损、COMMAND LOST与新世界确认。黑底、连续粗色带、双肘区域、非对称布局、胶囊按钮、LCARS输入／选择／复选及计量条保持一致。抽屉覆盖地图，不改变相机尺寸。表单独立滚动，标题与关闭按钮保持可见。
-
-| 画面         | 1920×1080                                         | 1600×900                                          |
-| ------------ | ------------------------------------------------- | ------------------------------------------------- |
-| 主界面       | [截图](screenshots/v5-sector-1920.png)            | [截图](screenshots/v5-sector-1600.png)            |
-| 任务表单     | [截图](screenshots/v5-composer-1920.png)          | [截图](screenshots/v5-composer-1600.png)          |
-| 表单提交控件 | [截图](screenshots/v5-composer-controls-1920.png) | [截图](screenshots/v5-composer-controls-1600.png) |
-| 人员分配     | [截图](screenshots/v5-personnel-1920.png)         | [截图](screenshots/v5-personnel-1600.png)         |
-| COMMAND LOST | [截图](screenshots/v5-command-lost-1920.png)      | [截图](screenshots/v5-command-lost-1600.png)      |
-
-另见[舰损档案](screenshots/v5-vessel-loss.png)、[实物装弹](screenshots/v5-armory-loading.png)、[Day1恢复禁用](screenshots/v5-day-one-lost.png)、[新世界确认](screenshots/v5-new-frontier-confirm.png)。其余抽屉截图保存在同目录v5前缀文件中；旧截图仅为历史产物，不作为此次验收证据。
-
-## 验证中修复的问题
-
-修复了安全路线重算时往返振荡、Point参数扩散其他领域字段、未观测罗慕兰设施误画成毁坏、永久终态因序列化字段顺序误判变更、恢复误用失败前备份、低刷新率下缩放迟迟不收敛、拖动离开窗口丢失结束事件、原生表单气泡绕过LCARS反馈及时间控制通知在失守后短暂过时等问题。未删除对应行为要求来让测试通过。
+当前完成 Lv1 + Lv2，预留 observation → structured action → engine validation 的独立 Agent 接口；没有接入 LLM、正式多人服务器或离线时间推进。无限方向的战略空间采用稀疏生成；存档仍保留原有 32 MB 安全容量限制。发现和永久历史不会被滚动通信上限删除，但极长世界最终仍受存档容量约束。

@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { useFrontier } from './ui/hooks/useFrontier';
 import { StrategicMap, type Selection } from './StrategicMap';
 import { Inspector } from './ui/Inspector';
-import { OrderComposer } from './ui/OrderComposer';
+import { OrderComposer, type ComposerRequest } from './ui/OrderComposer';
 import { LcarsShell } from './ui/components/LcarsShell';
 import { LcarsDialog, LcarsButton, LcarsFrame } from './ui/components/Lcars';
 import { CommandLost } from './ui/CommandLost';
 import { ManagementDrawer } from './ui/ManagementDrawer';
-import type { OperationOrder, OrderKind, Point } from './engine/types';
+import type { Point } from './engine/types';
 import type { Page } from './ui/types';
+import { sectorCenter } from './engine/world-generation';
 import { ConsoleSettings } from './ui/lcars/ConsoleSettings';
 import { WorldFeedback } from './ui/lcars/WorldFeedback';
 export function App() {
@@ -16,9 +17,7 @@ export function App() {
   const [page, setPage] = useState<Page>('SECTOR'),
     [selection, setSelection] = useState<Selection | null>({ type: 'location', id: 'base' });
   const [focus, setFocus] = useState<{ point: Point; serial: number } | null>(null);
-  const [composer, setComposer] = useState<{ kind: OrderKind; existing?: OperationOrder } | null>(
-      null,
-    ),
+  const [composer, setComposer] = useState<ComposerRequest | null>(null),
     [confirmReset, setConfirmReset] = useState(false),
     [settings, setSettings] = useState(false);
   if (!world)
@@ -32,33 +31,46 @@ export function App() {
     );
   const select = (s: Selection, locate = false) => {
     setSelection(s);
-    if (locate) {
-      const p =
-        s.type === 'point'
-          ? s
+    if (!locate) return;
+    const p =
+      s.type === 'point'
+        ? s
+        : s.type === 'sector'
+          ? sectorCenter(s)
           : s.type === 'ship'
             ? world.ships.find((x) => x.id === s.id)
             : s.type === 'location'
               ? world.locations.find((x) => x.id === s.id)
               : s.type === 'contact'
                 ? world.contacts.find((x) => x.id === s.id)
-                : s.type === 'loss'
-                  ? world.losses.find((x) => x.shipId === s.id)?.position
-                  : world.orders.find((x) => x.id === s.id)?.targetLastSeen;
-      if (p) setFocus((f) => ({ point: { x: p.x, y: p.y }, serial: (f?.serial ?? 0) + 1 }));
-    }
+                : s.type === 'system'
+                  ? world.systems.find((x) => x.id === s.id)
+                  : s.type === 'body'
+                    ? world.bodies.find((x) => x.id === s.id)
+                    : s.type === 'project'
+                      ? world.projects.find((x) => x.id === s.id)
+                      : s.type === 'wreck'
+                        ? world.wrecks.find((x) => x.id === s.id)
+                        : world.losses.find((x) => x.shipId === s.id)?.position;
+    if (p) setFocus((f) => ({ point: { x: p.x, y: p.y }, serial: (f?.serial ?? 0) + 1 }));
   };
   const locate = (id: string | null) => {
     if (!id) return;
-    const type = world.orders.some((x) => x.id === id)
-      ? 'order'
-      : world.ships.some((x) => x.id === id)
-        ? 'ship'
-        : world.locations.some((x) => x.id === id)
-          ? 'location'
-          : world.losses.some((x) => x.shipId === id)
-            ? 'loss'
-            : 'contact';
+    const type = world.ships.some((x) => x.id === id)
+      ? 'ship'
+      : world.locations.some((x) => x.id === id)
+        ? 'location'
+        : world.systems.some((x) => x.id === id)
+          ? 'system'
+          : world.bodies.some((x) => x.id === id)
+            ? 'body'
+            : world.projects.some((x) => x.id === id)
+              ? 'project'
+              : world.wrecks.some((x) => x.id === id)
+                ? 'wreck'
+                : world.losses.some((x) => x.shipId === id)
+                  ? 'loss'
+                  : 'contact';
     select({ type, id }, true);
   };
   const changedWorld = () => {
@@ -68,6 +80,12 @@ export function App() {
     setSettings(false);
     setFocus(null);
   };
+  const serial =
+    selection?.type === 'point'
+      ? 'point:' + selection.x + ':' + selection.y
+      : selection?.type === 'sector'
+        ? 'sector:' + selection.q + ':' + selection.r
+        : selection?.type + ':' + selection?.id;
   return (
     <>
       <WorldFeedback world={world} branch={timeline.activeId} />
@@ -80,11 +98,7 @@ export function App() {
         }}
         command={command}
         locate={locate}
-        contextSerial={
-          selection?.type === 'point'
-            ? `point:${selection.x}:${selection.y}`
-            : `${selection?.type}:${selection?.id}`
-        }
+        contextSerial={serial}
         onSettings={() => setSettings(true)}
         overlay={
           settings ? (
@@ -100,7 +114,7 @@ export function App() {
                   select(s, true);
                   setPage('SECTOR');
                 }}
-                create={(kind) => setComposer({ kind })}
+                create={setComposer}
                 command={command}
                 save={save}
                 newFrontier={() => setConfirmReset(true)}
@@ -112,17 +126,17 @@ export function App() {
           <Inspector
             world={world}
             selection={selection}
-            select={(s) => select(s)}
+            select={select}
             command={command}
-            create={(kind) => setComposer({ kind })}
-            edit={(existing) => setComposer({ kind: existing.kind, existing })}
+            create={setComposer}
           />
         }
       >
         <StrategicMap
+          key={timeline.activeId}
           world={world}
           selection={selection}
-          onSelect={(s) => select(s)}
+          onSelect={select}
           focus={focus}
         />
       </LcarsShell>
@@ -142,9 +156,7 @@ export function App() {
       {composer && world.status === 'active' && (
         <OrderComposer
           world={world}
-          kind={composer.kind}
-          existing={composer.existing}
-          selection={selection}
+          request={composer}
           command={command}
           onClose={() => {
             setComposer(null);
@@ -159,7 +171,7 @@ export function App() {
           onClose={() => setConfirmReset(false)}
         >
           <h2>开始新的边疆世界</h2>
-          <p>保留当前时间线和旧版文件，从 DAY 1 00:00 创建独立的新世界。</p>
+          <p>保留当前时间线，从 DAY 1 00:00 创建独立的 v6 新世界。</p>
           <div className="dialog-actions">
             <LcarsButton tone="secondary" onClick={() => setConfirmReset(false)}>
               取消

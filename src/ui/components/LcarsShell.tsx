@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { Snapshot } from '../../engine/types';
 import type { CommandSender, Page } from '../types';
 import { gameCalendar } from '../../engine/clock';
-import { KIND, PHASE } from '../OrderComposer';
+import { ACTION_LABELS } from '../format';
 import { actionProgress } from '../format';
 import { LcarsBar, LcarsButton, LcarsElbow, LcarsTextBar } from './Lcars';
 import { DataCascade } from '../lcars/DataCascade';
@@ -46,7 +46,7 @@ export function LcarsShell({
     if (matchMedia('(max-width: 1100px)').matches) setShowContext(true);
   }, [contextSerial]);
   const cal = gameCalendar(world.tick),
-    active = world.orders.filter((o) => o.phase !== 'complete'),
+    active = world.ships,
     lost = world.status === 'commandLost';
   const communications = [...world.communications]
     .filter((c) => showRead || !c.read)
@@ -260,7 +260,7 @@ export function LcarsShell({
       </aside>
       <footer className="operations-footer">
         <div className="footer-title">
-          <LcarsTextBar>ACTIVE OPERATIONS</LcarsTextBar>
+          <LcarsTextBar>FLEET DIRECTIVES</LcarsTextBar>
           <small>
             {lost ? 'COMMAND LOST' : world.paused ? 'SIMULATION PAUSED' : 'SIMULATION ACTIVE'}
           </small>
@@ -271,20 +271,20 @@ export function LcarsShell({
               <LcarsButton
                 sound="navigation"
                 key={o.id}
-                className={'operation-chip ' + (o.phase === 'decision' ? 'attention' : '')}
+                data-ship-id={o.id}
+                className={'operation-chip ' + (o.current ? 'attention' : '')}
                 onClick={() => locate(o.id)}
               >
-                <b>
-                  {KIND[o.kind]} / {o.id}
-                </b>
+                <b>{o.name.split(' / ')[0]}</b>
                 <span>
-                  {o.held ? 'HOLD' : PHASE[o.phase]} · {o.shipIds.length} ASSETS
+                  {o.current ? ACTION_LABELS[o.current.action.type] : 'AVAILABLE'} ·{' '}
+                  {o.queue.length} QUEUED / {o.suspended.length} SUSPENDED
                 </span>
                 <small>{actionProgress(world, o).text}</small>
               </LcarsButton>
             ))
           ) : (
-            <span className="muted">NO ACTIVE OPERATIONS · 从星图选择目标下达高层任务</span>
+            <span className="muted">NO FLEET DIRECTIVES · 从星图选择目标下达高层任务</span>
           )}
         </div>
       </footer>

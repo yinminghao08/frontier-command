@@ -201,7 +201,7 @@ export const SHIP_CLASSES = freezeDefinitions({
     cloak: true,
   },
   raider: {
-    name: 'Pirate Raider',
+    name: 'Orion Raider',
     hull: 95,
     shield: 55,
     shieldRegen: 0.4,
@@ -218,6 +218,16 @@ export const SHIP_CLASSES = freezeDefinitions({
   },
 } satisfies Record<string, ShipClassDefinition>);
 export type ShipClassId = keyof typeof SHIP_CLASSES;
+export const MODULE_SLOTS = freezeDefinitions({
+  antares: 2,
+  peregrine: 2,
+  constitution: 3,
+  galaxy: 4,
+  scout: 2,
+  valdore: 3,
+  dderidex: 4,
+  raider: 2,
+});
 export const INITIAL_FLEET = freezeDefinitions([
   { id: 'meridian', name: 'USS MERIDIAN / 子午号', classId: 'antares' },
   { id: 'vigil', name: 'USS VIGIL / 守望号', classId: 'peregrine' },

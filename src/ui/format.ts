@@ -1,50 +1,44 @@
-import type { OperationOrder, Snapshot } from '../engine/types';
-import { SHIP_CLASSES } from '../engine/definitions/ships';
-import { RULES } from '../engine/definitions/rules';
+import type { Action, Ship, Snapshot, ReadonlyDeep } from '../engine/types';
+import { capabilities } from '../engine/capabilities';
 import { dist } from '../engine/navigation';
+export const ACTION_LABELS: Record<Action['type'], string> = {
+  MOVE: 'Move',
+  EXPLORE: 'Explore Sector',
+  SURVEY: 'Survey',
+  MINE: 'Mine / Extract',
+  HAUL: 'Transport / Haul',
+  ATTACK: 'Attack',
+  DISABLE: 'Disable',
+  DRIVE_OFF: 'Drive Off',
+  INTERCEPT: 'Intercept',
+  SHADOW: 'Shadow',
+  ESCORT: 'Escort',
+  PATROL: 'Patrol',
+  RETREAT: 'Retreat',
+  DOCK: 'Dock',
+  REPAIR: 'Repair',
+  REARM: 'Rearm',
+  REFIT: 'Refit',
+  UNLOAD: 'Unload',
+  RECOVER: 'Recover Cargo',
+};
 export function actionProgress(
-  world: Snapshot,
-  o: OperationOrder,
+  _world: Snapshot,
+  s: ReadonlyDeep<Ship>,
 ): { text: string; fraction: number | null } {
-  if (o.phase === 'complete') return { text: '返航完成', fraction: 1 };
-  if (o.held) return { text: '暂停执行；行动期限仍计时', fraction: null };
-  if (o.phase === 'decision') return { text: '等待调查方案', fraction: null };
-  const ships = world.ships.filter((s) => s.orderId === o.id);
-  const travel = Math.max(
-    0,
-    ...ships.map((s) => {
-      let p = { x: s.x, y: s.y },
-        length = 0;
-      for (const next of s.path) {
-        length += dist(p, next);
-        p = next;
-      }
-      return length / SHIP_CLASSES[s.classId].warp;
-    }),
-  );
-  if (travel > 1)
-    return {
-      text: (o.phase === 'returning' ? '返航' : '当前航段') + '约 ' + Math.ceil(travel) + 'm',
-      fraction: null,
-    };
-  if (o.phase === 'returning') {
-    const recovery = Math.max(0, ...ships.map((s) => s.service));
-    return {
-      text: recovery > 0 ? '保障约 ' + Math.ceil(recovery) + 'm' : '正在停靠',
-      fraction: null,
-    };
+  if (!s.current)
+    return { text: s.status.toUpperCase() + ' · AVAILABLE TO ADMIRAL', fraction: null };
+  let at = { x: s.x, y: s.y },
+    length = 0;
+  for (const p of s.path) {
+    length += dist(at, p);
+    at = p;
   }
-  const primary = world.ships.find((s) => s.id === o.shipIds[0]);
-  if (!primary) return { text: o.result || '资产已损失', fraction: null };
-  const total =
-    o.kind === 'defense'
-      ? o.duration
-      : o.kind === 'transport'
-        ? RULES.loadMinutes
-        : (RULES.surveyMinutes * (o.approach === 'close' ? 1.3 : 1) * 70) /
-          SHIP_CLASSES[primary.classId].science;
   return {
-    text: '工作 ' + Math.floor(o.work) + ' / ' + Math.ceil(total) + 'm',
-    fraction: Math.min(1, o.work / total),
+    text:
+      length > 10
+        ? '航行约 ' + Math.ceil(length / capabilities(s).warp) + 'm · ' + s.current.note
+        : s.current.note || s.current.phase,
+    fraction: null,
   };
 }

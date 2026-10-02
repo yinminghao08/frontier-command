@@ -1,34 +1,26 @@
-# LV1 v5 验收矩阵
+# Lv1 + Lv2 / v6 验收
 
-本矩阵描述必须真实成立的行为，不能用测试数量或文档自称替代。自动化使用生产引擎、生产IPC及真实Electron；边界场景在启动前建立隔离v5存档，不向Renderer添加调试写入接口。
+使用生产引擎、生产 IPC 和真实 Electron。测试夹具只在启动前写入隔离用户目录；Renderer 没有调试 WorldState 写入接口。实际游玩与自动化测试分别记录。
 
-| #   | 要求                                                                                          | 可复现证据                                                                                                                                                        |
-| --- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Pirate比较收益与护航风险，袭击运输舰／殖民地／矿场／前哨，转移真实库存并活着撤离              | frontier.test.ts：profit preference、三类设施抢掠、raids actual stock then leaves alive；Electron永久舰损场景使用真实海盗火力                                     |
-| 2   | Scout共享报告使远处Warbird选择攻击或继续观察；过期报告不能授权新袭击                          | frontier.test.ts：Scout reports、stale reports；desktop.spec.ts：Scout intelligence 的弱防御／强防御两次独立启动                                                  |
-| 3   | UI创建防御、运输、探索并执行、决策、结算、返航；三类具有不同失败路径                          | desktop.spec.ts：create three concurrent orders、failed defense and energy-starved recon、real hostile fire；engine.test.ts：货损、取消、超时、失联、调查重复收益 |
-| 4   | Core与真实鱼雷消耗，未命中也消耗；装弹不能超库存且转移守恒                                    | engine.test.ts：武器／库存测试；frontier.test.ts：扫描能耗；desktop.spec.ts：explicit ammunition loading，UI拒绝4发、接受实际3 Photon＋1 Quantum                  |
-| 5   | Hull归零永久移出舰队，Archive保留，权限撤销、任务失败，保存／重启不复活                       | frontier.test.ts：destroyed operators；persistence.test.ts：空舰队；desktop.spec.ts：real hostile fire，Archive与重启                                             |
-| 6   | Dawn真实受击归零，COMMAND LOST停止步进并拒绝游戏命令                                          | frontier.test.ts：hostile weapons destroy Dawn；desktop.spec.ts：COMMAND LOST，重启保持终态                                                                       |
-| 7   | 初始日与每个午夜准确独立快照；16×不串步；Day3恢复Day2新分支，失败字节保持不变                 | persistence.test.ts：1/4/16×、fork Day3、写入失败、终态优先；desktop.spec.ts：16x midnight、COMMAND LOST、Day1 new frontier                                       |
-| 8   | 失联冻结LKP并过期；改变隐藏位置／意图／库存不改变公开投影                                     | frontier.test.ts：hidden state changes；engine.test.ts：分级探测、失联、重新观测；architecture.test.ts：权限与白名单边界                                          |
-| 9   | 1920×1080和1600×900真实Electron默认／FIT／8×／四向边界拖动／Resize／选中；抽屉不挤地图        | camera.test.ts：数学边界与锚点；desktop.spec.ts：LCARS map boundaries，实际鼠标事件与尺寸断言                                                                     |
-| 10  | 整个界面及所有控件为LCARS，实际看主界面、表单、抽屉、正常／选中／失效／危险状态和COMMAND LOST | test-results/v5-\*.png；人工查看后保留代表截图到docs/screenshots；记录见verification.md                                                                           |
+| 要求 | 自动化与实测入口 |
+| --- | --- |
+| REPLACE / QUEUE / INTERRUPT；全舰级四类活动；途中、战斗、装弹改令；货物/损伤保留 | engine.test.ts；desktop.spec.ts 的实际 UI 改令 |
+| ROE 约束自主行为，明确攻击有效；Intercept / Escort / Drive Off / Disable / Shadow | engine.test.ts、frontier.test.ts |
+| 稀疏 Sector、独立坐标 seed、顺序独立、永久实体、重复调查无重复收入 | geography.test.ts、engine.test.ts；两种子实玩 |
+| 实物采集、满舱、矿藏枯竭、循环采集、货物守恒、出口消费 | engine.test.ts、frontier.test.ts |
+| 航线物理距离、ETA、风险差异、循环货运和建设物资到场 | geography.test.ts、frontier.test.ts；desktop.spec.ts |
+| 新矿场/前哨/殖民地；未到物资不施工；设施独立库存与自卫 | frontier.test.ts 三种建设、普通袭击增援窗口 |
+| 五模块能力、槽位、五基地升级、制造、实际新舰籍 | frontier.test.ts；desktop.spec.ts、STARBASE 八模块显示检查 |
+| Orion 真实侦察、货值/护航判断、盗取货物、返港、资源维修/补弹/建造，无无限补敌 | frontier.test.ts；1× 实玩库存增长 → 袭击与货损 |
+| Shadow 找 Hideout；Romulan 中立、跨境/攻击 tension、真实报告升级 | frontier.test.ts |
+| 全舰损、永久档案、零库存恢复最低舰级约五分钟 | frontier.test.ts；persistence.test.ts 空舰队续存 |
+| 确定性、途中续跑、无效命令无副作用、公开快照不泄漏私有状态、冻结 LKP | architecture.test.ts、engine.test.ts |
+| 严格 v6 存档，物理容量、引用、预留、历史序列、午夜、原子写入与封存恢复 | persistence.test.ts；desktop.spec.ts 午夜、恢复失败不切换 |
+| LCARS shell/设置/动画/声音保持，六尺寸、125/150/200% 缩放 | lcars.test.ts；lcars.spec.ts |
+| 首次发现 1–2 分钟、行动/收益/成长 2–5 分钟、生态响应 5–10 分钟 | docs/verification.md，三种子真实 Electron 1× 实玩日志与截图 |
 
-## 任务差异
+## 运行与证据
 
-| 维度     | Battle / Defense                          | Cargo Transport                      | Exploration / Recon                    |
-| -------- | ----------------------------------------- | ------------------------------------ | -------------------------------------- |
-| 适配     | 武器、护盾、速度，多舰资产                | 货舱、实际库存与存活能力，单舰       | 科学、传感器、Core，单舰               |
-| 玩家决策 | 保护／拦截对象、Priority、ROE、Withdrawal | 起终点、货种数量、路线、另外安排护航 | 调查对象、远近方案、边界授权和撤退     |
-| 消耗     | 弹药、Core、舰体、在场时间                | 源库存、货物、航行与装卸时间         | 扫描Core、工作时间、近距环境损伤       |
-| 失败     | 目标毁灭、执行资产耗尽、超时、未确认战果  | 舰损、货损、设施毁坏、超时           | 能源不足、失联、舰损、撤退、超时       |
-| 收益     | 保全对象、防卫配额、情报                  | 目的地真实库存、运输配额             | 一次性科研成果、调查知识与路线风险更新 |
+`npm test` 验证规则、确定性、存档与地图数学；`npm run test:e2e` 构建并启动真实 Electron。实玩脚本 `scripts/play-v6.mjs` 提供基于 Playwright 的真实 UI 控制，并把时间、操作、公开快照摘要和截图写到 `docs/verification/v6/`；它不向世界注入调试状态或推进模拟时钟。
 
-## 范围与重跑
-
-`npm test`执行确定性、权限、资源守恒、存档续跑、任务与地图数学测试；`npm run test:e2e`先构建，再运行真实Electron。存档目录均为临时目录。日快照由主进程完整步回调持久化，不是测试事后重写时间。
-
-当前不实现LLM、成长、造船、制造、完整生产经济或战术操舰界面。PERSONNEL仅呈现真实规则操作者和分配。科研／配额保存为成果，不伪造升级用途。永久舰损、COMMAND LOST与分支恢复属于本次必须实现范围。
-
-本次没有发布打包任务，不以既有旧版EXE／ZIP作为v5验收产物。验证失败必须修复或如实记录，不删除行为要求来适配旧代码。
+默认世界至少 10 分钟 1× 持续运行，另用 seed 42、1701 复查。重大暂停若发生，记录原因后由玩家继续。变更导致的失败须修复并重跑；测试通过不替代实际观察。发布包不在本轮范围。

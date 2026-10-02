@@ -1,27 +1,30 @@
 import { SimulationEngine } from '../src/engine/engine';
-import { defaultOrder } from '../src/engine/data';
-import type { OrderKind, OrderSpec } from '../src/engine/types';
-export function quietEngine() {
-  const e = new SimulationEngine();
+import { createWorld } from '../src/engine/data';
+import type { Action } from '../src/engine/types';
+export function quietEngine(seed = 236807) {
+  const e = new SimulationEngine(createWorld(seed));
   e.state.enemies = [];
-  e.state.nextIncursion = 1e9;
   return e;
 }
-export function spec(
-  kind: OrderKind,
-  shipId = kind === 'transport' ? 'meridian' : kind === 'explore' ? 'verity' : 'vigil',
-): OrderSpec {
-  return { ...defaultOrder(kind), shipIds: [shipId] };
+export function issue(
+  e: SimulationEngine,
+  action: Action,
+  shipId = 'verity',
+  mode: 'REPLACE' | 'QUEUE' | 'INTERRUPT' = 'REPLACE',
+) {
+  return e.dispatchCommand({ type: 'issueDirective', shipIds: [shipId], mode, action });
 }
 export function run(e: SimulationEngine, minutes: number) {
-  for (let i = 0; i < minutes * 10; i++) {
-    if (e.state.paused) e.dispatchCommand({ type: 'pause', paused: false });
+  for (let i = 0; i < Math.round(minutes * 10); i++) {
+    if (e.state.status === 'commandLost') break;
+    e.dispatchCommand({ type: 'pause', paused: false });
     e.step();
   }
 }
 export function until(e: SimulationEngine, predicate: () => boolean, maxMinutes = 600) {
   for (let i = 0; i < maxMinutes * 10 && !predicate(); i++) {
-    if (e.state.paused) e.dispatchCommand({ type: 'pause', paused: false });
+    if (e.state.status === 'commandLost') break;
+    e.dispatchCommand({ type: 'pause', paused: false });
     e.step();
   }
   if (!predicate()) throw Error('Simulation predicate timed out at ' + e.state.time);

@@ -139,7 +139,7 @@ export function LcarsFrame({
               className="close-control"
               onClick={onClose}
               aria-label={
-                props['aria-label'] === '创建行动' || props['aria-label'] === '修改行动'
+                props['aria-label'] === 'Admiral 指令'
                   ? '关闭行动编辑'
                   : props['aria-label']?.endsWith('工作面板')
                     ? '关闭管理面板'

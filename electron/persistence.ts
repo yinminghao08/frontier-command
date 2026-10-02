@@ -22,7 +22,7 @@ const metaSchema = z
   })
   .strict();
 const indexSchema = z
-  .object({ version: z.literal(5), activeId: branchId, branches: z.array(metaSchema) })
+  .object({ version: z.literal(6), activeId: branchId, branches: z.array(metaSchema) })
   .strict();
 type Index = z.infer<typeof indexSchema>;
 function atomic(path: string, data: unknown) {
@@ -40,9 +40,9 @@ export class SaveStore {
   private index: Index | null = null;
   private blocked = false;
   constructor(readonly directory: string) {
-    this.root = join(directory, 'frontiers-v5');
+    this.root = join(directory, 'frontiers-v6');
     mkdirSync(this.root, { recursive: true });
-    this.indexPath = join(directory, 'timeline-v5.json');
+    this.indexPath = join(directory, 'timeline-v6.json');
     if (existsSync(this.indexPath))
       try {
         this.index = indexSchema.parse(JSON.parse(readFileSync(this.indexPath, 'utf8')));
@@ -62,8 +62,7 @@ export class SaveStore {
         message: '时间线索引损坏或版本不支持；已保留原文件并阻止覆盖。',
         blocked: true,
       };
-    if (!this.index)
-      return { world: null, message: 'v5 新边疆就绪，旧版文件保留。', blocked: false };
+    if (!this.index) return { world: null, message: 'v6 Dawn Frontier 就绪。', blocked: false };
     const terminal = join(this.root, this.index.activeId, 'failure.json');
     if (existsSync(terminal)) {
       try {
@@ -82,7 +81,7 @@ export class SaveStore {
         const world = loadWorld(path);
         return {
           world,
-          message: path === this.path ? '已恢复 v5 时间线' : '已从同代备份恢复',
+          message: path === this.path ? '已恢复 v6 时间线' : '已从同代备份恢复',
           blocked: false,
         };
       } catch (error) {
@@ -115,7 +114,7 @@ export class SaveStore {
     const meta = { id, parent };
     atomic(join(dir, 'branch.json'), meta);
     const next: Index = {
-      version: 5,
+      version: 6,
       activeId: id,
       branches: [...(this.index?.branches ?? []), meta],
     };

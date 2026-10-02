@@ -1,57 +1,57 @@
 import { describe, it, expect } from 'vitest';
 import { createWorld } from '../src/engine/data';
-import { regionAt, WORLD_WIDTH, WORLD_HEIGHT, BASE } from '../src/engine/definitions/locations';
-import { move, authorized, segmentAllowed, planRoute } from '../src/engine/navigation';
-import { SHIP_CLASSES } from '../src/engine/definitions/ships';
-describe('strategic geography and fleet', () => {
-  it('retains Step 1 geography and all landmarks', () => {
-    const w = createWorld();
-    expect([WORLD_WIDTH, WORLD_HEIGHT]).toEqual([1600, 800]);
-    expect(BASE).toEqual({ x: 880, y: 430 });
-    expect(w.locations.every((l) => l.regionId === regionAt(l.x, l.y))).toBe(true);
-    for (const k of ['base', 'colony', 'mine', 'planet', 'anomaly'])
-      expect(w.locations.some((l) => l.kind === k)).toBe(true);
+import { generatedSector, materialize } from '../src/engine/world-generation';
+import { routeEstimate, planRoute, dist } from '../src/engine/navigation';
+import { quietEngine } from './helpers';
+describe('seeded sparse sectors and physical navigation', () => {
+  it('sector content is independent of exploration order and world RNG', () => {
+    const a = createWorld(42),
+      b = createWorld(42);
+    materialize(a, { q: 10, r: -9 });
+    materialize(a, { q: -6, r: 5 });
+    materialize(b, { q: -6, r: 5 });
+    b.seed = 999;
+    materialize(b, { q: 10, r: -9 });
+    expect(a.systems.filter((s) => s.sectorId === 'sector:10:-9')).toEqual(
+      b.systems.filter((s) => s.sectorId === 'sector:10:-9'),
+    );
+    expect(a.bodies.filter((s) => s.id.startsWith('sector:10:-9'))).toEqual(
+      b.bodies.filter((s) => s.id.startsWith('sector:10:-9')),
+    );
   });
-  it('has all seven requested classes and four initial Federation ships', () => {
-    const w = createWorld();
-    expect(w.ships).toHaveLength(4);
-    for (const id of [
-      'antares',
-      'peregrine',
-      'constitution',
-      'galaxy',
-      'scout',
-      'valdore',
-      'dderidex',
-    ] as const) {
-      const d = SHIP_CLASSES[id];
-      expect(d.hull).toBeGreaterThan(0);
-      expect(d.coreRegen).toBeGreaterThan(0);
-      expect(d.sensors).toBeGreaterThan(0);
-    }
+  it('different seeds change content, all sectors have concrete resources, habitable planets and normal anomalies', () => {
+    expect(generatedSector(1, { q: 0, r: -1 })).not.toEqual(generatedSector(2, { q: 0, r: -1 }));
+    const g = generatedSector(42, { q: -10000, r: 10000 });
+    expect(g.bodies.some((b) => b.kind === 'resource' && b.remaining > 0)).toBe(true);
+    expect(g.bodies.some((b) => b.kind === 'planet' && b.habitable)).toBe(true);
+    expect(g.bodies.some((b) => b.kind === 'anomaly' && !b.hidden)).toBe(true);
   });
-  it('movement respects the authorized territory', () => {
-    for (const policy of ['federation', 'neutral', 'romulan'] as const) {
-      const s = createWorld().ships[0];
-      move(s, { x: 1590, y: 400 }, 10000, policy);
-      expect(authorized(s, policy)).toBe(true);
-      if (policy !== 'romulan') expect(s.x).toBe(createWorld().ships[0].x);
-    }
+  it('safe, direct and risky have real ETA/risk differences without a rectangular edge', () => {
+    const e = quietEngine(),
+      s = e.state.ships[0],
+      to = e.state.locations.find((l) => l.id === 'mine')!,
+      w = e.snapshot();
+    const safe = routeEstimate(w, s, to, 'safe'),
+      direct = routeEstimate(w, s, to, 'direct'),
+      risky = routeEstimate(w, s, to, 'risky');
+    expect(safe.eta).toBeGreaterThan(direct.eta);
+    expect(risky.eta).toBeLessThan(direct.eta);
+    expect(risky.risk).not.toBe(safe.risk);
+    const p = planRoute(e.state, s, { x: -100000, y: 200000 }, 'direct');
+    expect(p.at(-1)).toEqual({ x: -100000, y: 200000 });
+    expect(dist(e.base, to)).toBeGreaterThan(400);
   });
-});
-
-it('validates entire routes across curved borders and finds a legal detour', () => {
-  const w = createWorld(),
-    a = { x: 1040, y: 180 },
-    b = { x: 1060, y: 530 };
-  expect(authorized(a, 'federation')).toBe(true);
-  expect(authorized(b, 'federation')).toBe(true);
-  expect(segmentAllowed(a, b, 'federation')).toBe(false);
-  const route = planRoute(w, a, b, false, 'federation');
-  expect(route.length).toBeGreaterThan(1);
-  let p = a;
-  for (const next of route) {
-    expect(segmentAllowed(p, next, 'federation')).toBe(true);
-    p = next;
-  }
+  it('route uncertainty measures actual uncharted portions, including sector-edge overlap', () => {
+    const e = quietEngine(),
+      s = e.state.ships[0];
+    const chart = e.snapshot();
+    expect(routeEstimate(chart, s, e.base, 'direct').unknownDistance).toBe(0);
+    s.x = -240;
+    s.y = 0;
+    const estimate = routeEstimate(chart, s, { x: 2000, y: 0 }, 'direct');
+    expect(estimate.distance).toBe(2240);
+    expect(estimate.unknownDistance).toBeCloseTo(1400);
+    s.y = 200;
+    expect(routeEstimate(chart, s, { x: 600, y: 200 }, 'direct').unknownDistance).toBeCloseTo(0);
+  });
 });

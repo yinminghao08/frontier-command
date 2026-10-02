@@ -1,38 +1,35 @@
-import type { Enemy, IntelRecord, WorldState } from './types';
-import { SHIP_CLASSES } from './definitions/ships';
-import { RULES } from './definitions/rules';
+import type { SimulationEngine } from './engine';
+import type { Enemy, WorldState } from './types';
+import { capabilities } from './capabilities';
 import { dist } from './navigation';
+import { RULES } from './definitions/rules';
 export const visibleIntel = (w: WorldState) =>
-  w.intel.filter(
-    (i) => i.level !== 'UNKNOWN' && !i.resolved && w.time - i.lastSeen <= RULES.intelTTL,
-  );
-export function observe(
-  w: WorldState,
-  e: Enemy,
-  amount: number,
-): { record: IntelRecord; fresh: boolean; hostility: boolean } {
-  let i = w.intel.find((i) => i.id === e.id);
+  w.intel.filter((i) => !i.resolved && w.time - i.lastSeen <= RULES.intelTTL);
+export function observe(w: WorldState, s: Enemy, strength: number) {
+  let i = w.intel.find((i) => i.id === s.id);
   const fresh = !i;
   if (!i) {
     i = {
-      id: e.id,
-      x: e.x,
-      y: e.y,
+      id: s.id,
+      x: s.x,
+      y: s.y,
       level: 'CONTACT',
       strength: 0,
       lastSeen: w.time,
       live: true,
       hostile: false,
+      velocity: { x: 0, y: 0 },
       resolved: false,
     };
     w.intel.push(i);
   }
-  const wasHostile = i.hostile;
-  i.x = e.x;
-  i.y = e.y;
+  const elapsed = w.time - i.lastSeen;
+  if (elapsed > 0) i.velocity = { x: (s.x - i.x) / elapsed, y: (s.y - i.y) / elapsed };
+  i.x = s.x;
+  i.y = s.y;
   i.lastSeen = w.time;
   i.live = true;
-  i.strength = Math.min(12, i.strength + amount);
+  i.strength = Math.min(12, i.strength + strength);
   i.level =
     i.strength >= 10
       ? 'TRACKED'
@@ -41,48 +38,47 @@ export function observe(
         : i.strength >= 3
           ? 'CLASSIFIED'
           : 'CONTACT';
-  if (i.strength >= 3) i.factionId = e.factionId;
+  if (i.strength >= 3) i.factionId = s.factionId;
   if (i.strength >= 6) {
-    i.name = e.name;
-    i.classId = e.classId;
-    i.hull = e.hull;
-    i.shield = e.shield;
+    i.name = s.name;
+    i.classId = s.classId;
+    i.hull = s.hull;
+    i.shield = s.shield;
   }
-  if (i.strength >= 3 && (e.factionId === 'pirate' || e.attackedAt === w.time)) i.hostile = true;
-  return { record: i, fresh, hostility: !wasHostile && i.hostile };
+  if (s.intent === 'raid' || s.intent === 'probe') i.hostile = true;
+  return { record: i, fresh };
 }
-export function updateSensors(
-  w: WorldState,
-  random: () => number,
-  onDetection: (i: IntelRecord, fresh: boolean, hostility: boolean) => void,
-) {
-  const base = w.locations.find((l) => l.id === 'base')!;
+export function updateSensors(e: SimulationEngine) {
+  const w = e.state;
   for (const i of w.intel) i.live = false;
-  for (const e of w.enemies) {
-    if (e.hull <= 0) continue;
-    let strength = 0;
-    const sources = [
-      { x: base.x, y: base.y, range: base.hull > 0 ? RULES.baseSensors : 0, active: false },
-      ...w.ships
-        .filter((s) => s.hull > 0)
-        .map((s) => ({
-          x: s.x,
-          y: s.y,
-          range: SHIP_CLASSES[s.classId].sensors,
-          active: s.scanUntil > w.time,
-        })),
-    ];
-    for (const source of sources) {
-      const d = dist(source, e),
-        range = source.range * (source.active ? 1.2 : 1);
-      if (d > range) continue;
-      const probability = e.cloak === 'on' ? (source.active ? 0.48 : 0.16) : 1;
-      if (probability === 1 || random() < probability)
-        strength = Math.max(strength, source.active ? 2 : 1);
-    }
-    if (strength) {
-      const result = observe(w, e, strength);
-      onDetection(result.record, result.fresh, result.hostility);
-    }
+  const sources = [
+    ...w.ships.map((s) => ({ ...s, range: capabilities(s).sensors, active: s.scanUntil > w.time })),
+    ...w.locations
+      .filter((l) => l.owner === 'starfleet' && l.hull > 0)
+      .map((l) => ({
+        ...l,
+        range:
+          l.kind === 'base'
+            ? RULES.baseSensors
+            : l.kind === 'outpost'
+              ? w.upgrades.sensors
+                ? 340
+                : 160
+              : 80,
+        active: !!w.upgrades.sensors,
+      })),
+  ];
+  for (const enemy of w.enemies) {
+    const source = sources.find((s) => dist(s, enemy) < s.range * (s.active ? 1.15 : 1));
+    if (!source || (enemy.cloak === 'on' && e.random() > (source.active ? 0.6 : 0.2))) continue;
+    const result = observe(w, enemy, source.active ? 2 : 1);
+    if (result.fresh) e.report('发现接触：' + result.record.id, result.record.id, 'high', 'threat');
   }
+  for (const l of w.locations.filter((l) => l.owner !== 'starfleet' && !l.discovered && l.hull > 0))
+    if (w.ships.some((s) => dist(s, l) < Math.min(capabilities(s).sensors, 150))) {
+      l.discovered = true;
+      e.record('discovery', '发现 ' + l.name, l.id);
+    }
+  for (const wreck of w.wrecks)
+    if (!wreck.discovered && sources.some((s) => dist(s, wreck) < s.range)) wreck.discovered = true;
 }

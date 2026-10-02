@@ -1,70 +1,128 @@
-import type { Enemy, Location, OperationOrder, Ship, WorldState } from './types';
-import { SHIP_CLASSES, WEAPONS, type WeaponDefinition } from './definitions/ships';
-import { RULES } from './definitions/rules';
-import { authorized, dist } from './navigation';
+import type { Enemy, Location, Ship } from './types';
+import type { SimulationEngine } from './engine';
+import { capabilities } from './capabilities';
+import { GOODS } from './types';
+import { emptyStock } from './data';
+import { SHIP_CLASSES, WEAPONS } from './definitions/ships';
+import { dist } from './navigation';
 export function regenerate(s: Ship, time: number, dt: number) {
-  const d = SHIP_CLASSES[s.classId];
-  for (const id of Object.keys(s.cooldowns)) s.cooldowns[id] = Math.max(0, s.cooldowns[id] - dt);
+  const d = capabilities(s);
+  for (const k of Object.keys(s.cooldowns)) s.cooldowns[k] = Math.max(0, s.cooldowns[k] - dt);
   s.core = Math.min(d.core, s.core + d.coreRegen * dt);
-  if (time - s.attackedAt > 6) s.shield = Math.min(d.shield, s.shield + d.shieldRegen * dt);
-  if (s.cloak === 'on') {
-    s.core = Math.max(0, s.core - RULES.cloakDrain * dt);
-    if (s.core <= 5) {
-      s.cloak = 'decloaking';
-      s.cloakUntil = time + RULES.decloakMinutes;
-    }
-  }
+  if (time - s.attackedAt > 8) s.shield = Math.min(d.shield, s.shield + d.shieldRegen * dt);
   if (s.cloak === 'decloaking' && time >= s.cloakUntil) s.cloak = 'off';
 }
-export function permittedTarget(w: WorldState, s: Ship, o: OperationOrder, e: Enemy) {
-  const intel = w.intel.find((i) => i.id === e.id);
-  if (
-    !intel?.live ||
-    intel.resolved ||
-    !['IDENTIFIED', 'TRACKED'].includes(intel.level) ||
-    e.hull <= 0 ||
-    !authorized(intel, o.border)
-  )
-    return false;
-  if (o.roe === 'HOLD FIRE') return false;
-  if (o.roe === 'WEAPONS FREE') return true;
-  if (o.roe === 'ENGAGE HOSTILES') return intel.hostile;
-  const protectedId = o.objective.type === 'point' ? null : o.objective.id;
-  return (
-    intel.hostile &&
-    ((s.lastAttackerId === e.id && w.time - s.attackedAt < 12) ||
-      (intel.lastAttackTargetId === protectedId &&
-        intel.lastAttackAt !== undefined &&
-        w.time - intel.lastAttackAt < 12))
-  );
+export function applyDamage(
+  e: SimulationEngine,
+  t: Ship | Location,
+  amount: number,
+  attacker?: Ship,
+) {
+  if (t.hull <= 0 || amount <= 0) return;
+  const before = t.hull,
+    absorb = Math.min(t.shield, amount),
+    alreadyUnderAttack = e.state.time - t.attackedAt <= 30;
+  t.shield -= absorb;
+  t.hull = Math.max(0, t.hull - amount + absorb);
+  t.attackedAt = e.state.time;
+  if ('classId' in t) {
+    t.lastAttackerId = attacker?.id ?? null;
+    if (
+      t.factionId === 'starfleet' &&
+      before >= SHIP_CLASSES[t.classId].hull * 0.3 &&
+      t.hull < SHIP_CLASSES[t.classId].hull * 0.3
+    )
+      e.critical('lowHull', t.id, t.name + ' 舰体低于30%');
+    const i = e.state.intel.find((i) => i.id === t.id && i.live);
+    if (i) {
+      i.hull = t.hull;
+      i.shield = t.shield;
+    }
+    if (t.hull === 0) destroyShip(e, t, attacker ? '交战永久损失' : '环境永久损失');
+  } else if (t.owner === 'starfleet') {
+    t.distress = true;
+    if (!alreadyUnderAttack) {
+      e.report(t.name + ' 遭袭，请求增援', t.id, 'urgent', 'threat');
+    }
+    if (before >= t.maxHull * 0.3 && t.hull < t.maxHull * 0.3)
+      e.critical('lowHull', t.id, t.name + ' 设施严重受损');
+    if (t.hull === 0) {
+      e.record('facilityLost', t.name + ' 已摧毁', t.id);
+      e.critical('facilityDestroyed', t.id, t.name + ' 已摧毁');
+      if (t.id === 'base') {
+        e.state.status = 'commandLost';
+        e.state.paused = true;
+        e.critical('commandLost', t.id, 'COMMAND LOST');
+        e.pendingEvents.push({ type: 'commandLost', tick: e.state.tick });
+      }
+    }
+  } else if (t.hull === 0 && t.discovered)
+    e.record('factionLoss', t.name + ' 已摧毁；基地库存与恢复能力损失', t.id);
 }
-export function shouldRetreat(s: Ship, o: OperationOrder) {
-  const d = SHIP_CLASSES[s.classId],
-    r = o.retreat;
-  return (
-    (s.hull / d.hull) * 100 < r.hull ||
-    (r.shield > 0 && (s.shield / d.shield) * 100 < r.shield) ||
-    (r.core > 0 && (s.core / d.core) * 100 < r.core) ||
-    (r.emptyAmmo && d.photon + d.quantum > 0 && s.photon + s.quantum === 0)
-  );
+export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
+  const w = e.state;
+  if (s.factionId === 'starfleet') {
+    if (w.losses.some((l) => l.shipId === s.id)) return;
+    const operatorIds = w.assignments.filter((a) => a.shipId === s.id).map((a) => a.operatorId);
+    w.losses.push({
+      shipId: s.id,
+      name: s.name,
+      classId: s.classId,
+      tick: w.tick,
+      position: { x: s.x, y: s.y },
+      reason,
+      cargo: structuredClone(s.cargo),
+      ammunition: { photon: s.photon, quantum: s.quantum },
+      operatorIds,
+    });
+    w.assignments = w.assignments.filter((a) => a.shipId !== s.id);
+    for (const op of w.operators) if (operatorIds.includes(op.id)) op.availability = 'vesselLost';
+    w.ships = w.ships.filter((x) => x.id !== s.id);
+    e.record('shipLost', s.name + ' 永久损失', s.id);
+    e.critical('shipDestroyed', s.id, s.name + ' 已摧毁');
+    e.pendingEvents.push({ type: 'shipDestroyed', shipId: s.id, operatorIds, tick: w.tick });
+  } else {
+    const faction = w.factions[s.factionId];
+    if (faction.losses.includes(s.id)) return;
+    faction.losses.push(s.id);
+    w.enemies = w.enemies.filter((x) => x.id !== s.id);
+    const i = w.intel.find((i) => i.id === s.id);
+    if (i) {
+      i.resolved = true;
+      if (i.live) e.record('factionLoss', '确认 ' + s.name + ' 已摧毁', s.id);
+    }
+  }
+  const stock = emptyStock();
+  for (const k of GOODS) stock[k] = Math.floor(s.cargo[k] * 0.65);
+  stock.materials += Math.round(SHIP_CLASSES[s.classId].hull * 0.08);
+  w.wrecks.push({
+    id: 'wreck:' + s.id,
+    name: s.name + ' 残骸',
+    x: s.x,
+    y: s.y,
+    stock,
+    discovered: s.factionId === 'starfleet' || w.intel.some((i) => i.id === s.id && i.live),
+  });
 }
-export interface CombatHooks {
-  random(): number;
-  hit(target: Ship | Location, amount: number, attacker: Ship): void;
-  fired(attacker: Ship, target: Ship | Location, weapon: WeaponDefinition, hit: boolean): void;
-}
-export function attack(w: WorldState, s: Ship, target: Ship | Location, hooks: CombatHooks) {
-  if (s.hull <= 0 || target.hull <= 0) return;
+export function fire(
+  e: SimulationEngine,
+  s: Ship,
+  t: Ship | Location,
+  disable?: 'engines' | 'weapons' | 'suppression' | 'warning',
+) {
+  const w = e.state;
+  if (s.weapons <= 0 || s.hull <= 0 || t.hull <= 0) return;
   if (s.cloak === 'on') {
     s.cloak = 'decloaking';
-    s.cloakUntil = w.time + RULES.decloakMinutes;
+    s.cloakUntil = w.time + 1;
     return;
   }
   if (s.cloak === 'decloaking') return;
   for (const key of SHIP_CLASSES[s.classId].weapons) {
-    const weapon: WeaponDefinition = WEAPONS[key];
+    const weapon = WEAPONS[key];
+    if (disable && weapon.ammo) continue;
     if (
-      dist(s, target) > weapon.range ||
+      dist(s, t) > weapon.range ||
       (s.cooldowns[key] ?? 0) > 0 ||
       s.core < weapon.cost ||
       (weapon.ammo && s[weapon.ammo] <= 0)
@@ -73,10 +131,43 @@ export function attack(w: WorldState, s: Ship, target: Ship | Location, hooks: C
     s.core -= weapon.cost;
     if (weapon.ammo) s[weapon.ammo]--;
     s.cooldowns[key] = weapon.cooldown;
-    s.attackedAt = w.time;
-    const hit = hooks.random() < weapon.accuracy;
-    hooks.fired(s, target, weapon, hit);
-    if (hit) hooks.hit(target, weapon.damage, s);
-    if (target.hull <= 0) break;
+    if (s.factionId !== 'starfleet') {
+      const enemy = s as Enemy,
+        record = w.intel.find((i) => i.id === s.id);
+      if (record) {
+        record.hostile = true;
+        record.lastAttackAt = w.time;
+        record.lastAttackTargetId = t.id;
+      }
+      enemy.cloak = 'off';
+    }
+    if (
+      s.factionId === 'starfleet' &&
+      ('factionId' in t ? t.factionId : t.owner) === 'romulan' &&
+      !w.intel.find((i) => i.id === t.id)?.hostile
+    ) {
+      const first = !w.history.some((h) => h.kind === 'borderAttack' && h.entityId === t.id);
+      if (first) {
+        w.tension = Math.min(100, w.tension + 45);
+        e.record('borderAttack', 'Admiral 对未确认敌对 Romulan 开火：tension +45', t.id);
+      }
+    }
+    e.beam(
+      s,
+      t,
+      disable === 'warning'
+        ? 'Warning Phaser'
+        : disable
+          ? 'Precision Phaser / ' + disable
+          : weapon.name,
+    );
+    if (e.random() > weapon.accuracy) continue;
+    if (disable && disable !== 'warning' && 'classId' in t && t.shield <= 0) {
+      const subsystem = disable === 'weapons' ? 'weapons' : 'engines';
+      t[subsystem] = Math.max(0, t[subsystem] - (disable === 'suppression' ? 12 : 30));
+      t.core = Math.max(0, t.core - 12);
+      applyDamage(e, t, weapon.damage * 0.1, s);
+    } else applyDamage(e, t, weapon.damage * (disable === 'warning' ? 0.5 : 1), s);
+    if (w.status !== 'active') return;
   }
 }

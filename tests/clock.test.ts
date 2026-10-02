@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { quietEngine, run, spec, until } from './helpers';
+import { quietEngine, issue, run, until } from './helpers';
 import { gameCalendar, FIXED_DELTA } from '../src/engine/clock';
-describe('Step 1 clock retained', () => {
+describe('fixed simulation clock and selective major pauses', () => {
   it.each([1, 4, 16] as const)('%sx changes step count only', (speed) => {
     const e = quietEngine();
     e.dispatchCommand({ type: 'speed', speed });
@@ -10,7 +10,7 @@ describe('Step 1 clock retained', () => {
     expect(e.state.tick).toBe(speed);
     expect(e.state.time).toBe(speed / 10);
   });
-  it('freezes all simulation when paused', () => {
+  it('paused simulation freezes every state', () => {
     const e = quietEngine(),
       before = structuredClone(e.state);
     e.advanceFrame();
@@ -21,31 +21,34 @@ describe('Step 1 clock retained', () => {
     expect(() => quietEngine().step(0.5)).toThrow();
     expect(FIXED_DELTA).toBe(0.1);
   });
-  it('calendar and midnight event cross once', () => {
+  it('midnight crosses exactly once', () => {
     const e = quietEngine();
     e.state.tick = 14399;
     e.state.time = 1439.9;
     e.state.paused = false;
-    expect(e.step().filter((e) => e.type === 'dayBoundary')).toHaveLength(1);
-    expect(e.step().filter((e) => e.type === 'dayBoundary')).toHaveLength(0);
+    expect(e.step().filter((x) => x.type === 'dayBoundary')).toHaveLength(1);
+    expect(e.step().filter((x) => x.type === 'dayBoundary')).toHaveLength(0);
     expect(gameCalendar(14400)).toEqual({ day: 2, hour: 0, minute: 0 });
   });
-  it('decision pauses atomically and remaining accelerated batch does not run', () => {
+  it('normal discoveries and reports never pause', () => {
     const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: spec('explore') });
-    until(e, () => e.state.orders[0].phase === 'decision');
-    expect(e.state.paused).toBe(true);
-    const tick = e.state.tick;
-    e.advanceFrame();
-    expect(e.state.tick).toBe(tick);
-    expect(e.state.pauseReasons.some((r) => r.kind === 'investigation')).toBe(true);
+    issue(e, { type: 'EXPLORE', sector: { q: 0, r: -1 }, approach: 'remote' });
+    until(e, () => !e.state.ships[2].current);
+    expect(e.state.paused).toBe(false);
+    expect(e.state.pauseReasons).toEqual([]);
+    expect(e.state.history.some((h) => h.kind === 'discovery')).toBe(true);
   });
-  it('unhandled investigation follows the preselected policy after 20 resumed minutes', () => {
+  it('major damage pauses atomically before the rest of a fast batch', () => {
     const e = quietEngine();
-    e.dispatchCommand({ type: 'createOrder', spec: { ...spec('explore'), approach: 'close' } });
-    until(e, () => e.state.orders[0].phase === 'decision');
-    run(e, 21);
-    expect(e.state.orders[0].phase).toBe('working');
-    expect(e.state.orders[0].approach).toBe('close');
+    e.state.speed = 16;
+    e.state.paused = false;
+    e.hit(e.state.ships[0], 150);
+    e.advanceFrame();
+    expect(e.state.paused).toBe(true);
+    expect(e.state.tick).toBe(1);
+    expect(e.state.pauseReasons.some((r) => r.kind === 'lowHull')).toBe(true);
+    const t = e.state.tick;
+    run(e, 1);
+    expect(e.state.tick).toBe(t + 10);
   });
 });

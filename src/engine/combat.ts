@@ -1,3 +1,5 @@
+import { loseStock } from './inventory';
+import { personnelBonus } from './society';
 import type { Enemy, Location, Ship } from './types';
 import type { SimulationEngine } from './engine';
 import { capabilities } from './capabilities';
@@ -25,6 +27,7 @@ export function applyDamage(
   t.shield -= absorb;
   t.hull = Math.max(0, t.hull - amount + absorb);
   t.attackedAt = e.state.time;
+  t.lastAttackerId = attacker?.id ?? null;
   if ('classId' in t) {
     t.lastAttackerId = attacker?.id ?? null;
     if (
@@ -47,6 +50,13 @@ export function applyDamage(
     if (before >= t.maxHull * 0.3 && t.hull < t.maxHull * 0.3)
       e.critical('lowHull', t.id, t.name + ' 设施严重受损');
     if (t.hull === 0) {
+      for (const k of GOODS) loseStock(e, t, k, t.stock[k]);
+      for (const p of e.state.personnel)
+        if (p.posting?.id === t.id) {
+          p.posting = null;
+          p.status = 'missing';
+        }
+      if (t.colony) t.colony.commanderId = null;
       e.record('facilityLost', t.name + ' 已摧毁', t.id);
       e.critical('facilityDestroyed', t.id, t.name + ' 已摧毁');
       if (t.id === 'base') {
@@ -56,8 +66,10 @@ export function applyDamage(
         e.pendingEvents.push({ type: 'commandLost', tick: e.state.tick });
       }
     }
-  } else if (t.hull === 0 && t.discovered)
-    e.record('factionLoss', t.name + ' 已摧毁；基地库存与恢复能力损失', t.id);
+  } else if (t.hull === 0) {
+    for (const k of GOODS) loseStock(e, t, k, t.stock[k]);
+    if (t.discovered) e.record('factionLoss', t.name + ' 已摧毁；基地库存与恢复能力损失', t.id);
+  }
 }
 export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
   const w = e.state;
@@ -77,7 +89,21 @@ export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
     });
     w.assignments = w.assignments.filter((a) => a.shipId !== s.id);
     for (const op of w.operators) if (operatorIds.includes(op.id)) op.availability = 'vesselLost';
+    for (const p of w.personnel)
+      if (p.posting?.id === s.id) {
+        p.posting = null;
+        p.status = 'missing';
+        e.record('personnel', p.name + '随舰永久失联', p.id);
+      }
     w.ships = w.ships.filter((x) => x.id !== s.id);
+    w.civilians = w.civilians.filter((x) => x.id !== s.id);
+    for (const o of w.trade.orders)
+      if (o.carrierId === s.id && o.state !== 'complete') o.state = 'lost';
+    for (const g of w.groups) {
+      g.shipIds = g.shipIds.filter((id) => id !== s.id);
+      if (g.flagshipId === s.id) g.flagshipId = g.shipIds[0] ?? '';
+    }
+    w.groups = w.groups.filter((g) => g.shipIds.length > 0);
     e.record('shipLost', s.name + ' 永久损失', s.id);
     e.critical('shipDestroyed', s.id, s.name + ' 已摧毁');
     e.pendingEvents.push({ type: 'shipDestroyed', shipId: s.id, operatorIds, tick: w.tick });
@@ -140,16 +166,23 @@ export function fire(
         record.lastAttackTargetId = t.id;
       }
       enemy.cloak = 'off';
+      enemy.lastHostileAt = w.time;
+      enemy.lastHostileTargetId = t.id;
     }
-    if (
-      s.factionId === 'starfleet' &&
-      ('factionId' in t ? t.factionId : t.owner) === 'romulan' &&
-      !w.intel.find((i) => i.id === t.id)?.hostile
-    ) {
-      const first = !w.history.some((h) => h.kind === 'borderAttack' && h.entityId === t.id);
+    if (s.factionId === 'starfleet' && ('factionId' in t ? t.factionId : t.owner) === 'romulan') {
+      const first = !(s.cooldowns['incident:' + t.id] > 0);
+      s.cooldowns['incident:' + t.id] = 30;
       if (first) {
-        w.tension = Math.min(100, w.tension + 45);
-        e.record('borderAttack', 'Admiral 对未确认敌对 Romulan 开火：tension +45', t.id);
+        const confirmed = w.intel.find((i) => i.id === t.id)?.hostile,
+          amount = confirmed ? 6 : 45;
+        w.tension = Math.min(100, w.tension + amount);
+        e.record(
+          'borderAttack',
+          (confirmed ? 'Federation 独立边境交战' : 'Admiral 对未确认敌对 Romulan 开火') +
+            '：tension +' +
+            amount,
+          t.id,
+        );
       }
     }
     e.beam(
@@ -161,7 +194,7 @@ export function fire(
           ? 'Precision Phaser / ' + disable
           : weapon.name,
     );
-    if (e.random() > weapon.accuracy) continue;
+    if (e.random() > Math.min(0.98, weapon.accuracy + personnelBonus(e, s.id, 'battle'))) continue;
     if (disable && disable !== 'warning' && 'classId' in t && t.shield <= 0) {
       const subsystem = disable === 'weapons' ? 'weapons' : 'engines';
       t[subsystem] = Math.max(0, t[subsystem] - (disable === 'suppression' ? 12 : 30));

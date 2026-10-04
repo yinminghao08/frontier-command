@@ -29,12 +29,15 @@ export interface StarSystem extends Point {
   discovered: boolean;
   survey: number;
   bodyIds: string[];
+  starClass: 'M' | 'K' | 'G' | 'F' | 'A' | 'giant' | 'neutron';
 }
 export interface Body extends Point {
   id: string;
   name: string;
   systemId: string;
-  kind: 'planet' | 'resource' | 'anomaly';
+  kind: 'planet' | 'moon' | 'belt' | 'resource' | 'anomaly' | 'ruins' | 'derelict';
+  category: string;
+  population: number;
   survey: number;
   habitable: boolean;
   remaining: number;
@@ -58,16 +61,148 @@ export interface Location extends Point {
   maxShield: number;
   core: number;
   attackedAt: number;
+  lastAttackerId: string | null;
   cooldown: number;
   distress: boolean;
   discovered: boolean;
   production: number;
+  capacity: Stock;
+  supplyState: 'operational' | 'depleted';
+  storageFull: boolean;
+  extracted: number;
+  colony: ColonyState | null;
+}
+export const CAREERS = [
+  'battle',
+  'science',
+  'diplomacy',
+  'logistics',
+  'security',
+  'commander',
+] as const;
+export type Career = (typeof CAREERS)[number];
+export interface ColonyState {
+  population: number;
+  housing: number;
+  stability: number;
+  morale: number;
+  security: number;
+  industry: number;
+  science: number;
+  commanderId: string | null;
+  nextCandidate: number;
+  contamination: number;
+  quarantine: boolean;
+  development: { kind: 'housing' | 'industry' | 'science' | 'security'; work: number } | null;
+}
+export interface Personnel {
+  id: string;
+  name: string;
+  originId: string;
+  career: Career;
+  experience: number;
+  skills: Record<Career, number>;
+  status: 'candidate' | 'training' | 'available' | 'assigned' | 'rejected' | 'missing';
+  training: number;
+  locationId: string;
+  posting: { type: 'ship' | 'colony'; id: string } | null;
+}
+export interface TaskGroup {
+  id: string;
+  name: string;
+  shipIds: string[];
+  flagshipId: string;
+  spacing: number;
+}
+export interface StandingOrders {
+  roe: ROE;
+  retreatHull: number;
+  retreatShield: number;
+  retreatCore: number;
+  photonThreshold: number;
+  quantumThreshold: number;
+  maxPursuit: number;
+  allowNeutral: boolean;
+  allowRomulan: boolean;
+  autoEscort: boolean;
+  respondDistress: boolean;
+  protectCivilian: boolean;
+  protectFreighter: boolean;
+  protectColony: boolean;
+  autoResupply: boolean;
+  idle: 'return' | 'hold';
+}
+export interface Wormhole extends Point {
+  id: string;
+  name: string;
+  sectorId: string;
+  discovered: boolean;
+  surveyed: boolean;
+  exit: Point;
+  exitSector: SectorCoord;
+  stability: number;
+  stable: boolean;
+  transits: number;
+}
+export type WorldEventKind =
+  | 'wormhole'
+  | 'plague'
+  | 'invasion'
+  | 'accident'
+  | 'distress'
+  | 'refugees'
+  | 'discovery'
+  | 'derelict'
+  | 'diplomatic';
+export interface WorldEvent {
+  id: string;
+  kind: WorldEventKind;
+  subjectId: string;
+  created: number;
+  deadline: number;
+  stage: 'reported' | 'responding' | 'resolved' | 'failed';
+  evidence: string;
+  choice: string | null;
+  work: number;
+  population: number;
+  carrierId: string | null;
+  targetId: string | null;
+  assetIds: string[];
+  followUpId: string | null;
+  outcome: string;
+}
+export interface CivilianShip extends Ship {
+  homeId: string;
+  orderId: string | null;
+  phase: 'idle' | 'loading' | 'delivery' | 'return';
+  work: number;
+}
+export interface TradeOrder {
+  id: string;
+  direction: 'buy' | 'sell';
+  cargoKind: CargoKind;
+  amount: number;
+  delivered: number;
+  loaded: number;
+  price: number;
+  state: 'waiting' | 'loading' | 'delivery' | 'complete' | 'lost';
+  carrierId: string | null;
+}
+export interface TradeState {
+  stock: Stock;
+  credits: number;
+  capacity: Stock;
+  depot: Point;
+  orders: TradeOrder[];
 }
 export type Action =
   | { type: 'MOVE'; point: Point }
   | { type: 'EXPLORE'; sector: SectorCoord; approach: 'remote' | 'close' }
   | { type: 'SURVEY'; targetId: string; approach: 'remote' | 'close'; deep: boolean }
-  | { type: 'MINE'; targetId: string; unloadId: string; repeat: boolean }
+  | { type: 'RETURN' }
+  | { type: 'ASSIST_EVENT'; targetId: string }
+  | { type: 'TRANSIT'; targetId: string }
+  | { type: 'HAIL'; targetId: string; message: 'greeting' | 'withdraw' | 'deescalate' }
   | {
       type: 'HAUL';
       sourceId: string;
@@ -103,6 +238,12 @@ export interface Directive {
   paidCredits: number;
   search: number;
   note: string;
+  source: 'admiral' | 'standing';
+  groupOrderId: string | null;
+  groupSlot: number;
+  groupTotal: number;
+  groupSpacing: number;
+  origin: Point;
 }
 export interface Ship extends Point {
   id: string;
@@ -121,10 +262,11 @@ export interface Ship extends Point {
   current: Directive | null;
   queue: Directive[];
   suspended: Directive[];
-  standing: { roe: ROE; retreatHull: number };
+  standing: StandingOrders;
   path: Point[];
   heading: number;
   cargo: Stock;
+  passengers: number;
   cooldowns: Record<string, number>;
   lastAttackerId: string | null;
   attackedAt: number;
@@ -141,6 +283,9 @@ export interface Enemy extends Ship {
   nextDecision: number;
   visited: string[];
   loot: number;
+  localReports: ThreatReport[];
+  lastHostileAt: number;
+  lastHostileTargetId: string | null;
 }
 export type IntelLevel = 'CONTACT' | 'CLASSIFIED' | 'IDENTIFIED' | 'TRACKED';
 export interface IntelRecord extends Point {
@@ -173,7 +318,8 @@ export interface FactionState {
   credits: number;
   production: number;
   losses: string[];
-  stance: 'observe' | 'probe' | 'patrol' | 'escalate';
+  stance: 'observe' | 'probe' | 'patrol' | 'reinforce' | 'escalate' | 'withdraw';
+  pressure: number;
 }
 export interface Cost {
   credits: number;
@@ -187,6 +333,7 @@ export interface Construction extends Point {
   kind: Exclude<FacilityKind, 'base'>;
   siteId: string;
   stock: Stock;
+  capacity: Stock;
   cost: Cost;
   work: number;
   duration: number;
@@ -279,7 +426,7 @@ export interface Wreck extends Point {
   discovered: boolean;
 }
 export interface WorldState {
-  version: 6;
+  version: 7;
   tick: number;
   time: number;
   seed: number;
@@ -306,7 +453,12 @@ export interface WorldState {
   tension: number;
   resources: { credits: number };
   upgrades: Record<UpgradeId, number>;
-  rearProduction: number;
+  groups: TaskGroup[];
+  personnel: Personnel[];
+  events: WorldEvent[];
+  wormholes: Wormhole[];
+  civilians: CivilianShip[];
+  trade: TradeState;
   communications: Communication[];
   logs: LogEntry[];
   history: HistoryEntry[];
@@ -324,7 +476,7 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 6;
+  version: 7;
   tick: number;
   time: number;
   paused: boolean;
@@ -353,6 +505,12 @@ interface SnapshotData {
   beams: Beam[];
   opportunities: Opportunity[];
   armory: { stock: Ammunition; reserved: Ammunition };
+  groups: TaskGroup[];
+  personnel: Personnel[];
+  events: WorldEvent[];
+  wormholes: Omit<Wormhole, 'exit' | 'exitSector'>[];
+  civilians: CivilianShip[];
+  trade: TradeState;
 }
 export type Command =
   | {
@@ -362,7 +520,49 @@ export type Command =
       action: Action;
     }
   | { type: 'cancelDirective'; shipId: string }
-  | { type: 'standingOrders'; shipId: string; roe: ROE; retreatHull: number }
+  | { type: 'standingOrders'; shipId: string; orders: StandingOrders }
+  | { type: 'createGroup'; name: string; shipIds: string[]; flagshipId: string; spacing: number }
+  | {
+      type: 'updateGroup';
+      groupId: string;
+      name: string;
+      shipIds: string[];
+      flagshipId: string;
+      spacing: number;
+    }
+  | { type: 'deleteGroup'; groupId: string }
+  | {
+      type: 'issueGroupDirective';
+      groupId: string;
+      mode: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
+      action: Action;
+    }
+  | { type: 'candidate'; personnelId: string; accept: boolean; career: Career }
+  | {
+      type: 'assignPersonnel';
+      personnelId: string;
+      targetId: string;
+      targetType: 'ship' | 'colony';
+    }
+  | {
+      type: 'developColony';
+      locationId: string;
+      kind: 'housing' | 'industry' | 'science' | 'security';
+    }
+  | {
+      type: 'respondEvent';
+      eventId: string;
+      choice:
+        | 'assist'
+        | 'quarantine'
+        | 'liftQuarantine'
+        | 'accept'
+        | 'reject'
+        | 'withdraw'
+        | 'stabilize';
+      targetId?: string;
+    }
+  | { type: 'tradeStock'; direction: 'buy' | 'sell'; cargoKind: CargoKind; amount: number }
   | { type: 'renameEntity'; entityId: string; name: string }
   | { type: 'startConstruction'; siteId: string; kind: Exclude<FacilityKind, 'base'>; name: string }
   | { type: 'buildShip'; classId: ShipClassId; name: string }

@@ -1,5 +1,12 @@
 import type { Command, SessionCommand, CommandResult } from '../engine/types';
-export type Page = 'SECTOR' | 'OPERATIONS' | 'PERSONNEL' | 'STARBASE' | 'COLONIES' | 'ARCHIVE';
+export type Page =
+  | 'SECTOR'
+  | 'FLEET'
+  | 'OPERATIONS'
+  | 'PERSONNEL'
+  | 'STARBASE'
+  | 'COLONIES'
+  | 'ARCHIVE';
 export type CommandSender = (
   command: Command | SessionCommand,
   quiet?: boolean,

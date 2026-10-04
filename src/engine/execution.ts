@@ -1,3 +1,13 @@
+import { deposit } from './inventory';
+import {
+  advanceStanding,
+  autonomousAllowed,
+  groupSpeed,
+  groupPeers,
+  prepareGroupHaul,
+} from './fleet';
+import { assistEvent, createEvent } from './world-events';
+import { personnelBonus } from './society';
 import type { SimulationEngine } from './engine';
 import type { Directive, Point, Ship } from './types';
 import { GOODS } from './types';
@@ -31,6 +41,18 @@ export function go(
   route: 'safe' | 'direct' | 'risky' = 'direct',
   range = 6,
 ) {
+  const allowed = (p: Point) =>
+    autonomousAllowed(s, p) ||
+    (d.action.type === 'RETURN' && !autonomousAllowed(s, s) && p.x < s.x);
+  if (
+    d.source === 'standing' &&
+    (!allowed(p) ||
+      (['INTERCEPT', 'SHADOW', 'ESCORT', 'ASSIST_EVENT'].includes(d.action.type) &&
+        dist(d.origin, p) > s.standing.maxPursuit))
+  ) {
+    e.complete(s, '自主行动超出追击范围或边境权限', true);
+    return false;
+  }
   if (dist(s, p) <= range + 1) {
     s.path = [];
     return true;
@@ -44,8 +66,12 @@ export function go(
     s.path = planRoute(e.state, s, target, route);
   const factor =
     route === 'risky' ? 1.5 : route === 'safe' && e.state.upgrades.logistics ? 1.25 : 1;
+  if (d.source === 'standing' && s.path.some((p) => !allowed(p))) {
+    e.complete(s, '自主航线超出边境权限', true);
+    return false;
+  }
   const previous = { x: s.x, y: s.y };
-  if (s.path[0] && move(s, s.path[0], dt, factor)) s.path.shift();
+  if (s.path[0] && move(s, s.path[0], dt, factor * groupSpeed(e, s, d))) s.path.shift();
   borderCrossing(e, s, previous);
   d.moved += dist(previous, s);
   d.note = '航行 / ' + route;
@@ -74,7 +100,11 @@ function survey(
   if (s.hull <= 0) return false;
   d.work += dt;
   d.note = close ? 'Close Survey / 现场采样' : 'Remote Scan / 测绘';
-  return d.work >= ((RULES.surveyMinutes * 70) / Math.max(20, power)) * (close ? 1.3 : 1);
+  return (
+    d.work >=
+    (((RULES.surveyMinutes * 70) / Math.max(20, power)) * (close ? 1.3 : 1)) /
+      (1 + personnelBonus(e, s.id, 'science'))
+  );
 }
 function reveal(e: SimulationEngine, s: Ship, systemId: string, tier: number, deep: boolean) {
   const sys = e.state.systems.find((x) => x.id === systemId)!;
@@ -86,8 +116,7 @@ function reveal(e: SimulationEngine, s: Ship, systemId: string, tier: number, de
     b.survey = Math.max(b.survey, tier);
   }
   if (fresh) {
-    e.state.resources.credits += 60;
-    e.record('discovery', s.name + ' 发现 ' + sys.name + '，星图拨款 +60 Credits', sys.id);
+    e.record('discovery', s.name + ' 发现 ' + sys.name + '，永久星图已更新', sys.id);
   }
 }
 function arrivedService(e: SimulationEngine, s: Ship, d: Directive, dt: number) {
@@ -107,23 +136,98 @@ function arrivedService(e: SimulationEngine, s: Ship, d: Directive, dt: number) 
 export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
   const w = e.state;
   regenerate(s, w.time, dt);
+  advanceStanding(e, s);
   const d = s.current;
   if (!d) {
-    if (
-      s.standing.retreatHull > 0 &&
-      (s.hull / capabilities(s).hull) * 100 < s.standing.retreatHull &&
-      dist(s, e.base) > 30
-    ) {
-      move(s, e.base, dt);
-      return;
-    }
     autonomousFire(e, s);
     return;
   }
   const a = d.action,
     c = capabilities(s);
-  if (a.type === 'MOVE') {
-    if (go(e, s, d, a.point, dt)) e.complete(s, '抵达坐标');
+  if (a.type === 'RETURN') {
+    if (go(e, s, d, e.base, dt, 'safe', 12)) {
+      e.complete(s, '返回 Dawn Starbase，货物保留');
+      if (!s.current) s.status = 'docked';
+    }
+  } else if (a.type === 'ASSIST_EVENT') {
+    assistEvent(e, s, d, dt, (p) => go(e, s, d, p, dt, 'safe', 12));
+  } else if (a.type === 'HAIL') {
+    const contact = w.intel.find((i) => i.id === a.targetId && i.live);
+    if (!contact) {
+      e.complete(s, '通信接触失联', true);
+      return;
+    }
+    if (go(e, s, d, contact, dt, 'direct', 200)) {
+      const rom = w.enemies.find((x) => x.id === contact.id);
+      if (rom && a.message === 'withdraw' && w.tension < 35) {
+        rom.intent = 'retreat';
+        const home = w.locations.find((l) => l.id === rom.homeId);
+        rom.destination = home ? { x: home.x, y: home.y } : null;
+      }
+      w.tension = Math.max(
+        0,
+        w.tension - (a.message === 'deescalate' ? 5 + 5 * personnelBonus(e, s.id, 'diplomacy') : 0),
+      );
+      s.cooldowns.hail = 60;
+      e.record(
+        'diplomacy',
+        s.name +
+          '向 ' +
+          (contact.name ?? contact.id) +
+          '发送 ' +
+          {
+            greeting: 'Hail：和平呼叫',
+            withdraw: 'Demand Withdrawal：撤离请求',
+            deescalate: '外交降温',
+          }[a.message] +
+          '，Border Command 已记录',
+        contact.id,
+      );
+      e.complete(s, 'Hail 已完成');
+    }
+  } else if (a.type === 'TRANSIT') {
+    const h = w.wormholes.find((h) => h.id === a.targetId && h.discovered);
+    if (!h) {
+      e.complete(s, '通道失效', true);
+      return;
+    }
+    if (go(e, s, d, h, dt, 'direct', 8)) {
+      d.work += dt;
+      if (d.work >= 2) {
+        h.surveyed = true;
+        h.transits++;
+        if (!h.stable) {
+          e.hit(s, 20 * (1 - h.stability));
+          h.stability = Math.max(0.1, h.stability - 0.03);
+        }
+        if (s.hull <= 0) return;
+        const previous = { x: s.x, y: s.y };
+        s.x = h.exit.x;
+        s.y = h.exit.y;
+        borderCrossing(e, s, previous);
+        s.path = [];
+        const sector = materialize(w, h.exitSector);
+        sector.discovered = true;
+        for (const id of sector.systemIds) reveal(e, s, id, 1, false);
+        for (const other of w.wormholes.filter((x) => x.sectorId === sector.id)) {
+          other.discovered = true;
+          other.stability = h.stability;
+          other.stable = h.stable;
+        }
+        e.record('wormhole', s.name + '实际穿越 ' + h.name + '，航线与星图改变', h.id);
+        e.complete(s, 'Wormhole 航行完成');
+      }
+    }
+  } else if (a.type === 'MOVE') {
+    const spacing = d.groupSpacing;
+    const point =
+      d.groupOrderId && d.groupSlot
+        ? {
+            x: a.point.x + (d.groupSlot % 2 ? 1 : -1) * Math.ceil(d.groupSlot / 2) * spacing,
+            y: a.point.y + Math.ceil(d.groupSlot / 2) * spacing,
+          }
+        : a.point;
+    if (go(e, s, d, point, dt)) e.complete(s, '抵达坐标');
   } else if (a.type === 'EXPLORE') {
     const close = a.approach === 'close',
       p = sectorCenter(a.sector);
@@ -131,6 +235,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       const sec = materialize(w, a.sector);
       const fresh = !sec.discovered;
       sec.discovered = true;
+      for (const h of w.wormholes.filter((h) => h.sectorId === sec.id)) h.discovered = true;
       for (const id of sec.systemIds) reveal(e, s, id, close ? 2 : 1, false);
       if (fresh)
         e.record(
@@ -156,7 +261,13 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       if (sys) reveal(e, s, sys.id, tier, a.deep);
       if (b) {
         b.survey = Math.max(b.survey, tier);
-        if (tier === 2 && b.kind === 'anomaly' && !b.specialClaimed && cargoUsed(s) < c.cargo) {
+        if (
+          tier === 2 &&
+          b.kind === 'anomaly' &&
+          !b.hidden &&
+          !b.specialClaimed &&
+          cargoUsed(s) < c.cargo
+        ) {
           b.specialClaimed = true;
           s.cargo.specialFinds++;
           e.record('discovery', '从 ' + b.name + ' 取得 Special Find，存入真实货舱', b.id);
@@ -170,55 +281,6 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       );
       e.complete(s, a.deep ? '隐藏异常已进入星图' : '调查完成；信息与矿藏持久保存');
     }
-  } else if (a.type === 'MINE') {
-    const b = w.bodies.find((b) => b.id === a.targetId),
-      dest = inventory(w, a.unloadId);
-    if (!b || !dest) {
-      e.complete(s, '资源点或卸货设施失效；现有货物保留', true);
-      return;
-    }
-    if (d.phase === 'unloading') {
-      if (go(e, s, d, dest, dt, 'safe', 8)) {
-        dest.stock.materials += s.cargo.materials;
-        e.record(
-          'cargo',
-          s.name + ' 交付 ' + Math.floor(s.cargo.materials) + ' Materials 至 ' + dest.name,
-          dest.id,
-        );
-        s.cargo.materials = 0;
-        if (a.repeat && b.remaining > 0) {
-          d.phase = 'extracting';
-          d.work = 0;
-          s.path = [];
-        } else e.complete(s, '采集及卸货完成');
-      }
-    } else {
-      if (b.remaining <= 0 || cargoUsed(s) >= c.cargo - 1e-8) {
-        if (s.cargo.materials > 0) {
-          d.phase = 'unloading';
-          s.path = [];
-        } else e.complete(s, '矿藏枯竭或货舱已满');
-        return;
-      }
-      if (!go(e, s, d, b, dt, 'direct', 8)) return;
-      const amount = Math.min(b.remaining, c.cargo - cargoUsed(s), c.mining * b.richness * dt);
-      if (s.core < dt) {
-        d.note = '能源恢复中';
-        return;
-      }
-      b.remaining -= amount;
-      s.cargo.materials += amount;
-      s.core -= dt;
-      d.work += dt;
-      d.note =
-        '采矿 ' +
-        Math.floor(s.cargo.materials) +
-        ' / ' +
-        c.cargo +
-        ' · 矿藏 ' +
-        Math.floor(b.remaining);
-      if (b.hazard > 0.4) e.hit(s, b.hazard * 0.1 * dt * c.hazardFactor);
-    }
   } else if (a.type === 'HAUL') {
     const src = inventory(w, a.sourceId),
       dest = inventory(w, a.targetId);
@@ -228,24 +290,37 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
     }
     if (d.phase === 'starting') {
       if (!go(e, s, d, src, dt, a.route, 8)) return;
-      const amount = Math.min(a.amount, Math.floor(c.cargo - cargoUsed(s)));
-      if (amount <= 0) {
-        d.note = '货舱已满，请卸货或改令';
+      if (d.groupOrderId) {
+        prepareGroupHaul(e, d);
+        if (d.phase === 'starting') {
+          d.note = '等待编队集结与实际库存';
+          return;
+        }
+      }
+      const amount = Math.min(
+        a.amount,
+        Math.floor(c.cargo - cargoUsed(s)),
+        Math.floor(available(w, src.id, a.cargoKind)),
+      );
+      if (amount <= 0 && d.phase === 'starting') {
+        d.note = cargoUsed(s) >= c.cargo ? '货舱已满，请卸货或改令' : '等待实际生产或库存';
         return;
       }
       if (available(w, src.id, a.cargoKind) + 1e-8 < amount) {
         d.note = '等待起点实际库存 ' + amount + ' ' + a.cargoKind;
         return;
       }
-      d.reserved[a.cargoKind] = amount;
-      d.phase = 'loading';
-      d.work = 0;
+      if (d.phase === 'starting') {
+        d.reserved[a.cargoKind] = amount;
+        d.phase = 'loading';
+        d.work = 0;
+      }
     }
     if (d.phase === 'loading') {
       if (!go(e, s, d, src, dt, a.route, 8)) return;
       d.work += dt;
       d.note = '装载真实货物';
-      if (d.work >= RULES.loadMinutes) {
+      if (d.work >= RULES.loadMinutes / (1 + personnelBonus(e, s.id, 'logistics'))) {
         const n = d.reserved[a.cargoKind];
         if (src.stock[a.cargoKind] + 1e-8 < n) {
           e.complete(s, '预留库存失效', true);
@@ -261,23 +336,34 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         e.record('cargo', s.name + ' 装载 ' + n + ' ' + a.cargoKind + '；真实航线启用', s.id);
       }
     } else if (d.phase === 'delivering') {
+      if (d.groupOrderId && groupPeers(e, d).some((p) => p.current?.phase === 'loading')) {
+        d.note = '等待编队共同出发';
+        return;
+      }
       if (!go(e, s, d, dest, dt, a.route, 8)) return;
       d.work += dt;
       d.note = '卸货至 ' + dest.name;
-      if (d.work >= RULES.loadMinutes) {
-        const n = Math.min(d.carried, s.cargo[a.cargoKind]);
-        dest.stock[a.cargoKind] += n;
+      if (d.work >= RULES.loadMinutes / (1 + personnelBonus(e, s.id, 'logistics'))) {
+        const remaining = Math.max(0, d.carried - d.delivered);
+        const n = deposit(dest, a.cargoKind, Math.min(remaining, s.cargo[a.cargoKind]));
         s.cargo[a.cargoKind] -= n;
         d.delivered += n;
-        e.record(
-          'cargo',
-          s.name + ' 实际交付 ' + n + ' / ' + d.carried + ' ' + a.cargoKind + ' 至 ' + dest.name,
-          dest.id,
-        );
+        if (n > 0)
+          e.record(
+            'cargo',
+            s.name + ' 实际交付 ' + n + ' / ' + d.carried + ' ' + a.cargoKind + ' 至 ' + dest.name,
+            dest.id,
+          );
+        if (s.cargo[a.cargoKind] > 0 && d.delivered < d.carried) {
+          d.note = '目的仓库已满，余货保留，等待仓位或改令';
+          d.work = 0;
+          return;
+        }
         if (a.repeat) {
           d.phase = 'starting';
           d.work = 0;
           d.carried = 0;
+          d.delivered = 0;
           s.path = [];
         } else e.complete(s, n < d.carried ? '货损：仅交付现存货物' : '交付完成');
       }
@@ -317,6 +403,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         : p;
     const range = a.type === 'SHADOW' ? Math.min(120, Math.max(65, c.sensors * 0.5)) : 65;
     go(e, s, d, predicted, dt, 'direct', range);
+    if (s.current !== d) return;
     const enemy = sensed ? w.enemies.find((x) => x.id === a.targetId) : undefined,
       target = facility ?? enemy;
     if (a.type === 'SHADOW') {
@@ -347,16 +434,21 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       if (a.type === 'DRIVE_OFF' && enemy?.intent === 'retreat') e.complete(s, '已观测到目标撤退');
     }
   } else if (a.type === 'ESCORT') {
-    const target = w.ships.find((x) => x.id === a.targetId);
+    const target = [...w.ships, ...w.civilians].find((x) => x.id === a.targetId);
     if (!target) {
       e.complete(s, '护航对象永久损失', true);
       return;
     }
-    if (!target.current && dist(target, e.base) < 40) {
+    if (
+      !target.current &&
+      dist(target, e.base) < 40 &&
+      (!('phase' in target) || target.phase !== 'delivery')
+    ) {
       e.complete(s, '护航对象已安全抵港');
       return;
     }
     go(e, s, d, target, dt, 'direct', 35);
+    if (s.current !== d) return;
     d.note = 'Escort / ' + target.name;
     autonomousFire(e, s, target);
   } else if (a.type === 'PATROL') {
@@ -368,6 +460,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
     const angle = d.work * 0.1,
       p = { x: target.x + Math.cos(angle) * 55, y: target.y + Math.sin(angle) * 55 };
     go(e, s, d, p, dt, 'direct', 5);
+    if (s.current !== d) return;
     if (dist(s, target) < 100) d.work += dt;
     autonomousFire(e, s, target);
     d.note = 'Patrol / ' + Math.floor(d.work) + ' / ' + a.duration;
@@ -395,10 +488,14 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
     } else if (a.type === 'UNLOAD') {
       const dest = inventory(w, a.targetId)!;
       for (const k of GOODS) {
-        dest.stock[k] += s.cargo[k];
-        s.cargo[k] = 0;
+        const n = deposit(dest, k, s.cargo[k]);
+        s.cargo[k] -= n;
       }
       e.record('cargo', s.name + ' 将实物货舱卸至 ' + dest.name, dest.id);
+      if (cargoUsed(s) > 0) {
+        d.note = '仓储已满，余货留舰，可改令';
+        return;
+      }
       e.complete(s, '货舱已入库');
     } else if (a.type === 'REPAIR') {
       const dest = inventory(w, a.targetId)!;

@@ -1,3 +1,5 @@
+import { advanceTrade } from './trade';
+import { advanceEvents } from './world-events';
 import { FIXED_DELTA, TICKS_PER_DAY, gameCalendar } from './clock';
 import { createWorld } from './data';
 import * as commands from './command-system';
@@ -149,7 +151,9 @@ export class SimulationEngine {
       if (this.isCommandLost()) break;
       advanceEnemy(this, s, fixedDelta);
     }
+    advanceTrade(this, fixedDelta);
     advanceFactions(this, fixedDelta);
+    advanceEvents(this, fixedDelta);
     return [...events, ...this.pendingEvents.splice(0), ...this.finishCritical()];
   }
   advanceFrame(afterStep?: (events: SimulationEvent[], state: WorldState) => void) {

@@ -13,6 +13,5 @@ export const RULES = freezeDefinitions({
   reportTTL: 100,
   searchMinutes: 20,
   constructionMinutes: 25,
-  rearCycleMinutes: 240,
   shipBuildMinutes: 25,
 });

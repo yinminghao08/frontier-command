@@ -14,4 +14,4 @@ export function capabilities(s: ReadonlyDeep<Ship>) {
   };
 }
 export const cargoUsed = (s: ReadonlyDeep<Ship>) =>
-  Object.values(s.cargo).reduce((a, b) => a + b, 0);
+  Object.values(s.cargo).reduce((a, b) => a + b, 0) + s.passengers / 5;

@@ -19,21 +19,21 @@ import { parseSave } from '../src/engine/saves';
 import { quietEngine, run, issue } from './helpers';
 const dirs: string[] = [];
 const dir = () => {
-  const p = mkdtempSync(join(tmpdir(), 'frontier-v6-test-'));
+  const p = mkdtempSync(join(tmpdir(), 'frontier-v7-test-'));
   dirs.push(p);
   return p;
 };
 afterEach(() => {
   for (const p of dirs.splice(0)) rmSync(p, { recursive: true, force: true });
 });
-describe('v6 timeline persistence', () => {
-  it('loads isolated v6 fixtures and resumes the same physical world deterministically', () => {
+describe('v7 timeline persistence', () => {
+  it('loads isolated v7 fixtures and resumes the same physical world deterministically', () => {
     const load = (name: string) =>
-      parseSave(JSON.parse(readFileSync(join('tests', 'fixtures', 'v6', name + '.json'), 'utf8')));
+      parseSave(JSON.parse(readFileSync(join('tests', 'fixtures', 'v7', name + '.json'), 'utf8')));
     const initial = load('initial');
     expect(initial.paused).toBe(true);
     expect(initial.speed).toBe(1);
-    expect(initial.ships).toHaveLength(4);
+    expect(initial.ships).toHaveLength(6);
     const progress = load('in-progress');
     expect(progress.ships.some((s) => s.cargo.materials > 0)).toBe(true);
     expect(progress.systems.length).toBeGreaterThan(initial.systems.length);
@@ -75,7 +75,7 @@ describe('v6 timeline persistence', () => {
     run(resumed, 200);
     expect(resumed.state).toEqual(e.state);
   });
-  it('leaves legacy files unchanged and starts an independent v6 branch', () => {
+  it('leaves legacy files unchanged and starts an independent v7 branch', () => {
     const p = dir();
     writeFileSync(join(p, 'world-v4.json'), 'legacy');
     mkdirSync(join(p, 'frontiers-v5', 'frontier-000001'), { recursive: true });
@@ -105,7 +105,7 @@ describe('v6 timeline persistence', () => {
     expect(
       readdirSync(join(store.root, 'frontier-000001')).some((n) => n.includes('corrupt')),
     ).toBe(true);
-    writeFileSync(store.path, JSON.stringify({ ...w, version: 7 }));
+    writeFileSync(store.path, JSON.stringify({ ...w, version: 8 }));
     expect(store.read().blocked).toBe(true);
     expect(() => store.write(w)).toThrow();
   });
@@ -239,10 +239,10 @@ describe('v6 timeline persistence', () => {
     for (const s of [...e.state.ships]) applyDamage(e, s, 10000);
     e.finishCritical();
     expect(e.state.ships).toHaveLength(0);
-    expect(e.state.losses).toHaveLength(4);
+    expect(e.state.losses).toHaveLength(6);
     expect(worldSchema.safeParse(e.state).success).toBe(true);
     const store = new SaveStore(dir());
     store.write(e.state);
-    expect(store.read().world?.losses).toHaveLength(4);
+    expect(store.read().world?.losses).toHaveLength(6);
   });
 });

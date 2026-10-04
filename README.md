@@ -1,62 +1,68 @@
 # STARFLEET: FRONTIER COMMAND
 
-**Lv1 + Lv2 / v6 Dawn Frontier。玩家是拥有最终指挥权的 Admiral。**
+**Lv1 + Lv2 / v7 Dawn Frontier。玩家是拥有最终指挥权的 Admiral。**
 
-四艘初始舰船共享一个持续世界：探索产生真实星系与矿藏，采矿和运输创造价值，Orion 通过侦察寻找收益，舰队保卫物流，再将收益转化为新能力。执行者目前是确定性规则 AI；未来 LLM 仅使用观察与结构化动作接口。
+六艘初始舰船共享一个持续世界：探索资源、建设矿场、运输真实库存、发展殖民地和舰队；经济活动吸引持久 Orion 资产，边境行动留下 Romulan 政治后果。人员使用规则培养和任职，本阶段没有 LLM 决策或 Lv3。
 
-![v6 LCARS console](docs/verification/v6/seed-42-start.png)
+![v7 LCARS console](docs/verification/v7/236807-start.png)
 
 ## 运行
 
 ```powershell
 npm ci
 npm run dev
-# 或完整构建后运行 Electron
+# 或构建并运行 Electron
 npm start
 ```
 
-新世界暂停于 DAY 1 00:00、默认 1×。沿用既有时间比例：**1× 下约一现实秒推进一游戏分钟**，4× / 16× 只改变固定步次数。重启暂停，关闭时保存，不离线推进。
+新世界暂停于 DAY 1 00:00，默认 1×。约一现实秒推进一游戏分钟；4× / 16× 只增加相同固定步次数。重启暂停，不离线推进。当前交付源码和构建，release 中的旧 EXE/ZIP 不代表 v7。
 
-本次交付源码；release 中已有 EXE/ZIP 属于之前版本。
+## 经济闭环
+
+**EXPLORE → DISCOVER RESOURCE → BUILD MINE → LOCAL STORAGE → HAUL → SHIPYARD / INDUSTRY → ORION PRESSURE → ESCORT / DEFEND → EXPLORE FARTHER**
+
+Dawn 不自动获得预算、材料或补给；探索不发 Credits；舰船没有经济性 MINE 指令。矿场每五游戏分钟最多开采 `7 × richness`，同时受有限矿藏和 Materials 仓位约束。仓满停产并报告，运输释放仓位后恢复。
+
+Mine / Outpost / Platform 每五分钟分别消耗 0.5 / 0.4 / 0.6 Supplies。缺补给停止矿场生产，并把传感器、核心和护盾恢复降至 25%。材料满仓仍可投递补给。造舰、建设、改装、维修和弹药制造支付真实资源；目的地仓满时部分卸货、保留舰上余货。
+
+Colony 日常**生产** Supplies，每千人口每五分钟基准产出 18 Credits + 6 Supplies，由工业、社会状态、人员和事件修正。Supplies 满仓不停止预算收入。建设、医疗等行动继续消费实物。
+
+| 仓储 | Materials | Supplies | Photon | Quantum | Special Finds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Dawn Starbase | 6000 | 3000 | 500 | 200 | 50 |
+| Mine | 600 | 120 | 30 | 10 | 10 |
+| Colony | 300 | 300 | 40 | 10 | 20 |
+| Outpost | 250 | 120 | 60 | 20 | 10 |
+| Defense Platform | 150 | 100 | 80 | 30 | 10 |
 
 ## 打开后怎么玩
 
-1. 底部直接选择任意舰船，点击“新指令 / 改令”。所有舰船随时可用，无 Operation 锁定。REPLACE 清除旧指令与队列；QUEUE 按顺序接续；INTERRUPT 保留当前进度，临时行动后恢复。已装货物、消耗和损伤保留。
-2. VERITY 执行 Explore Sector，选择 UNKNOWN 0/-1。Remote 先取得轮廓；Close 更靠近目标、耗时和风险更高。发现会永久生成星系、行星、矿物带和异常。点击星系可选择其子天体。
-3. 从 OPERATIONS 选择已调查矿藏，执行 Mine / Extract：材料逐步进入有限货舱，满舱后卸至指定设施；可循环。开局 Helios 矿场已有库存，可让 MERIDIAN 从 mine 运输 Materials 到 base。
-4. 看货运的起终点、实物数量、Safe / Direct / Risky 航线和 ETA。运输本身不产生奖金；基地出口会消耗真实库存换取 Credits。给殖民地运输 Supplies 可维持其收入。
-5. 在 STARBASE / ENGINEERING 安装 Expanded Cargo、Long Range Sensors 等模块；SHIPYARD 造新舰；LOGISTICS 升级后可开循环航线。
-6. 在已近距调查的资源点、宜居星球或系统建立矿场、殖民地或前哨项目。项目 Inspector 可安排分批 Materials / Supplies 货运；物资实际到达才施工。项目不占有舰船。
-7. Orion 接触并非无穷刷怪。截获、护航、驱离或追踪真实舰船；Shadow 返航者可能找到 Hideout。普通接触、发现、报告不自动暂停；严重损伤、重大损失、军事升级和 COMMAND LOST 才暂停。
+1. 选择 VERITY，探索 UNKNOWN 0/-1；近距调查确认矿藏。大量星系没有矿物或宜居世界，发现永久进入 Archive。
+2. HORIZON 巡逻 Helios；MERIDIAN-1 / 2 / 3 的 Antares 货舱各为 600。给矿场运输 Supplies，再把 Materials 运回 Dawn。
+3. 从 OPERATIONS 选择调查过的资源点建立矿场。项目详情可安排建设物资；材料和补给实际到场才施工。建成后安排维护补给，等待仓满报告。
+4. 在 FLEET 创建编队，选择成员、旗舰和间距。组 HAUL 数量是整个编队一航次的上限，装载按空舱与真实库存分摊；并非每舰复制一份。
+5. 任意舰船始终可单独 REPLACE / QUEUE / INTERRUPT。REPLACE 清除当前、队列和挂起指令；INTERRUPT 完成后接续；组成员身份不因单舰改令消失。删除编队保留已经下达的指令。
+6. 选舰或编队后点击星图坐标，查看预览并“前往此处”。拖动只平移，Esc 取消目的点。常备命令管理无 Admiral 待办时的返航、护航、补给、求救响应及边境权限；返航不会免费卸货或补弹。
+7. 将殖民地 Supplies 运到 Dawn / 前沿。STARBASE 有八个模块：COMMAND、SHIPYARD、DRYDOCK、ARMORY、ENGINEERING、LOGISTICS、SENSOR CONTROL、DEFENSE GRID。
+8. 发展殖民地住宅、工业、科研和安全。Commander 首次在 120 游戏分钟、随后每 360 分钟推荐 Cadet；接受支付 90 Credits，训练 90 分钟。任职必须与目标实际会合，人员与舰船独立保存。
+9. OPERATIONS 处理持续事件。确认通信只标记已读，实际调查、医疗、维修、运输或撤离才改变事件。Wormhole 可改变实际位置和探索空间；疫情、矿场事故、求救、难民、研究与失落舰船有持久后果。
+10. Orion Scout 先观察，再通过通信范围或返航共享情报；Raider 抢走实际库存并返回 Hideout。护航、巡逻、拦截、跟踪和驱离改变风险。未确认敌对的 Romulan 不默认自动攻击；Hail、越界、建设、攻击与撤离留下政治记录。
 
-推荐首次演示：VERITY 探索，HORIZON 采矿，MERIDIAN 运回 100 Materials，VIGIL 巡逻前哨；运输收益到账后改装货舱。注意矿场库存增长引起的 Orion 侦察与袭击。
+舰级模块槽 Antares / Peregrine / Constitution / Galaxy 为 2 / 2 / 3 / 4。Deep Scan、Long Range Sensors、Precision Targeting、Expanded Cargo、Reinforced Shields 改变能力；基地升级解锁高级舰级、Quantum 工业、传感器网络、循环物流和防御平台。
 
-## 四类活动与 Lv2
+## 贸易与恢复
 
-| 活动 | 实际机制 |
-| --- | --- |
-| Combat / Security | Intercept 使用观测速度；Escort 跟随实际舰船；Patrol 守护设施；Shadow 保持接触；Attack 使用能量和弹药；Disable 压制推进，Precision Targeting 可选择 Engines / Weapons；Drive Off 用警告相位炮施压、敌方按风险撤退；Retreat 保留损伤和货物 |
-| Exploration / Survey | 按 world seed 与 Sector 坐标独立生成；发现顺序不改变同一 Sector；Remote / Close / Deep Scan 改变信息、危险和隐藏异常；特殊样本一次性进入货舱 |
-| Mining / Extraction | 有限矿藏、性能差异、Core、货舱、运输与卸货；矿场消耗 Supplies，将矿藏转入本地库存；枯竭永久保存 |
-| Transport / Logistics | 源库存预留 → 真实装载 → 物理航行 → 卸货；Safe 防御绕行、Direct 直接、Risky 快速危险航段；货损和取消保留真实后果 |
+LOGISTICS 显示有限 Federation Exchange 库存、报价、商船、订单和预计航行时间。进口付费后从真实后方库存装船、航行、交付；出口同样经真实商船运送。货损不补偿，商船损失不免费重建。
 
-Antares / Peregrine / Constitution / Galaxy 分别有 **2 / 2 / 3 / 4** 个模块槽。Deep Scan 发现隐藏异常，Long Range Sensors 扩大感知和探索候选范围，Precision Targeting 解锁定向 Disable，Reinforced Shields 改变危险航线耐受，Expanded Cargo 增加 50 货舱容量。
+全舰损后仍可依赖殖民地收入、有限进口及 Shipyard 重建；极端失败可从 ARCHIVE 手动恢复昨日，创建独立时间线，或开始新世界。旧舰不会复活，原时间线保留。
 
-Starbase 八个独立模块：**COMMAND / SHIPYARD / DRYDOCK / ARMORY / ENGINEERING / LOGISTICS / SENSOR CONTROL / DEFENSE GRID**。Shipyard 解锁高级舰级；Armory 解锁 Quantum 制造；Sensor Network 扩展前哨探测；Logistics 解锁循环货运与中继航速；Defense Grid 解锁防御平台及增强设施相位炮。
+## 世界与保存
 
-Credits 是预算；Materials、Supplies、Photon、Quantum、Special Finds 是实际库存。建设、维修、模块、工业、装弹和出口均有明确消费。舰损永久入档，新舰使用独立舰籍。Dawn 后方拨款与工业从零资源约 240 游戏分钟备齐最低舰级成本，再用 25 分钟建造（1× 约 4 分半钟）；前沿经营收益更高。
+Sector 为 400 单位的可扩展稀疏网格。恒星、行星、卫星、小行星带、资源、遗迹、残骸和异常按独立局部 seed 生成；战斗 RNG 与探索顺序不影响同坐标的生成内容。图标、中文对象详情、语义缩放、LCARS 26 Classic 字体、动画和音效保留。
 
-## 持久世界、情报与 LCARS
+主进程持有唯一引擎，Renderer 只收到公开只读 Snapshot。未知出口、隐藏部署、报告、敌方库存和随机源不泄漏。
 
-Sector 是 400 单位的稀疏网格，没有矩形世界边界。Dawn 在安全后方；东部有 Neutral Zone / Romulan Border，多方向为未知空间。星系/星球以及己方舰船/设施可改名，稳定 ID 不变。地图自由平移、围绕鼠标缩放，FIT 只拟合已知空间；Sector / System / Local 分别呈现区域、系统和本地实体。新增发现不强制改变视角。
-
-Renderer 只接收只读公开 Snapshot：不包含 world seed、隐藏敌舰/基地、库存、报告或意图。失联接触保留冻结位置并在 30 游戏分钟后过期。Orion 有初始隐藏基地、侦察舰、两艘 Raider 与有限弹药；维修、补弹、重建消耗实物。Romulan Scout 与 Border Command 根据实际报告和 tension 行动，身份本身不授权自动攻击；明确攻击及跨境会留下政治后果。
-
-沿用现有 LCARS 26 Classic shell、字体、控件、动画、音频与 Console Settings。底部展示舰队当前指令、队列和挂起状态；OPERATIONS 展示世界状态派生的机会；COLONIES 管理资产与项目；ARCHIVE 展示永久历史与时间线。
-
-## v6 保存与恢复
-
-数据位于 Electron 用户数据目录中的 `timeline-v6.json` 与 `frontiers-v6/frontier-******/`。**v5 及更早版本不读取、不迁移**，原文件保留。head/备份原子写入；day-N 午夜快照独立；failure 封存终态。恢复上一游戏日新建分支，只有持久化成功后才切换引擎；失败分支保留。
+v7 使用独立的 `timeline-v7.json` 与 `frontiers-v7/frontier-******/`。不读取、不迁移旧存档，也不删除旧文件。严格校验库存、预留、引用和历史序列；head/备份原子写入，午夜快照独立，恢复/新建分支持久化成功后才切换引擎。
 
 ## 验证
 
@@ -64,8 +70,10 @@ Renderer 只接收只读公开 Snapshot：不包含 world seed、隐藏敌舰/�
 npm test
 npm run build
 npm run test:e2e
+# 正常新世界，全程真实 UI；默认种子加十分钟 1× 观察
+node scripts/acceptance-v7.mjs 236807 --observe
+node scripts/acceptance-v7.mjs 42
+node scripts/acceptance-v7.mjs 1701
 ```
 
-[架构](docs/architecture.md) · [Worldbuilding](docs/worldbuilding.md) · [验收](docs/acceptance.md) · [演示步骤](docs/demo-script.md) · [实玩与验证记录](docs/verification.md)
-
-没有实现 Lv3 LLM、角色生涯或在线多人服务；当前实现的是未来 Agent 可进入的 Lv1 + Lv2 持久生态世界。
+[架构](docs/architecture.md) · [Worldbuilding](docs/worldbuilding.md) · [验收](docs/acceptance.md) · [演示](docs/demo-script.md) · [验证记录](docs/verification.md)

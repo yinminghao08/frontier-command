@@ -1,5 +1,20 @@
+import {
+  colonySchema,
+  personnelSchema,
+  groupSchema,
+  eventSchema,
+  wormholeSchema,
+  tradeSchema,
+} from './v7-schema';
 import { z } from 'zod';
-import { actionSchema, ammoSchema, pointSchema, stockSchema, moduleSchema } from './commands';
+import {
+  actionSchema,
+  ammoSchema,
+  pointSchema,
+  stockSchema,
+  moduleSchema,
+  standingSchema,
+} from './commands';
 import { SHIP_CLASSES, type ShipClassId } from './definitions/ships';
 import { CRITICAL_KINDS, GOODS } from './types';
 import { capabilities, cargoUsed } from './capabilities';
@@ -17,15 +32,7 @@ const directive = z
     id,
     action: actionSchema,
     created: nn,
-    phase: z.enum([
-      'starting',
-      'extracting',
-      'unloading',
-      'loading',
-      'delivering',
-      'refitting',
-      'rearming',
-    ]),
+    phase: z.enum(['starting', 'unloading', 'loading', 'delivering', 'refitting', 'rearming']),
     work: nn,
     moved: nn,
     carried: nn,
@@ -34,6 +41,12 @@ const directive = z
     paidCredits: nn,
     search: nn,
     note: z.string(),
+    source: z.enum(['admiral', 'standing']),
+    groupOrderId: id.nullable(),
+    groupSlot: integer,
+    groupTotal: n.min(0),
+    groupSpacing: nn,
+    origin: pointSchema,
   })
   .strict();
 const ship = pointSchema
@@ -54,15 +67,11 @@ const ship = pointSchema
     current: directive.nullable(),
     queue: z.array(directive).max(32),
     suspended: z.array(directive).max(16),
-    standing: z
-      .object({
-        roe: z.enum(['HOLD FIRE', 'RETURN FIRE', 'ENGAGE HOSTILES']),
-        retreatHull: nn.max(90),
-      })
-      .strict(),
+    standing: standingSchema,
     path: z.array(pointSchema),
     heading: n,
     cargo: stockSchema,
+    passengers: integer,
     cooldowns: z.record(nn),
     lastAttackerId: id.nullable(),
     attackedAt: n,
@@ -89,7 +98,8 @@ const faction = z
     credits: nn,
     production: nn,
     losses: z.array(id),
-    stance: z.enum(['observe', 'probe', 'patrol', 'escalate']),
+    stance: z.enum(['observe', 'probe', 'patrol', 'reinforce', 'escalate', 'withdraw']),
+    pressure: nn,
   })
   .strict();
 const communication = z
@@ -105,7 +115,7 @@ const communication = z
   .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(6),
+    version: z.literal(7),
     tick: integer,
     time: nn,
     seed: integer.max(4294967295),
@@ -163,6 +173,9 @@ export const worldSchema = z
           nextDecision: nn,
           visited: z.array(z.string()),
           loot: nn,
+          localReports: faction.shape.reports,
+          lastHostileAt: n,
+          lastHostileTargetId: id.nullable(),
         })
         .strict(),
     ),
@@ -186,6 +199,7 @@ export const worldSchema = z
           discovered: z.boolean(),
           survey: integer.max(2),
           bodyIds: z.array(id),
+          starClass: z.enum(['M', 'K', 'G', 'F', 'A', 'giant', 'neutron']),
         })
         .strict(),
     ),
@@ -195,7 +209,9 @@ export const worldSchema = z
           id,
           name,
           systemId: id,
-          kind: z.enum(['planet', 'resource', 'anomaly']),
+          kind: z.enum(['planet', 'moon', 'belt', 'resource', 'anomaly', 'ruins', 'derelict']),
+          category: z.string(),
+          population: nn,
           survey: integer.max(2),
           habitable: z.boolean(),
           remaining: nn,
@@ -223,10 +239,16 @@ export const worldSchema = z
           maxShield: nn,
           core: nn,
           attackedAt: n,
+          lastAttackerId: id.nullable().default(null),
           cooldown: nn,
           distress: z.boolean(),
           discovered: z.boolean(),
           production: nn,
+          capacity: stockSchema,
+          supplyState: z.enum(['operational', 'depleted']),
+          storageFull: z.boolean(),
+          extracted: nn,
+          colony: colonySchema.nullable(),
         })
         .strict(),
     ),
@@ -238,6 +260,7 @@ export const worldSchema = z
           kind: z.enum(['colony', 'mine', 'outpost', 'platform']),
           siteId: id,
           stock: stockSchema,
+          capacity: stockSchema,
           cost,
           work: nn,
           duration: nn,
@@ -295,7 +318,21 @@ export const worldSchema = z
         defense: integer.max(1),
       })
       .strict(),
-    rearProduction: nn,
+    groups: z.array(groupSchema),
+    personnel: z.array(personnelSchema),
+    events: z.array(eventSchema),
+    wormholes: z.array(wormholeSchema),
+    trade: tradeSchema,
+    civilians: z.array(
+      ship
+        .extend({
+          homeId: id,
+          orderId: id.nullable(),
+          phase: z.enum(['idle', 'loading', 'delivery', 'return']),
+          work: nn,
+        })
+        .strict(),
+    ),
     communications: z.array(communication).max(100),
     logs: z
       .array(
@@ -345,6 +382,12 @@ export const worldSchema = z
       w.jobs,
       w.wrecks,
       w.operators,
+      w.groups,
+      w.personnel,
+      w.events,
+      w.wormholes,
+      w.civilians,
+      w.trade.orders,
     ];
     const globalIds = collections.flatMap((c) => c.map((x) => x.id));
     if (new Set(globalIds).size !== globalIds.length) bad('Duplicate stable entity identifiers');
@@ -413,7 +456,6 @@ export const worldSchema = z
       const targets = [
         ...('targetId' in a ? [a.targetId] : []),
         ...('sourceId' in a ? [a.sourceId] : []),
-        ...('unloadId' in a ? [a.unloadId] : []),
       ];
       if (targets.some((target) => !refs.has(target))) bad('Dangling directive target');
       if (GOODS.some((k) => d.reserved[k] > 0) && !['HAUL', 'REARM'].includes(a.type))
@@ -435,7 +477,7 @@ export const worldSchema = z
     for (const s of w.ships)
       if (s.queue.some((d) => GOODS.some((k) => d.reserved[k] > 0)))
         bad('Queued directive cannot reserve inventory');
-    for (const s of [...w.ships, ...w.enemies]) {
+    for (const s of [...w.ships, ...w.enemies, ...w.civilians]) {
       const c = capabilities(s);
       if (
         s.hull > c.hull + 1e-7 ||
@@ -456,6 +498,49 @@ export const worldSchema = z
         w.factions[enemy.factionId as 'orion' | 'romulan'].losses.includes(enemy.id)
       )
         bad('Invalid faction asset');
+    const members = w.groups.flatMap((g) => g.shipIds);
+    if (new Set(members).size !== members.length) bad('Ship belongs to multiple groups');
+    for (const g of w.groups)
+      if (
+        !g.shipIds.includes(g.flagshipId) ||
+        new Set(g.shipIds).size !== g.shipIds.length ||
+        g.shipIds.some((id) => !active.has(id))
+      )
+        bad('Invalid group membership');
+    for (const holder of [...w.locations, ...w.projects, w.trade])
+      for (const k of GOODS)
+        if (holder.stock[k] > holder.capacity[k] + 1e-7) bad('Storage capacity exceeded');
+    for (const l of w.locations)
+      if (
+        l.colony?.commanderId &&
+        !w.personnel.some(
+          (p) =>
+            p.id === l.colony!.commanderId && p.posting?.id === l.id && p.status === 'assigned',
+        )
+      )
+        bad('Invalid colony commander');
+    for (const p of w.personnel) {
+      if (!w.locations.some((l) => l.id === p.originId)) bad('Invalid personnel origin');
+      if (p.posting && ![...w.ships, ...w.locations].some((x) => x.id === p.posting!.id))
+        bad('Invalid personnel posting');
+    }
+    for (const v of w.events)
+      if (
+        !refs.has(v.subjectId) ||
+        v.created > w.time ||
+        v.deadline < v.created ||
+        (v.followUpId && !w.events.some((x) => x.id === v.followUpId))
+      )
+        bad('Invalid persistent event');
+    for (const h of w.wormholes)
+      if (!w.sectors.some((s) => s.id === h.sectorId)) bad('Invalid wormhole sector');
+    for (const o of w.trade.orders)
+      if (
+        o.delivered > o.loaded ||
+        o.loaded > o.amount ||
+        (o.state === 'complete' && o.delivered !== o.amount)
+      )
+        bad('Invalid physical trade manifest');
     for (const holder of [...w.locations, ...w.projects])
       for (const k of GOODS) {
         const reserved = directives
@@ -495,7 +580,11 @@ export const worldSchema = z
         bad('Invalid historical sequence');
     }
     const numbered = [...globalIds, ...directives.map((d) => d.id)].map((id) =>
-      Number(id.match(/^(?:ship|job|facility|project|directive|orion-built)-(\d+)$/)?.[1] ?? 0),
+      Number(
+        id.match(
+          /^(?:ship|job|facility|project|directive|orion-built|group|personnel|event|trade)-(\d+)$/,
+        )?.[1] ?? 0,
+      ),
     );
     if (numbered.some((n) => n >= w.nextId)) bad('Invalid entity sequence');
   });

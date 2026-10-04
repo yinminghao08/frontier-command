@@ -39,7 +39,15 @@ export const actionSchema = z.discriminatedUnion('type', [
       deep: z.boolean(),
     })
     .strict(),
-  z.object({ type: z.literal('MINE'), targetId: id, unloadId: id, repeat: z.boolean() }).strict(),
+  z.object({ type: z.literal('RETURN') }).strict(),
+  z.object({ type: z.enum(['ASSIST_EVENT', 'TRANSIT']), targetId: id }).strict(),
+  z
+    .object({
+      type: z.literal('HAIL'),
+      targetId: id,
+      message: z.enum(['greeting', 'withdraw', 'deescalate']),
+    })
+    .strict(),
   z
     .object({
       type: z.literal('HAUL'),
@@ -68,6 +76,45 @@ export const actionSchema = z.discriminatedUnion('type', [
     .object({ type: z.literal('REFIT'), targetId: id, moduleId: moduleSchema, remove: z.boolean() })
     .strict(),
 ]);
+export const careerSchema = z.enum([
+  'battle',
+  'science',
+  'diplomacy',
+  'logistics',
+  'security',
+  'commander',
+]);
+export const standingSchema = z
+  .object({
+    roe: z.enum(['HOLD FIRE', 'RETURN FIRE', 'ENGAGE HOSTILES']),
+    retreatHull: n.min(0).max(90),
+    retreatShield: n.min(0).max(90),
+    retreatCore: n.min(0).max(90),
+    photonThreshold: n.min(0).max(100),
+    quantumThreshold: n.min(0).max(100),
+    maxPursuit: n.min(0).max(2000),
+    allowNeutral: z.boolean(),
+    allowRomulan: z.boolean(),
+    autoEscort: z.boolean(),
+    respondDistress: z.boolean(),
+    protectCivilian: z.boolean(),
+    protectFreighter: z.boolean(),
+    protectColony: z.boolean(),
+    autoResupply: z.boolean(),
+    idle: z.enum(['return', 'hold']),
+  })
+  .strict();
+const members = z
+  .array(id)
+  .min(1)
+  .max(100)
+  .refine((a) => new Set(a).size === a.length);
+const groupFields = {
+  name: z.string().trim().min(1).max(80),
+  shipIds: members,
+  flagshipId: id,
+  spacing: n.min(15).max(100),
+};
 export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
@@ -82,12 +129,63 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('cancelDirective'), shipId: id }).strict(),
+  z.object({ type: z.literal('standingOrders'), shipId: id, orders: standingSchema }).strict(),
+  z.object({ type: z.literal('createGroup'), ...groupFields }).strict(),
+  z.object({ type: z.literal('updateGroup'), groupId: id, ...groupFields }).strict(),
+  z.object({ type: z.literal('deleteGroup'), groupId: id }).strict(),
   z
     .object({
-      type: z.literal('standingOrders'),
-      shipId: id,
-      roe: z.enum(['HOLD FIRE', 'RETURN FIRE', 'ENGAGE HOSTILES']),
-      retreatHull: n.min(0).max(90),
+      type: z.literal('issueGroupDirective'),
+      groupId: id,
+      mode: z.enum(['REPLACE', 'QUEUE', 'INTERRUPT']),
+      action: actionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('candidate'),
+      personnelId: id,
+      accept: z.boolean(),
+      career: careerSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('assignPersonnel'),
+      personnelId: id,
+      targetId: id,
+      targetType: z.enum(['ship', 'colony']),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('developColony'),
+      locationId: id,
+      kind: z.enum(['housing', 'industry', 'science', 'security']),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('respondEvent'),
+      eventId: id,
+      choice: z.enum([
+        'assist',
+        'quarantine',
+        'liftQuarantine',
+        'accept',
+        'reject',
+        'withdraw',
+        'stabilize',
+      ]),
+      targetId: id.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('tradeStock'),
+      direction: z.enum(['buy', 'sell']),
+      cargoKind: goodsSchema,
+      amount: count,
     })
     .strict(),
   z

@@ -5,7 +5,7 @@ import { parseSave } from '../src/engine/saves';
 import { SHIP_CLASSES } from '../src/engine/definitions/ships';
 import { makeEnemy } from '../src/engine/data';
 import { updateSensors } from '../src/engine/sensors';
-describe('authoritative v6 world, deterministic replay, Agent boundary', () => {
+describe('authoritative v7 world, deterministic replay, Agent boundary', () => {
   it('operator ports expose only observations and validated own-ship actions; Admiral takes priority', () => {
     const e = quietEngine(),
       port = e.controllerPort('ops-verity');
@@ -102,7 +102,7 @@ describe('authoritative v6 world, deterministic replay, Agent boundary', () => {
   });
   it('unsupported saves and impossible inventories, slots and refs are rejected', () => {
     const e = quietEngine();
-    for (const version of [5, 7]) expect(() => parseSave({ ...e.state, version })).toThrow();
+    for (const version of [5, 6, 8]) expect(() => parseSave({ ...e.state, version })).toThrow();
     for (const change of [
       (w: typeof e.state) => {
         w.ships[0].cargo.materials = 9999;

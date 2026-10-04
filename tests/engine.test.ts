@@ -123,7 +123,7 @@ describe('Admiral directives and four physical activities', () => {
     expect(e.base.stock.photon).toBe(82);
   });
   it.each(['meridian', 'vigil', 'verity', 'horizon'])(
-    '%s can explore, mine, transport and explicitly attack',
+    '%s can explore, survey, transport and explicitly attack',
     (id) => {
       const e = quietEngine(),
         s = e.state.ships.find((s) => s.id === id)!,
@@ -132,12 +132,13 @@ describe('Admiral directives and four physical activities', () => {
         issue(e, { type: 'EXPLORE', sector: { q: 0, r: -1 }, approach: 'remote' }, id).ok,
       ).toBe(true);
       expect(
-        issue(e, { type: 'MINE', targetId: b.id, unloadId: 'base', repeat: false }, id).ok,
+        issue(e, { type: 'SURVEY', targetId: b.id, approach: 'close', deep: false }, id).ok,
       ).toBe(true);
       s.x = b.x;
       s.y = b.y;
       run(e, 2);
-      expect(s.cargo.materials).toBeGreaterThan(0);
+      expect(s.current!.work).toBeGreaterThan(0);
+      expect(s.cargo.materials).toBe(0);
       expect(
         issue(
           e,
@@ -162,21 +163,34 @@ describe('Admiral directives and four physical activities', () => {
       expect(enemy.shield).toBeLessThan(capabilities(enemy).shield);
     },
   );
-  it('mining transfers finite ore, fills cargo and returns actual materials', () => {
+  it('only a supplied mine extracts finite ore and HAUL delivers the actual output', () => {
     const e = quietEngine(),
-      s = e.state.ships[1],
-      b = e.state.bodies.find((b) => b.kind === 'resource' && b.survey === 2)!;
+      s = e.state.ships[0],
+      mine = e.state.locations.find((l) => l.id === 'mine')!,
+      b = e.state.bodies.find((b) => b.id === mine.siteId)!;
     b.remaining = 5;
-    s.x = b.x;
-    s.y = b.y;
-    e.state.locations.find((l) => l.id === 'mine')!.stock.supplies = 0;
-    const old = e.base.stock.materials;
-    issue(e, { type: 'MINE', targetId: b.id, unloadId: 'base', repeat: false }, s.id);
-    until(e, () => !s.current);
+    const old = mine.stock.materials,
+      base = e.base.stock.materials;
+    run(e, 5);
     expect(b.remaining).toBe(0);
-    expect(cargoUsed(s)).toBe(0);
-    expect(e.base.stock.materials).toBeGreaterThanOrEqual(old + 5);
-    expect(e.state.history.some((h) => h.kind === 'cargo')).toBe(true);
+    expect(mine.stock.materials).toBe(old + 5);
+    expect(e.base.stock.materials).toBe(base);
+    issue(
+      e,
+      {
+        type: 'HAUL',
+        sourceId: mine.id,
+        targetId: 'base',
+        cargoKind: 'materials',
+        amount: 5,
+        route: 'direct',
+        repeat: false,
+      },
+      s.id,
+    );
+    until(e, () => !s.current);
+    expect(e.base.stock.materials).toBe(base + 5);
+    expect(s.cargo.materials).toBe(0);
   });
   it('remote discovery creates real permanent geography; close survey and Special Finds are one-time', () => {
     const e = quietEngine(),
@@ -186,7 +200,17 @@ describe('Admiral directives and four physical activities', () => {
     until(e, () => !s.current, 120);
     expect(e.state.systems.length).toBeGreaterThan(count);
     const ids = e.state.systems.map((x) => x.id),
-      b = e.state.bodies.find((b) => b.kind === 'anomaly' && b.discovered && !b.hidden)!;
+      b = {
+        ...e.state.bodies[0],
+        id: 'sample-anomaly',
+        kind: 'anomaly' as const,
+        discovered: true,
+        hidden: false,
+        specialClaimed: false,
+      };
+    e.state.bodies.push(b);
+    e.state.systems.find((x) => x.id === b.systemId)!.bodyIds.push(b.id);
+    e.state.locations.find((l) => l.id === 'colony')!.colony!.population = 0;
     const before = e.state.resources.credits;
     issue(e, { type: 'EXPLORE', sector: { q: 0, r: -1 }, approach: 'remote' }, s.id);
     until(e, () => !s.current);
@@ -257,17 +281,27 @@ describe('continuation and security edge cases', () => {
     expect(s.photon).toBe(24);
     expect(e.base.stock.photon).toBe(86);
   });
-  it('a depleted mine still resumes its suspended unloading leg', () => {
+  it('a depleted deposit does not invalidate a suspended physical delivery', () => {
     const e = quietEngine(),
-      s = e.state.ships[1],
-      b = e.state.bodies.find((b) => b.kind === 'resource' && b.survey === 2)!;
-    e.state.locations.find((l) => l.id === 'mine')!.stock.supplies = 0;
-    b.remaining = 2;
-    s.x = b.x;
-    s.y = b.y;
-    issue(e, { type: 'MINE', targetId: b.id, unloadId: 'base', repeat: false }, s.id);
-    until(e, () => s.current?.phase === 'unloading');
-    expect(b.remaining).toBe(0);
+      s = e.state.ships[0],
+      mine = e.state.locations.find((l) => l.id === 'mine')!;
+    e.state.bodies.find((b) => b.id === mine.siteId)!.remaining = 0;
+    s.x = mine.x;
+    s.y = mine.y;
+    issue(
+      e,
+      {
+        type: 'HAUL',
+        sourceId: mine.id,
+        targetId: 'base',
+        cargoKind: 'materials',
+        amount: 2,
+        route: 'direct',
+        repeat: false,
+      },
+      s.id,
+    );
+    until(e, () => s.current?.phase === 'delivering');
     issue(e, { type: 'MOVE', point: { x: s.x + 2, y: s.y } }, s.id, 'INTERRUPT');
     until(e, () => !s.current);
     expect(s.cargo.materials).toBe(0);

@@ -84,7 +84,9 @@ export function planRoute(w: Chart, start: Point, end: Point, route: RouteKind):
   ];
   const crossing = hazards.find((h) => segmentDistance(h, start, end) < 85);
   if (crossing) return [{ x: mid.x - 100, y: mid.y + 140 }, { ...end }];
-  if (nearest) return [{ x: nearest.x, y: nearest.y }, { ...end }];
+  if (dist(start, end) < 80) return [{ ...end }];
+  if (nearest && dist(start, nearest) + dist(nearest, end) <= dist(start, end) * 1.35 + 40)
+    return [{ x: nearest.x, y: nearest.y }, { ...end }];
   return [{ x: mid.x, y: mid.y + 100 }, { ...end }];
 }
 export function routeEstimate(w: Chart, s: ReadonlyDeep<Ship>, end: Point, route: RouteKind) {

@@ -1,3 +1,6 @@
+import { MAINTENANCE } from './definitions/frontier';
+import { deposit, space } from './inventory';
+import { advanceSociety, appointCommander, personnelBonus } from './society';
 import type { SimulationEngine } from './engine';
 import { BUILD_COSTS, FACILITIES } from './definitions/progression';
 import { makeShip, makeLocation } from './data';
@@ -9,56 +12,100 @@ import { available } from './command-system';
 export function advanceEconomy(e: SimulationEngine, dt: number) {
   const w = e.state,
     base = e.base;
-  // Each 240 game minutes the rear produces one minimum-cost hull's construction basket.
-  w.rearProduction += dt;
-  if (w.rearProduction >= 1 - 1e-8) {
-    w.rearProduction = Math.max(0, w.rearProduction - 1);
-    const c = BUILD_COSTS.peregrine;
-    w.resources.credits += c.credits / RULES.rearCycleMinutes;
-    base.stock.materials += c.materials / RULES.rearCycleMinutes;
-    base.stock.supplies += c.supplies / RULES.rearCycleMinutes;
-  }
   for (const l of w.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0)) {
-    l.core = Math.min(300, l.core + 5 * dt);
+    l.core = Math.min(300, l.core + 5 * dt * (l.supplyState === 'depleted' ? 0.25 : 1));
     l.cooldown = Math.max(0, l.cooldown - dt);
     if (w.time - l.attackedAt > 10)
-      l.shield = Math.min(l.maxShield, l.shield + (l.kind === 'base' ? 12 : 3) * dt);
+      l.shield = Math.min(
+        l.maxShield,
+        l.shield + (l.kind === 'base' ? 12 : 3) * dt * (l.supplyState === 'depleted' ? 0.25 : 1),
+      );
     l.production += dt;
     if (l.production >= 5 - 1e-8) {
       l.production = Math.max(0, l.production - 5);
-      if (l.kind === 'colony' && available(w, l.id, 'supplies') >= 1) {
-        l.stock.supplies--;
-        w.resources.credits += 18;
+      const upkeep = MAINTENANCE[l.kind],
+        previous = l.supplyState;
+      l.supplyState = available(w, l.id, 'supplies') + 1e-8 >= upkeep ? 'operational' : 'depleted';
+      if (upkeep && l.supplyState === 'operational')
+        l.stock.supplies = Math.max(0, l.stock.supplies - upkeep);
+      if (previous !== l.supplyState)
+        e.record(
+          'supply',
+          l.name +
+            (l.supplyState === 'depleted'
+              ? '断供：生产停止，传感器与恢复降至25%'
+              : '补给到场，功能恢复'),
+          l.id,
+        );
+      if (l.colony) {
+        const c = l.colony,
+          population = c.population / 1000,
+          prosperity = Math.max(0.1, Math.min(1.2, (c.stability + c.morale + c.security) / 225)),
+          industry = 0.5 + c.industry / 100;
+        const eventFactor = (c.contamination > 20 ? 0.45 : 1) * (c.quarantine ? 0.6 : 1);
+        w.resources.credits +=
+          18 *
+          population *
+          prosperity *
+          industry *
+          eventFactor *
+          (1 + personnelBonus(e, l.id, 'commander'));
+        deposit(l, 'supplies', 6 * population * industry * eventFactor);
       }
-      if (l.kind === 'mine' && available(w, l.id, 'supplies') >= 0.15) {
+      if (
+        l.kind === 'mine' &&
+        l.supplyState === 'operational' &&
+        !w.events.some(
+          (v) =>
+            v.kind === 'accident' &&
+            v.subjectId === l.id &&
+            ['reported', 'responding'].includes(v.stage),
+        )
+      ) {
         const site = w.bodies.find((b) => b.id === l.siteId);
         if (site && site.remaining > 0) {
-          const amount = Math.min(site.remaining, 7 * site.richness);
-          site.remaining -= amount;
-          l.stock.materials += amount;
-          l.stock.supplies -= 0.15;
+          const n = deposit(l, 'materials', Math.min(site.remaining, 7 * site.richness));
+          site.remaining -= n;
+          l.extracted += n;
+          if (site.remaining === 0) e.record('depletion', l.name + '矿藏已枯竭', l.id);
         }
       }
-      if (l.id !== 'base' && l.stock.supplies < 3 && !l.distress) {
+      const full =
+        l.kind === 'mine'
+          ? space(l, 'materials') < 1e-8
+          : l.kind === 'colony'
+            ? space(l, 'supplies') < 1e-8
+            : false;
+      if (full !== l.storageFull) {
+        l.storageFull = full;
+        e.report(
+          l.name + (full ? '仓库已满，物资产线停产，请安排运输' : '仓位释放，物资产线恢复'),
+          l.id,
+          full ? 'high' : 'normal',
+          'request',
+        );
+      }
+      if (l.id !== 'base' && !l.colony && l.stock.supplies < 3 && !l.distress) {
         l.distress = true;
-        e.report(l.name + ' Supplies 紧缺，前沿产出将停止', l.id, 'high', 'request');
+        e.report(l.name + '维护补给紧缺，请安排真实货运', l.id, 'high', 'request');
       }
     }
     if (l.stock.supplies >= 8 && w.time - l.attackedAt > 30) l.distress = false;
     const def = FACILITIES[l.kind],
       target = w.enemies
         .filter((x) => x.hull > 0 && dist(x, l) < def.range)
-        .filter(
-          (x) =>
-            w.intel.some((i) => i.id === x.id && i.live && i.hostile) ||
-            (x.targetId === l.id && ['raid', 'probe'].includes(x.intent)),
-        )
+        .filter((x) => w.intel.some((i) => i.id === x.id && i.live && i.hostile))
         .sort((a, b) => dist(a, l) - dist(b, l) || a.id.localeCompare(b.id))[0];
     if (target && l.cooldown === 0 && l.core >= 8) {
       l.core -= 8;
       l.cooldown = 3;
       e.beam(l, target, 'Facility Phaser');
-      e.hit(target, def.damage * (w.upgrades.defense ? 1.2 : 1));
+      e.hit(
+        target,
+        def.damage *
+          (w.upgrades.defense ? 1.2 : 1) *
+          (1 + personnelBonus(e, l.id, 'security') + (l.colony?.security ?? 0) / 200),
+      );
     }
   }
   for (const l of w.locations.filter((l) => l.owner !== 'starfleet' && l.hull > 0)) {
@@ -67,10 +114,7 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
     if (w.time - l.attackedAt > 10) l.shield = Math.min(l.maxShield, l.shield + 3 * dt);
     const def = FACILITIES[l.kind],
       target = w.ships.find(
-        (s) =>
-          dist(s, l) < def.range &&
-          ((s.current?.action.type === 'ATTACK' && s.current.action.targetId === l.id) ||
-            w.time - l.attackedAt < 12),
+        (s) => dist(s, l) < def.range && s.id === l.lastAttackerId && w.time - l.attackedAt < 12,
       );
     if (target && l.cooldown === 0 && l.core >= 8) {
       l.core -= 8;
@@ -93,15 +137,21 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
       l.stock = structuredClone(p.stock);
       l.stock.supplies += 0;
       w.locations.push(l);
+      appointCommander(e, l);
       p.stock = { materials: 0, supplies: 0, photon: 0, quantum: 0, specialFinds: 0 };
       p.complete = true;
       if (l.x >= 780 && Math.abs(l.y) < 650) w.tension = Math.min(100, w.tension + 12);
       e.record('construction', p.name + ' 建成：独立库存、产出、传感器与自卫上线', l.id);
     }
   }
+  advanceSociety(e, dt);
   for (const j of w.jobs.filter((j) => !j.complete)) {
     j.work += dt;
     if (j.work + 1e-8 < j.duration) continue;
+    if (j.kind === 'manufacture' && space(base, j.key as CargoKind) < j.amount) {
+      j.work = j.duration;
+      continue;
+    }
     j.complete = true;
     if (j.kind === 'ship') {
       const s = makeShip('ship-' + w.nextId++, j.name, j.key as ShipClassId, 'starfleet', {
@@ -125,7 +175,7 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
       w.upgrades[j.key as UpgradeId] = 1;
       e.record('growth', j.name + ' 战略能力上线', 'base');
     } else {
-      base.stock[j.key as CargoKind] += j.amount;
+      deposit(base, j.key as CargoKind, j.amount);
       e.record('industry', '制造 ' + j.amount + ' ' + j.key + ' 实物入库', 'base');
     }
   }

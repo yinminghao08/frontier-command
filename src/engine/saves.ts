@@ -1,6 +1,6 @@
 import { worldSchema } from './save-schema';
 import type { WorldState } from './types';
-export const CURRENT_SAVE_VERSION = 6;
+export const CURRENT_SAVE_VERSION = 7;
 export class UnsupportedSaveVersionError extends Error {}
 export function parseSave(input: unknown): WorldState {
   const version =

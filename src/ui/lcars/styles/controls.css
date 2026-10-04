@@ -127,31 +127,37 @@
 .lcars-text-bar {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: 0.6em;
   color: var(--barley);
   font-size: 1.15em;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.2;
   text-transform: uppercase;
 }
 .lcars-text-bar::before,
 .lcars-text-bar::after {
   content: '';
+  box-sizing: border-box;
   height: 0.8em;
   background: var(--butterscotch);
 }
 .lcars-text-bar::before {
-  width: 1.1em;
+  flex: 0 0 1.5em;
   border-left: 0.4em solid var(--subdued-sienna);
-  border-radius: 100vmax 0 0 100vmax;
+  border-radius: 0.4em 0 0 0.4em;
 }
 .lcars-text-bar::after {
-  flex: 1;
+  flex: 1 0 1.8em;
   border-right: 0.6em solid var(--subdued-sienna);
-  border-radius: 0 100vmax 100vmax 0;
+  border-radius: 0 0.4em 0.4em 0;
 }
 .lcars-text-bar > span {
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .section-title {
   min-width: 0;

@@ -69,7 +69,7 @@ export function LcarsTextBar({
 }) {
   return (
     <div className={`lcars-text-bar ${className}`}>
-      <span>{children}</span>
+      <span title={typeof children === 'string' ? children : undefined}>{children}</span>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useLcars } from './ui/lcars/LcarsProvider';
+import { MapSymbol, type SymbolKind } from './ui/map/MapSymbol';
 import { LcarsButton } from './ui/components/Lcars';
 import type { Point, Snapshot } from './engine/types';
 import { SECTOR_SIZE, regionAt } from './engine/definitions/locations';
@@ -20,7 +21,19 @@ import {
 } from './ui/map/camera';
 export type Selection =
   | {
-      type: 'ship' | 'location' | 'contact' | 'system' | 'body' | 'project' | 'wreck' | 'loss';
+      type:
+        | 'ship'
+        | 'location'
+        | 'contact'
+        | 'system'
+        | 'body'
+        | 'project'
+        | 'wreck'
+        | 'loss'
+        | 'group'
+        | 'event'
+        | 'wormhole'
+        | 'civilian';
       id: string;
     }
   | { type: 'point'; x: number; y: number }
@@ -30,7 +43,11 @@ export function StrategicMap({
   selection,
   onSelect,
   focus,
+  destination,
+  commandTarget,
 }: {
+  destination: Point | null;
+  commandTarget: Selection | null;
   world: Snapshot;
   selection: Selection | null;
   onSelect: (s: Selection) => void;
@@ -124,7 +141,11 @@ export function StrategicMap({
     el.addEventListener('wheel', wheel, { passive: false });
     return () => el.removeEventListener('wheel', wheel);
   }, []);
-  const active = (id: string) => selection && 'id' in selection && selection.id === id,
+  const active = (id: string) =>
+      (selection && 'id' in selection && selection.id === id) ||
+      (commandTarget?.type === 'ship' && commandTarget.id === id) ||
+      (commandTarget?.type === 'group' &&
+        world.groups.find((g) => g.id === commandTarget.id)?.shipIds.includes(id)),
     level = camera.k < 0.65 ? 'SECTOR' : camera.k < 1.5 ? 'SYSTEM' : 'LOCAL',
     pos = (p: Point) => project(p, camera);
   const visible = (p: Point) => {
@@ -159,19 +180,17 @@ export function StrategicMap({
     name: string;
     p: Point;
     selection: Selection;
-    kind: string;
+    kind: SymbolKind;
     color: string;
   }[] = [
-    ...world.systems
-      .filter(visible)
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        p: s,
-        selection: { type: 'system', id: s.id } as Selection,
-        kind: 'system',
-        color: 'var(--african-violet)',
-      })),
+    ...world.systems.filter(visible).map((s) => ({
+      id: s.id,
+      name: s.name,
+      p: s,
+      selection: { type: 'system', id: s.id } as Selection,
+      kind: 'system' as const,
+      color: 'var(--african-violet)',
+    })),
     ...world.bodies
       .filter((b) => visible(b) && (level === 'LOCAL' || active(b.id) || active(b.systemId)))
       .map((b) => ({
@@ -182,16 +201,14 @@ export function StrategicMap({
         kind: b.kind,
         color: b.kind === 'resource' ? 'var(--almond-creme)' : 'var(--african-violet)',
       })),
-    ...world.locations
-      .filter(visible)
-      .map((l) => ({
-        id: l.id,
-        name: l.name,
-        p: l,
-        selection: { type: 'location', id: l.id } as Selection,
-        kind: l.kind,
-        color: l.owner === 'starfleet' ? 'var(--bluey)' : 'var(--red)',
-      })),
+    ...world.locations.filter(visible).map((l) => ({
+      id: l.id,
+      name: l.name,
+      p: l,
+      selection: { type: 'location', id: l.id } as Selection,
+      kind: l.kind,
+      color: l.owner === 'starfleet' ? 'var(--bluey)' : 'var(--red)',
+    })),
     ...world.projects
       .filter((p) => !p.complete && visible(p))
       .map((p) => ({
@@ -199,29 +216,41 @@ export function StrategicMap({
         name: p.name,
         p,
         selection: { type: 'project', id: p.id } as Selection,
-        kind: 'project',
+        kind: 'project' as const,
         color: 'var(--orange)',
       })),
-    ...world.wrecks
-      .filter(visible)
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        p,
-        selection: { type: 'wreck', id: p.id } as Selection,
-        kind: 'wreck',
-        color: 'var(--almond-creme)',
-      })),
-    ...world.ships
-      .filter(visible)
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        p: s,
-        selection: { type: 'ship', id: s.id } as Selection,
-        kind: 'ship',
-        color: 'var(--bluey)',
-      })),
+    ...world.wrecks.filter(visible).map((p) => ({
+      id: p.id,
+      name: p.name,
+      p,
+      selection: { type: 'wreck', id: p.id } as Selection,
+      kind: 'wreck' as const,
+      color: 'var(--almond-creme)',
+    })),
+    ...world.ships.filter(visible).map((s) => ({
+      id: s.id,
+      name: s.name,
+      p: s,
+      selection: { type: 'ship', id: s.id } as Selection,
+      kind: s.classId === 'antares' ? ('freighter' as const) : ('ship' as const),
+      color: 'var(--bluey)',
+    })),
+    ...world.wormholes.filter(visible).map((w) => ({
+      id: w.id,
+      name: w.name,
+      p: w,
+      selection: { type: 'wormhole', id: w.id } as Selection,
+      kind: 'wormhole' as const,
+      color: 'var(--african-violet)',
+    })),
+    ...world.civilians.filter(visible).map((s) => ({
+      id: s.id,
+      name: s.name,
+      p: s,
+      selection: { type: 'civilian', id: s.id } as Selection,
+      kind: 'freighter' as const,
+      color: 'var(--butterscotch)',
+    })),
     ...world.contacts
       .filter((c) => visible(c) && (c.live || layers.Intelligence))
       .map((c) => ({
@@ -229,7 +258,7 @@ export function StrategicMap({
         name: (c.live ? '' : 'LKP ') + (c.name ?? c.level),
         p: c,
         selection: { type: 'contact', id: c.id } as Selection,
-        kind: 'contact',
+        kind: c.classId ? ('ship' as const) : ('contact' as const),
         color: c.hostile ? 'var(--red)' : 'var(--african-violet)',
       })),
   ];
@@ -335,15 +364,16 @@ export function StrategicMap({
             const center = sectorCenter(c),
               p = pos({ x: center.x - 200, y: center.y - 200 }),
               size = SECTOR_SIZE * camera.k,
-              label = c.known ? regionAt(center.x, center.y).toUpperCase() : 'UNKNOWN SPACE';
+              label =
+                level === 'SECTOR'
+                  ? c.known
+                    ? '星区'
+                    : '未知'
+                  : c.known
+                    ? regionAt(center.x, center.y).toUpperCase()
+                    : 'UNKNOWN SPACE';
             return (
-              <g
-                key={c.q + ':' + c.r}
-                {...interactive(
-                  { type: 'sector', q: c.q, r: c.r },
-                  (c.known ? 'Sector ' : 'UNKNOWN ') + c.q + '/' + c.r,
-                )}
-              >
+              <g key={c.q + ':' + c.r}>
                 <rect
                   x={p.x}
                   y={p.y}
@@ -411,6 +441,7 @@ export function StrategicMap({
             return (
               <g
                 key={m.id}
+                data-entity-id={m.id}
                 transform={'translate(' + p.x + ' ' + p.y + ') scale(' + markerScale + ')'}
                 {...interactive(m.selection, m.name)}
               >
@@ -424,35 +455,43 @@ export function StrategicMap({
                     strokeWidth="2"
                   />
                 )}
-                {m.kind === 'ship' ? (
-                  <path d="M0-9L7 7 0 4 -7 7Z" fill={m.color} stroke="var(--almond-creme)" />
-                ) : m.kind === 'base' ? (
-                  <g stroke={m.color} fill="#000" strokeWidth="3">
-                    <circle r="12" />
-                    <path d="M-18 0H18M0-18V18" />
-                    <circle r="4" />
-                  </g>
-                ) : ['resource', 'mine', 'contact', 'wreck', 'project'].includes(m.kind) ? (
-                  <path
-                    d="M0-10L10 0 0 10 -10 0Z"
-                    fill="#000"
-                    stroke={m.color}
-                    strokeWidth="2"
-                    strokeDasharray={m.kind === 'project' ? '3 3' : ''}
-                  />
-                ) : m.kind === 'anomaly' ? (
-                  <ellipse rx="19" ry="9" fill={m.color} fillOpacity=".15" stroke={m.color} />
-                ) : (
-                  <circle
-                    r={m.kind === 'system' ? 10 : 6}
-                    fill="#000"
-                    stroke={m.color}
-                    strokeWidth="2"
-                  />
-                )}
+                <MapSymbol kind={m.kind} color={m.color} />
               </g>
             );
           })}
+          {destination &&
+            (() => {
+              const p = pos(destination);
+              const origin =
+                commandTarget?.type === 'ship'
+                  ? world.ships.find((s) => s.id === commandTarget.id)
+                  : commandTarget?.type === 'group'
+                    ? world.ships.find(
+                        (s) =>
+                          s.id === world.groups.find((g) => g.id === commandTarget.id)?.flagshipId,
+                      )
+                    : null;
+              return (
+                <g pointerEvents="none" data-testid="destination-preview">
+                  {origin && (
+                    <line
+                      x1={pos(origin).x}
+                      y1={pos(origin).y}
+                      x2={p.x}
+                      y2={p.y}
+                      stroke="var(--orange)"
+                      strokeDasharray="6 4"
+                    />
+                  )}
+                  <path
+                    d={`M${p.x - 10} ${p.y}H${p.x + 10}M${p.x} ${p.y - 10}V${p.y + 10}`}
+                    stroke="var(--orange)"
+                    strokeWidth="2"
+                  />
+                  <circle cx={p.x} cy={p.y} r="14" fill="none" stroke="var(--orange)" />
+                </g>
+              );
+            })()}
           {world.beams.map((b, i) => {
             const a = pos(b.from),
               z = pos(b.to);

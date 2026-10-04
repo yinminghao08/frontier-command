@@ -1,0 +1,89 @@
+[
+  {
+    "seed": 236807,
+    "startUTC": "2026-10-04T16:51:47.829Z",
+    "finishUTC": "2026-10-04T17:03:48.242Z",
+    "normalNewWorld": true,
+    "visibleElectron": true,
+    "timeMultiplier": "UI 16x, plus 1x observation",
+    "tenMinuteObservationMs": 601005,
+    "gameMinutes": 2285.3,
+    "mineFull": 600,
+    "deliveredMaterials": 640,
+    "shipyardMaterialsAfter": 620,
+    "createdShip": "USS V7 FRONTIER",
+    "resolvedEvents": [
+      {
+        "id": "event-8",
+        "kind": "discovery",
+        "evidence": "古代遗迹 0/-1-0-5已完成近距调查，需要科学研究",
+        "outcome": "现场行动完成，结果永久保存"
+      },
+      {
+        "id": "event-23",
+        "kind": "accident",
+        "evidence": "ADMIRAL FRONTIER MINE累计开采暴露超出安全阈值，设备停工",
+        "outcome": "现场行动完成，结果永久保存"
+      }
+    ],
+    "orionPressure": 84.26075075000028,
+    "historyCount": 94,
+    "pageErrors": []
+  },
+  {
+    "seed": 42,
+    "startUTC": "2026-10-04T17:25:51.571Z",
+    "finishUTC": "2026-10-04T17:27:26.206Z",
+    "normalNewWorld": true,
+    "visibleElectron": true,
+    "timeMultiplier": "UI 16x",
+    "tenMinuteObservationMs": null,
+    "gameMinutes": 1409.6,
+    "mineFull": 600,
+    "deliveredMaterials": 640,
+    "shipyardMaterialsAfter": 620,
+    "createdShip": "USS V7 FRONTIER",
+    "resolvedEvents": [
+      {
+        "id": "event-22",
+        "kind": "accident",
+        "evidence": "ADMIRAL FRONTIER MINE累计开采暴露超出安全阈值，设备停工",
+        "outcome": "现场行动完成，结果永久保存"
+      },
+      {
+        "id": "event-34",
+        "kind": "accident",
+        "evidence": "ADMIRAL FRONTIER MINE累计开采暴露超出安全阈值，设备停工",
+        "outcome": "现场行动完成，结果永久保存"
+      }
+    ],
+    "orionPressure": 49.58966449999806,
+    "historyCount": 77,
+    "pageErrors": []
+  },
+  {
+    "seed": 1701,
+    "startUTC": "2026-10-04T17:07:03.251Z",
+    "finishUTC": "2026-10-04T17:08:43.046Z",
+    "normalNewWorld": true,
+    "visibleElectron": true,
+    "timeMultiplier": "UI 16x",
+    "tenMinuteObservationMs": null,
+    "gameMinutes": 1486.4,
+    "mineFull": 600,
+    "deliveredMaterials": 640,
+    "shipyardMaterialsAfter": 620,
+    "createdShip": "USS V7 FRONTIER",
+    "resolvedEvents": [
+      {
+        "id": "event-28",
+        "kind": "accident",
+        "evidence": "ADMIRAL FRONTIER MINE累计开采暴露超出安全阈值，设备停工",
+        "outcome": "现场行动完成，结果永久保存"
+      }
+    ],
+    "orionPressure": 48.401964499997185,
+    "historyCount": 68,
+    "pageErrors": []
+  }
+]

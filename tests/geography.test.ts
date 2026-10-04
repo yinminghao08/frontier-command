@@ -19,12 +19,14 @@ describe('seeded sparse sectors and physical navigation', () => {
       b.bodies.filter((s) => s.id.startsWith('sector:10:-9')),
     );
   });
-  it('different seeds change content, all sectors have concrete resources, habitable planets and normal anomalies', () => {
+  it('different seeds change content and barren systems coexist with diverse discoveries', () => {
     expect(generatedSector(1, { q: 0, r: -1 })).not.toEqual(generatedSector(2, { q: 0, r: -1 }));
-    const g = generatedSector(42, { q: -10000, r: 10000 });
-    expect(g.bodies.some((b) => b.kind === 'resource' && b.remaining > 0)).toBe(true);
-    expect(g.bodies.some((b) => b.kind === 'planet' && b.habitable)).toBe(true);
-    expect(g.bodies.some((b) => b.kind === 'anomaly' && !b.hidden)).toBe(true);
+    const worlds = Array.from({ length: 100 }, (_, q) => generatedSector(42, { q, r: 20 }));
+    expect(worlds.some((g) => !g.bodies.some((b) => b.kind === 'resource'))).toBe(true);
+    const bodies = worlds.flatMap((g) => g.bodies);
+    expect(new Set(bodies.map((b) => b.category)).size).toBeGreaterThan(10);
+    expect(bodies.some((b) => b.kind === 'planet' && b.habitable)).toBe(true);
+    expect(bodies.some((b) => b.kind === 'resource' && b.remaining > 0)).toBe(true);
   });
   it('safe, direct and risky have real ETA/risk differences without a rectangular edge', () => {
     const e = quietEngine(),

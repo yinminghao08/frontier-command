@@ -18,7 +18,7 @@ export function opportunities(e: SimulationEngine): Opportunity[] {
       id: 'mine:' + b.id,
       kind: 'mining',
       targetId: b.id,
-      text: b.name + (b.survey < 2 ? ' · 需要近距调查' : ' · 可采集/建设矿场'),
+      text: b.name + (b.survey < 2 ? ' · 需要近距调查' : ' · 可建设矿场'),
     });
   for (const l of w.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0)) {
     if (l.kind === 'mine' && l.stock.materials >= 10)
@@ -28,7 +28,7 @@ export function opportunities(e: SimulationEngine): Opportunity[] {
         targetId: l.id,
         text: l.name + ' · ' + Math.floor(l.stock.materials) + ' Materials 等待运输',
       });
-    if (l.id !== 'base' && l.stock.supplies < 15)
+    if (l.id !== 'base' && !l.colony && l.stock.supplies < 15)
       result.push({
         id: 'supply:' + l.id,
         kind: 'logistics',
@@ -82,7 +82,9 @@ export function snapshot(this: SimulationEngine): Snapshot {
       .filter((s) => s.discovered)
       .map((s) => ({ ...s, bodyIds: s.bodyIds.filter((id) => ids.has(id)) })),
     bodies: bodies.map((b) =>
-      b.survey >= 2 ? b : { ...b, remaining: 0, richness: 0, hazard: 0, specialClaimed: false },
+      b.survey >= 2
+        ? b
+        : { ...b, remaining: 0, richness: 0, hazard: 0, specialClaimed: false, population: 0 },
     ),
     locations: w.locations
       .filter((l) => l.owner === 'starfleet' || l.discovered)
@@ -93,7 +95,13 @@ export function snapshot(this: SimulationEngine): Snapshot {
               ...l,
               stock: { materials: 0, supplies: 0, photon: 0, quantum: 0, specialFinds: 0 },
               core: 0,
+              lastAttackerId: null,
               production: 0,
+              capacity: { materials: 0, supplies: 0, photon: 0, quantum: 0, specialFinds: 0 },
+              colony: null,
+              extracted: 0,
+              storageFull: false,
+              supplyState: 'operational' as const,
             },
       ),
     projects: w.projects,
@@ -106,6 +114,28 @@ export function snapshot(this: SimulationEngine): Snapshot {
     logs: w.logs,
     history: w.history,
     beams: w.beams,
+    groups: w.groups,
+    personnel: w.personnel,
+    events: w.events
+      .filter((v) =>
+        [
+          ...w.locations.filter((l) => l.owner === 'starfleet' || l.discovered),
+          ...w.ships,
+          ...w.civilians,
+          ...w.bodies.filter((b) => b.discovered),
+          ...w.wrecks.filter((x) => x.discovered),
+          ...w.wormholes.filter((h) => h.discovered),
+        ].some((x) => x.id === v.subjectId),
+      )
+      .map((v) => ({
+        ...v,
+        assetIds: v.assetIds.filter((id) => visibleIntel(w).some((i) => i.id === id)),
+      })),
+    wormholes: w.wormholes
+      .filter((h) => h.discovered)
+      .map(({ exit, exitSector, ...publicHole }) => publicHole),
+    civilians: w.civilians,
+    trade: w.trade,
     opportunities: opportunities(this),
     armory: {
       stock: { photon: this.base.stock.photon, quantum: this.base.stock.quantum },
@@ -131,6 +161,17 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
     opportunities: snap.opportunities,
     legalActions: s.current
       ? []
-      : ['MOVE', 'EXPLORE', 'SURVEY', 'MINE', 'HAUL', 'PATROL', 'RETREAT'],
+      : [
+          'MOVE',
+          'EXPLORE',
+          'SURVEY',
+          'HAUL',
+          'PATROL',
+          'RETREAT',
+          'RETURN',
+          'ASSIST_EVENT',
+          'TRANSIT',
+          'HAIL',
+        ],
   });
 }

@@ -13,7 +13,7 @@ import { quietEngine } from '../helpers';
 import { createWorld } from '../../src/engine/data';
 import type { Action, Snapshot } from '../../src/engine/types';
 let app: ElectronApplication | undefined;
-const temp = () => mkdtempSync(join(tmpdir(), 'frontier-e2e-v6-'));
+const temp = () => mkdtempSync(join(tmpdir(), 'frontier-e2e-v7-'));
 async function launch(directory: string) {
   app = await electron.launch({
     args: [resolve('.')],
@@ -41,7 +41,7 @@ async function directive(
   fields: Record<string, string> = {},
   mode = 'REPLACE',
 ) {
-  await page.locator('.operation-chip').filter({ hasText: shipId.toUpperCase() }).click();
+  await page.locator('.operation-chip[data-ship-id="' + shipId + '"]').click();
   await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
   const d = page.getByRole('dialog', { name: 'Admiral 指令' });
   await d.getByLabel('指令类型', { exact: true }).selectOption(type);
@@ -156,7 +156,7 @@ test('real UI: discoveries, construction cargo, directives, refit, strategic upg
   await nav(page, 'ARCHIVE');
   await page.getByRole('button', { name: '立即保存', exact: true }).click();
   const saved = await state(page);
-  await page.screenshot({ path: 'test-results/v6-playable.png', animations: 'disabled' });
+  await page.screenshot({ path: 'test-results/v7-playable.png', animations: 'disabled' });
   expect(errors).toEqual([]);
   await app!.close();
   app = undefined;
@@ -165,13 +165,18 @@ test('real UI: discoveries, construction cargo, directives, refit, strategic upg
   expect(restored.ships).toEqual(saved.ships);
   expect(restored.projects).toEqual(saved.projects);
   expect(restored.history).toEqual(saved.history);
-  expect(restored.version).toBe(6);
+  expect(restored.version).toBe(7);
   expect(restored.paused).toBe(true);
   expect('factions' in restored || 'seed' in restored || 'enemies' in restored).toBe(false);
 });
 test('ordinary contacts and focus changes do not pause; illegal directives have no mutations', async () => {
   const dir = temp();
-  new SaveStore(dir).write(createWorld());
+  const world = createWorld();
+  // Isolated contact regression: a preexisting Scout enters friendly sensor range.
+  const scout = world.enemies.find((s) => s.id === 'orion-scout')!;
+  scout.x = -50;
+  scout.y = 0;
+  new SaveStore(dir).write(world);
   const page = await launch(dir),
     before = await state(page);
   const r = await page.evaluate(() =>
@@ -195,7 +200,7 @@ test('ordinary contacts and focus changes do not pause; illegal directives have 
   await d.getByLabel('航线', { exact: true }).selectOption('risky');
   await expect(d).toContainText('exposed corridor');
   await expect(d).toContainText('航段已测绘');
-  await page.screenshot({ path: 'test-results/v6-risky-route.png', animations: 'disabled' });
+  await page.screenshot({ path: 'test-results/v7-risky-route.png', animations: 'disabled' });
   await page.keyboard.press('Escape');
   await running(page);
   await waitFor(page, (s) => s.contacts.length > 0);
@@ -218,7 +223,7 @@ test('midnight snapshot and permanent ship loss survive restart', async () => {
   await waitFor(page, (s) => s.tick >= 14400);
   await page.getByRole('button', { name: '暂停', exact: true }).click();
   const daily = JSON.parse(
-    readFileSync(join(dir, 'frontiers-v6', 'frontier-000001', 'day-2.json'), 'utf8'),
+    readFileSync(join(dir, 'frontiers-v7', 'frontier-000001', 'day-2.json'), 'utf8'),
   );
   expect(daily.tick).toBe(14400);
   expect(daily.losses).toHaveLength(1);
@@ -226,7 +231,7 @@ test('midnight snapshot and permanent ship loss survive restart', async () => {
   app = undefined;
   page = await launch(dir);
   expect((await state(page)).losses).toHaveLength(1);
-  expect((await state(page)).ships).toHaveLength(3);
+  expect((await state(page)).ships).toHaveLength(5);
 });
 test('failed restoration preserves the terminal engine and frozen branch; successful retry creates a branch', async () => {
   const dir = temp(),

@@ -1,3 +1,7 @@
+import { FleetManager } from './FleetManager';
+import { PersonnelView } from './PersonnelView';
+import { EventsView } from './EventsView';
+import { TradeView } from './TradeView';
 import { useState } from 'react';
 import type { Snapshot, ModuleId, UpgradeId, CargoKind } from '../engine/types';
 import type { ShipClassId } from '../engine/definitions/ships';
@@ -95,6 +99,9 @@ export function ManagementDrawer({
       label={page + ' 工作面板'}
       onClose={close}
     >
+      {page === 'FLEET' && (
+        <FleetManager world={world} command={command} select={select} create={create} />
+      )}
       {page === 'STARBASE' && (
         <>
           <div
@@ -124,7 +131,7 @@ export function ManagementDrawer({
                 ADMIRAL / {world.ships.length} SHIPS · {world.systems.length} KNOWN SYSTEMS · BORDER
                 TENSION {Math.round(world.tension)}
               </p>
-              <p>联邦后方保底产出支撑最低舰级重建；前沿矿业、殖民地和出口提供更快成长。</p>
+              <p>基地资源来自真实前沿物流；殖民地生产预算和补给。后方贸易需要付费并实际交付。</p>
               {world.ships.map((s) => (
                 <LcarsButton
                   key={s.id}
@@ -225,6 +232,7 @@ export function ManagementDrawer({
           {tab === 'LOGISTICS' && (
             <>
               {upgrade('logistics')}
+              <TradeView world={world} command={command} />
               <LcarsTextBar>ACTUAL BASE INVENTORY</LcarsTextBar>
               {Object.entries(base.stock).map(([k, v]) => (
                 <p key={k}>
@@ -324,9 +332,10 @@ export function ManagementDrawer({
       )}
       {page === 'OPERATIONS' && (
         <>
-          <LcarsTextBar>WORLD OPPORTUNITIES / LIVE CAUSES</LcarsTextBar>
+          <EventsView world={world} command={command} create={create} />
+          <LcarsTextBar>世界机会与当前原因</LcarsTextBar>
           <div className="inline-actions">
-            {(['EXPLORE', 'MINE', 'HAUL', 'PATROL'] as const).map((t) => (
+            {(['EXPLORE', 'SURVEY', 'HAUL', 'PATROL'] as const).map((t) => (
               <LcarsButton key={t} onClick={() => launch(t)}>
                 {ACTION_LABELS[t]}
               </LcarsButton>
@@ -359,19 +368,7 @@ export function ManagementDrawer({
           ))}
         </>
       )}
-      {page === 'PERSONNEL' && (
-        <>
-          <p>
-            独立规则执行者身份；Admiral 无需等待人员分配即可指挥任意己方舰船。未来 Agent
-            使用受验证的结构化动作接口。
-          </p>
-          {world.operators.map((op) => (
-            <p key={op.id}>
-              {op.name} · {op.availability.toUpperCase()}
-            </p>
-          ))}
-        </>
-      )}
+      {page === 'PERSONNEL' && <PersonnelView world={world} command={command} />}
       {page === 'COLONIES' && (
         <>
           <LcarsTextBar>FRONTIER / COLONIES / MINES / OUTPOSTS</LcarsTextBar>
@@ -380,6 +377,7 @@ export function ManagementDrawer({
             .map((l) => (
               <LcarsButton
                 key={l.id}
+                data-entity-id={l.id}
                 shape="rail"
                 className="record-row"
                 onClick={() => select({ type: 'location', id: l.id })}
@@ -392,6 +390,7 @@ export function ManagementDrawer({
           {world.projects.map((p) => (
             <LcarsButton
               key={p.id}
+              data-entity-id={p.id}
               shape="rail"
               className="record-row"
               onClick={() => select({ type: 'project', id: p.id })}
@@ -408,6 +407,12 @@ export function ManagementDrawer({
         <>
           <div className="inline-actions">
             <LcarsButton onClick={save}>立即保存</LcarsButton>
+            <LcarsButton
+              disabled={timeline.previousDay === null}
+              onClick={() => command({ type: 'restorePreviousDay' })}
+            >
+              从昨日建立独立时间线
+            </LcarsButton>
             <LcarsButton tone="danger" onClick={newFrontier}>
               BEGIN NEW FRONTIER
             </LcarsButton>

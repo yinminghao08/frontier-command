@@ -45,14 +45,22 @@ export function observe(w: WorldState, s: Enemy, strength: number) {
     i.hull = s.hull;
     i.shield = s.shield;
   }
-  if (s.intent === 'raid' || s.intent === 'probe') i.hostile = true;
+  if (w.time - s.lastHostileAt < 30) {
+    i.hostile = true;
+    i.lastAttackAt = s.lastHostileAt;
+    i.lastAttackTargetId = s.lastHostileTargetId ?? undefined;
+  }
   return { record: i, fresh };
 }
 export function updateSensors(e: SimulationEngine) {
   const w = e.state;
   for (const i of w.intel) i.live = false;
   const sources = [
-    ...w.ships.map((s) => ({ ...s, range: capabilities(s).sensors, active: s.scanUntil > w.time })),
+    ...[...w.ships, ...w.civilians].map((s) => ({
+      ...s,
+      range: capabilities(s).sensors,
+      active: s.scanUntil > w.time,
+    })),
     ...w.locations
       .filter((l) => l.owner === 'starfleet' && l.hull > 0)
       .map((l) => ({
@@ -65,11 +73,18 @@ export function updateSensors(e: SimulationEngine) {
                 ? 340
                 : 160
               : 80,
+        // Supply decay affects sensor reach, not the information authority boundary.
         active: !!w.upgrades.sensors,
       })),
   ];
   for (const enemy of w.enemies) {
-    const source = sources.find((s) => dist(s, enemy) < s.range * (s.active ? 1.15 : 1));
+    const source = sources.find(
+      (s) =>
+        dist(s, enemy) <
+        s.range *
+          (s.active ? 1.15 : 1) *
+          ('supplyState' in s && s.supplyState === 'depleted' ? 0.25 : 1),
+    );
     if (!source || (enemy.cloak === 'on' && e.random() > (source.active ? 0.6 : 0.2))) continue;
     const result = observe(w, enemy, source.active ? 2 : 1);
     if (result.fresh) e.report('发现接触：' + result.record.id, result.record.id, 'high', 'threat');
@@ -80,5 +95,8 @@ export function updateSensors(e: SimulationEngine) {
       e.record('discovery', '发现 ' + l.name, l.id);
     }
   for (const wreck of w.wrecks)
-    if (!wreck.discovered && sources.some((s) => dist(s, wreck) < s.range)) wreck.discovered = true;
+    if (!wreck.discovered && sources.some((s) => dist(s, wreck) < s.range)) {
+      wreck.discovered = true;
+      e.record('discovery', '发现 ' + wreck.name, wreck.id);
+    }
 }

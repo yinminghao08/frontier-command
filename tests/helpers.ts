@@ -4,6 +4,7 @@ import type { Action } from '../src/engine/types';
 export function quietEngine(seed = 236807) {
   const e = new SimulationEngine(createWorld(seed));
   e.state.enemies = [];
+  for (const s of e.state.ships) s.standing.idle = 'hold';
   return e;
 }
 export function issue(

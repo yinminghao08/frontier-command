@@ -9,13 +9,14 @@ import { DataCascade } from '../lcars/DataCascade';
 import { usePanelFocus } from '../lcars/usePanelFocus';
 export const PAGES: Page[] = [
   'SECTOR',
+  'FLEET',
   'OPERATIONS',
   'PERSONNEL',
   'STARBASE',
   'COLONIES',
   'ARCHIVE',
 ];
-export const LABELS = ['星区', '行动', '人员', '基地', '殖民地', '档案'];
+export const LABELS = ['星区', '舰队', '行动', '人员', '基地', '殖民地', '档案'];
 export function LcarsShell({
   world,
   page,
@@ -229,9 +230,9 @@ export function LcarsShell({
           className="compact-context"
           sound="navigation"
           onClick={() => setShowContext(true)}
-          aria-label="打开 Inspector"
+          aria-label="打开对象详情"
         >
-          CONTEXT INSPECTOR
+          对象详情
         </LcarsButton>
         {overlay}
       </main>
@@ -239,13 +240,13 @@ export function LcarsShell({
         ref={contextRef}
         tabIndex={-1}
         className={'inspector ' + (showContext ? 'is-open' : '')}
-        aria-label="对象 Inspector"
+        aria-label="对象详情"
       >
         <div className="inspector-heading">
-          <LcarsTextBar className="section-title">CONTEXT INSPECTOR</LcarsTextBar>
+          <LcarsTextBar className="section-title">对象详情</LcarsTextBar>
           <LcarsButton
             className="inspector-close"
-            aria-label="关闭 Inspector"
+            aria-label="关闭对象详情"
             sound="navigation"
             onClick={() => setShowContext(false)}
           >

@@ -8,7 +8,7 @@ import { frontierSectors, sectorId } from '../engine/world-generation';
 import { capabilities, cargoUsed } from '../engine/capabilities';
 import { MODULES } from '../engine/definitions/progression';
 import { routeEstimate } from '../engine/navigation';
-export type ComposerRequest = { action: Action; shipId?: string };
+export type ComposerRequest = { action: Action; shipId?: string; groupId?: string };
 export function defaultAction(
   type: Action['type'],
   w: Snapshot,
@@ -27,7 +27,15 @@ export function defaultAction(
     case 'EXPLORE':
       return {
         type,
-        sector: selection?.type === 'sector' ? { q: selection.q, r: selection.r } : { q: 0, r: -1 },
+        sector:
+          selection?.type === 'sector'
+            ? { q: selection.q, r: selection.r }
+            : selection?.type === 'point'
+              ? {
+                  q: Math.floor((selection.x + 200) / 400),
+                  r: Math.floor((selection.y + 200) / 400),
+                }
+              : { q: 0, r: -1 },
         approach: 'remote',
       };
     case 'SURVEY':
@@ -41,15 +49,21 @@ export function defaultAction(
         approach: 'close',
         deep: false,
       };
-    case 'MINE':
+    case 'RETURN':
+      return { type };
+    case 'ASSIST_EVENT':
       return {
         type,
         targetId:
-          site?.kind === 'resource'
-            ? site.id
-            : (w.bodies.find((b) => b.kind === 'resource' && b.survey >= 2)?.id ?? target),
-        unloadId: 'base',
-        repeat: false,
+          id || w.events.find((v) => ['reported', 'responding'].includes(v.stage))?.id || '',
+      };
+    case 'TRANSIT':
+      return { type, targetId: id || w.wormholes[0]?.id || '' };
+    case 'HAIL':
+      return {
+        type,
+        targetId: id || w.contacts.find((c) => c.factionId === 'romulan')?.id || '',
+        message: 'greeting',
       };
     case 'HAUL':
       return {
@@ -71,7 +85,13 @@ export function defaultAction(
     case 'SHADOW':
       return { type, targetId: id || w.contacts[0]?.id || '' };
     case 'ESCORT':
-      return { type, targetId: selection?.type === 'ship' ? id : (w.ships[0]?.id ?? '') };
+      return {
+        type,
+        targetId:
+          selection?.type === 'ship' || selection?.type === 'civilian'
+            ? id
+            : (w.ships[0]?.id ?? ''),
+      };
     case 'PATROL':
       return {
         type,
@@ -100,20 +120,24 @@ export function OrderComposer({
   onClose: () => void;
 }) {
   const [action, setAction] = useState<Action>(request.action),
-    [shipIds, setShipIds] = useState<string[]>([
-      world.ships.find(
-        (s) =>
-          s.id ===
-          (request.shipId ??
-            (request.action.type === 'EXPLORE' || request.action.type === 'SURVEY'
-              ? 'verity'
-              : request.action.type === 'HAUL'
-                ? 'meridian'
-                : 'vigil')),
-      )?.id ??
-        world.ships[0]?.id ??
-        '',
-    ]),
+    [shipIds, setShipIds] = useState<string[]>(
+      request.groupId
+        ? [...(world.groups.find((g) => g.id === request.groupId)?.shipIds ?? [])]
+        : [
+            world.ships.find(
+              (s) =>
+                s.id ===
+                (request.shipId ??
+                  (request.action.type === 'EXPLORE' || request.action.type === 'SURVEY'
+                    ? 'verity'
+                    : request.action.type === 'HAUL'
+                      ? (world.ships.find((s) => s.classId === 'antares')?.id ?? '')
+                      : 'vigil')),
+            )?.id ??
+              world.ships[0]?.id ??
+              '',
+          ],
+    ),
     [mode, setMode] = useState<'REPLACE' | 'QUEUE' | 'INTERRUPT'>('REPLACE');
   const update = (patch: Partial<Action>) => setAction((a) => ({ ...a, ...patch }) as Action);
   const ships = world.ships.filter((s) => shipIds.includes(s.id)),
@@ -124,25 +148,41 @@ export function OrderComposer({
   const targets =
     action.type === 'SURVEY'
       ? [...world.systems, ...world.bodies]
-      : action.type === 'MINE'
-        ? world.bodies.filter((b) => b.kind === 'resource')
-        : action.type === 'RECOVER'
-          ? world.wrecks
-          : action.type === 'ESCORT'
-            ? world.ships
-            : ['ATTACK', 'DISABLE', 'DRIVE_OFF', 'SHADOW', 'INTERCEPT'].includes(action.type)
-              ? [...world.contacts, ...world.locations.filter((l) => l.owner !== 'starfleet')]
-              : inventory;
+      : action.type === 'ASSIST_EVENT'
+        ? world.events
+            .filter(
+              (v) =>
+                ['reported', 'responding'].includes(v.stage) &&
+                !['invasion', 'diplomatic'].includes(v.kind),
+            )
+            .map((v) => ({ ...v, name: v.evidence }))
+        : action.type === 'TRANSIT'
+          ? world.wormholes
+          : action.type === 'RECOVER'
+            ? world.wrecks
+            : action.type === 'ESCORT'
+              ? [...world.ships, ...world.civilians]
+              : ['ATTACK', 'DISABLE', 'DRIVE_OFF', 'SHADOW', 'INTERCEPT', 'HAIL'].includes(
+                    action.type,
+                  )
+                ? [...world.contacts, ...world.locations.filter((l) => l.owner !== 'starfleet')]
+                : inventory;
   const dest = 'targetId' in action ? inventory.find((l) => l.id === action.targetId) : undefined;
   const origin =
     action.type === 'HAUL' ? inventory.find((l) => l.id === action.sourceId) : undefined;
+  const slowest = ships.reduce<(typeof ships)[number] | undefined>(
+    (a, b) => (!a || capabilities(b).warp < capabilities(a).warp ? b : a),
+    undefined,
+  );
   const firstLeg =
-    action.type === 'HAUL' && ships[0] && origin
-      ? routeEstimate(world, ships[0], origin, action.route)
+    action.type === 'HAUL' && origin && ships.length
+      ? ships
+          .map((s) => routeEstimate(world, s, origin, action.route))
+          .reduce((a, b) => (a.eta > b.eta ? a : b))
       : null;
   const secondLeg =
-    action.type === 'HAUL' && ships[0] && dest && origin
-      ? routeEstimate(world, { ...ships[0], x: origin.x, y: origin.y }, dest, action.route)
+    action.type === 'HAUL' && slowest && dest && origin
+      ? routeEstimate(world, { ...slowest, x: origin.x, y: origin.y }, dest, action.route)
       : null;
   const estimate =
     firstLeg && secondLeg
@@ -153,6 +193,19 @@ export function OrderComposer({
           unknownDistance: firstLeg.unknownDistance + secondLeg.unknownDistance,
         }
       : null;
+  const group = world.groups.find((g) => g.id === request.groupId);
+  let allocationLeft =
+    action.type === 'HAUL' ? Math.min(action.amount, origin?.stock[action.cargoKind] ?? 0) : 0;
+  const shares = group
+    ? [group.flagshipId, ...group.shipIds.filter((id) => id !== group.flagshipId)].map((id) => {
+        const ship = ships.find((s) => s.id === id);
+        const amount = ship
+          ? Math.min(allocationLeft, Math.floor(capabilities(ship).cargo - cargoUsed(ship)))
+          : 0;
+        allocationLeft -= amount;
+        return { ship, amount };
+      })
+    : [];
   return (
     <LcarsDialog
       title="ADMIRAL DIRECTIVE"
@@ -169,11 +222,19 @@ export function OrderComposer({
             value={action.type}
             onChange={(e) => setAction(defaultAction(e.target.value as Action['type'], world))}
           >
-            {Object.entries(ACTION_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
+            {Object.entries(ACTION_LABELS)
+              .filter(
+                ([k]) =>
+                  !request.groupId ||
+                  ['MOVE', 'HAUL', 'PATROL', 'ESCORT', 'INTERCEPT', 'RETREAT', 'RETURN'].includes(
+                    k,
+                  ),
+              )
+              .map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
           </select>
         </LcarsField>
         <LcarsField>
@@ -248,33 +309,6 @@ export function OrderComposer({
             />
             DEEP SCAN / 隐藏异常
           </LcarsField>
-        )}
-        {action.type === 'MINE' && (
-          <>
-            <LcarsField>
-              UNLOAD AT
-              <select
-                aria-label="采矿卸货点"
-                value={action.unloadId}
-                onChange={(e) => update({ unloadId: e.target.value })}
-              >
-                {inventory.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-            </LcarsField>
-            <LcarsField>
-              <input
-                type="checkbox"
-                aria-label="循环采矿"
-                checked={action.repeat}
-                onChange={(e) => update({ repeat: e.target.checked })}
-              />
-              持续采集及卸货
-            </LcarsField>
-          </>
         )}
         {action.type === 'HAUL' && (
           <>
@@ -421,6 +455,21 @@ export function OrderComposer({
             </LcarsField>
           </>
         )}
+        {action.type === 'HAIL' && (
+          <LcarsField>
+            通信内容
+            <select
+              value={action.message}
+              onChange={(e) =>
+                setAction({ ...action, message: e.target.value as typeof action.message })
+              }
+            >
+              <option value="greeting">问候与识别</option>
+              <option value="deescalate">缓和局势</option>
+              <option value="withdraw">要求撤离</option>
+            </select>
+          </LcarsField>
+        )}
         {action.type === 'MOVE' &&
           (['x', 'y'] as const).map((k) => (
             <LcarsField key={k}>
@@ -437,11 +486,20 @@ export function OrderComposer({
           ))}
       </div>
       <LcarsTextBar>FLEET / ALL OWNED VESSELS</LcarsTextBar>
+      {request.groupId && <p>编队命令：{group?.name} · 数量为编队总量</p>}
+      {action.type === 'HAUL' && group && (
+        <p>
+          预计一航次份额（以到场可用库存为准）：
+          {shares.map((p) => (p.ship?.name ?? '舰船不可用') + ' ' + p.amount).join(' · ')}
+          。装载完成后共同出发。
+        </p>
+      )}
       <div className="asset-list">
         {world.ships.map((s) => (
           <LcarsField key={s.id}>
             <input
               type="checkbox"
+              disabled={!!request.groupId}
               aria-label={'分配 ' + s.id}
               checked={shipIds.includes(s.id)}
               onChange={(e) =>
@@ -466,7 +524,11 @@ export function OrderComposer({
       <div className="dialog-actions">
         <LcarsButton
           onClick={async () => {
-            const r = await command({ type: 'issueDirective', shipIds, mode, action });
+            const r = await command(
+              request.groupId
+                ? { type: 'issueGroupDirective', groupId: request.groupId, mode, action }
+                : { type: 'issueDirective', shipIds, mode, action },
+            );
             if (r.ok) onClose();
           }}
         >

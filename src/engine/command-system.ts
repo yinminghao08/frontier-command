@@ -1,3 +1,6 @@
+import { inventory, available } from './inventory';
+import { STORAGE } from './definitions/frontier';
+import { validateFrontierCommand, applyFrontierCommand } from './frontier-commands';
 import type { SimulationEngine } from './engine';
 import type { Action, Command, CommandResult, Cost, Directive, Ship, WorldState } from './types';
 import { GOODS } from './types';
@@ -6,37 +9,9 @@ import { emptyStock } from './data';
 import { capabilities, cargoUsed } from './capabilities';
 import { BUILD_COSTS, FACILITIES, UPGRADES, cost } from './definitions/progression';
 import { RULES } from './definitions/rules';
-import { RESOURCE_DEFINITIONS } from './definitions/resources';
 export const ok = (reason = '命令已接受'): CommandResult => ({ ok: true, reason });
 export const no = (reason: string): CommandResult => ({ ok: false, reason });
-export function inventory(w: WorldState, id: string) {
-  const l = w.locations.find((l) => l.id === id && l.owner === 'starfleet' && l.hull > 0);
-  if (l) return l;
-  const p = w.projects.find((p) => p.id === id);
-  if (!p) return undefined;
-  return p.complete
-    ? w.locations.find(
-        (l) => l.siteId === p.siteId && l.kind === p.kind && l.owner === 'starfleet' && l.hull > 0,
-      )
-    : p;
-}
-export function available(w: WorldState, id: string, key: (typeof GOODS)[number]) {
-  const holder = inventory(w, id);
-  if (!holder) return 0;
-  const reserved = w.ships
-    .flatMap((s) => [s.current, ...s.suspended].filter((d): d is Directive => d !== null))
-    .filter((d) => {
-      const ref =
-        'sourceId' in d.action
-          ? d.action.sourceId
-          : 'targetId' in d.action
-            ? d.action.targetId
-            : null;
-      return ref !== null && inventory(w, ref)?.id === holder.id;
-    })
-    .reduce((a, d) => a + d.reserved[key], 0);
-  return Math.max(0, holder.stock[key] - reserved);
-}
+export { inventory, available } from './inventory';
 export function canPay(e: SimulationEngine, c: Cost) {
   return (
     e.state.resources.credits + 1e-8 >= c.credits &&
@@ -52,7 +27,24 @@ export function pay(e: SimulationEngine, c: Cost) {
 }
 export function validateAction(e: SimulationEngine, s: Ship, a: Action): CommandResult {
   const w = e.state;
-  if (a.type === 'MOVE') return ok();
+  if (a.type === 'MOVE' || a.type === 'RETURN') return ok();
+  if (a.type === 'ASSIST_EVENT') {
+    const event = w.events.find(
+      (v) => v.id === a.targetId && ['reported', 'responding'].includes(v.stage),
+    );
+    if (!event) return no('事件已结束或不存在');
+    if (['invasion', 'diplomatic'].includes(event.kind))
+      return no('军事与外交事件需要实际防卫、通信或撤离行动');
+    return ok();
+  }
+  if (a.type === 'TRANSIT')
+    return w.wormholes.some((h) => h.id === a.targetId && h.discovered) ? ok() : no('通道尚未发现');
+  if (a.type === 'HAIL' && (s.cooldowns.hail ?? 0) > 0)
+    return no('通信频道正在冷却，请稍后再次呼叫');
+  if (a.type === 'HAIL')
+    return w.intel.some((i) => i.id === a.targetId && i.live && i.factionId === 'romulan')
+      ? ok()
+      : no('需要已识别的实时 Romulan 接触');
   if (a.type === 'EXPLORE') {
     if (
       !w.sectors.some(
@@ -71,12 +63,6 @@ export function validateAction(e: SimulationEngine, s: Ship, a: Action): Command
     if (!b && !sys) return no('目标尚未发现');
     if (a.deep && !s.modules.includes('deepScan')) return no('需要 Deep Scan 模块');
     return ok();
-  }
-  if (a.type === 'MINE') {
-    const b = w.bodies.find((b) => b.id === a.targetId && b.discovered && b.kind === 'resource');
-    if (!b || b.survey < 2) return no('请先近距确认矿藏');
-    if (b.remaining <= 0) return no('矿藏已枯竭');
-    return inventory(w, a.unloadId) ? ok() : no('卸货设施不可用');
   }
   if (a.type === 'HAUL') {
     const src = inventory(w, a.sourceId),
@@ -105,7 +91,7 @@ export function validateAction(e: SimulationEngine, s: Ship, a: Action): Command
       : no('目标不存在或情报已过期');
   }
   if (a.type === 'ESCORT')
-    return a.targetId !== s.id && w.ships.some((x) => x.id === a.targetId)
+    return a.targetId !== s.id && [...w.ships, ...w.civilians].some((x) => x.id === a.targetId)
       ? ok()
       : no('请选择其他己方舰船');
   if (a.type === 'RECOVER')
@@ -164,6 +150,8 @@ export function validate(
     }
     return ok();
   }
+  const frontierResult = validateFrontierCommand(this, c);
+  if (frontierResult) return frontierResult;
   if (c.type === 'cancelDirective' || c.type === 'standingOrders')
     return w.ships.some((s) => s.id === c.shipId) ? ok() : no('舰船不存在');
   if (c.type === 'renameEntity')
@@ -235,8 +223,6 @@ export function validateContinuation(e: SimulationEngine, s: Ship, d: Directive)
       ...a,
       load: { photon: d.reserved.photon, quantum: d.reserved.quantum },
     });
-  if (a.type === 'MINE' && d.phase === 'unloading')
-    return inventory(e.state, a.unloadId) ? ok() : no('卸货设施不可用');
   return validateAction(e, s, a);
 }
 export function makeDirective(e: SimulationEngine, action: Action): Directive {
@@ -253,6 +239,12 @@ export function makeDirective(e: SimulationEngine, action: Action): Directive {
     paidCredits: 0,
     search: 0,
     note: '',
+    source: 'admiral',
+    groupOrderId: null,
+    groupSlot: 0,
+    groupTotal: 0,
+    groupSpacing: 30,
+    origin: { x: 0, y: 0 },
   };
 }
 export function dispatchCommand(
@@ -264,6 +256,8 @@ export function dispatchCommand(
   if (!valid.ok) return valid;
   const c = commandSchema.parse(input) as Command,
     w = this.state;
+  const applied = applyFrontierCommand(this, c);
+  if (applied) return applied;
   if (c.type === 'pause') {
     w.paused = c.paused;
     if (!c.paused) w.pauseReasons = [];
@@ -281,7 +275,7 @@ export function dispatchCommand(
     for (const id of c.shipIds) {
       const s = w.ships.find((s) => s.id === id)!,
         d = makeDirective(this, c.action);
-      if (c.mode === 'QUEUE' && s.current) s.queue.push(d);
+      if (c.mode === 'QUEUE' && s.current?.source === 'admiral') s.queue.push(d);
       else {
         if (c.mode === 'INTERRUPT' && s.current) s.suspended.push(s.current);
         if (c.mode === 'REPLACE') {
@@ -293,6 +287,8 @@ export function dispatchCommand(
         s.path = [];
         s.status = 'active';
       }
+      d.origin = { x: s.x, y: s.y };
+      d.source = actorId === w.commander.id ? 'admiral' : 'standing';
       this.record('directive', s.name + ' / ' + c.mode + ' / ' + c.action.type, s.id);
     }
     return ok('Admiral 指令已接受：' + c.mode + ' / ' + c.action.type);
@@ -308,7 +304,7 @@ export function dispatchCommand(
     return ok();
   }
   if (c.type === 'standingOrders') {
-    w.ships.find((s) => s.id === c.shipId)!.standing = { roe: c.roe, retreatHull: c.retreatHull };
+    w.ships.find((s) => s.id === c.shipId)!.standing = structuredClone(c.orders);
     return ok('自主政策已更新');
   }
   if (c.type === 'renameEntity') {
@@ -334,6 +330,7 @@ export function dispatchCommand(
       x: site.x,
       y: site.y,
       stock: emptyStock(),
+      capacity: structuredClone(STORAGE[c.kind]),
       cost: structuredClone(FACILITIES[c.kind].cost),
       work: 0,
       duration: RULES.constructionMinutes,
@@ -387,17 +384,6 @@ export function dispatchCommand(
     });
     return ok('制造已使用真实材料');
   }
-  if (c.type === 'sellStock') {
-    this.base.stock[c.cargoKind] -= c.amount;
-    const credits = RESOURCE_DEFINITIONS[c.cargoKind].price * c.amount;
-    w.resources.credits += credits;
-    this.record(
-      'trade',
-      '联邦出口：' + c.amount + ' ' + c.cargoKind + ' → ' + credits + ' Credits',
-      'base',
-    );
-    return ok('出口完成，库存已消耗');
-  }
   if (c.type === 'repairFacility') {
     const l = w.locations.find((l) => l.id === c.locationId)!,
       amount = Math.min(
@@ -417,7 +403,9 @@ export function submitAction(this: SimulationEngine, operatorId: string, input: 
   const a = this.state.assignments.find((a) => a.operatorId === operatorId),
     s = this.state.ships.find((s) => s.id === a?.shipId);
   if (!s) return no('执行主体不可用');
-  if (s.current) return no('Admiral 当前指令优先');
+  if ([s.current, ...s.queue, ...s.suspended].some((d) => d?.source === 'admiral'))
+    return no('Admiral 当前、队列和挂起指令优先');
+  if (s.current || s.queue.length || s.suspended.length) return no('执行主体正在完成既有行动');
   return this.dispatchCommand(
     { type: 'issueDirective', shipIds: [s.id], mode: 'QUEUE', action: parsed.data },
     operatorId,

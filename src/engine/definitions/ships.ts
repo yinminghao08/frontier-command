@@ -96,7 +96,7 @@ export const SHIP_CLASSES = freezeDefinitions({
     core: 75,
     coreRegen: 2,
     warp: 5.5,
-    cargo: 100,
+    cargo: 600,
     sensors: 125,
     science: 30,
     weapons: ['phaser'],
@@ -229,8 +229,10 @@ export const MODULE_SLOTS = freezeDefinitions({
   raider: 2,
 });
 export const INITIAL_FLEET = freezeDefinitions([
-  { id: 'meridian', name: 'USS MERIDIAN / 子午号', classId: 'antares' },
+  { id: 'meridian', name: 'USS MERIDIAN-1', classId: 'antares' },
   { id: 'vigil', name: 'USS VIGIL / 守望号', classId: 'peregrine' },
   { id: 'verity', name: 'USS VERITY / 明理号', classId: 'constitution' },
   { id: 'horizon', name: 'USS HORIZON / 地平线号', classId: 'galaxy' },
+  { id: 'meridian-2', name: 'USS MERIDIAN-2', classId: 'antares' },
+  { id: 'meridian-3', name: 'USS MERIDIAN-3', classId: 'antares' },
 ] as const);

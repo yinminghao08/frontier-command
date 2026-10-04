@@ -128,3 +128,22 @@
     font-size: 11px;
   }
 }
+
+.map-command-point {
+  position: absolute;
+  z-index: 9;
+  left: 1em;
+  bottom: 3em;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6em;
+  background: var(--ink);
+  border-left: 1em solid var(--orange);
+  border-bottom: 0.3em solid var(--orange);
+  padding: 0.6em;
+  max-width: calc(100% - 2em);
+}
+.map-command-point select {
+  width: auto;
+}

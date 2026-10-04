@@ -1,26 +1,22 @@
-# Lv1 + Lv2 / v6 验收
+# Lv1 + Lv2 / v7 验收
 
-使用生产引擎、生产 IPC 和真实 Electron。测试夹具只在启动前写入隔离用户目录；Renderer 没有调试 WorldState 写入接口。实际游玩与自动化测试分别记录。
+使用生产引擎、生产 IPC、真实 Electron。规则/UI 测试允许隔离夹具；完整经济链实玩必须从正常新世界开始，不注入库存、移除敌人或直接推进引擎时钟。
 
-| 要求 | 自动化与实测入口 |
+| 要求 | 入口 |
 | --- | --- |
-| REPLACE / QUEUE / INTERRUPT；全舰级四类活动；途中、战斗、装弹改令；货物/损伤保留 | engine.test.ts；desktop.spec.ts 的实际 UI 改令 |
-| ROE 约束自主行为，明确攻击有效；Intercept / Escort / Drive Off / Disable / Shadow | engine.test.ts、frontier.test.ts |
-| 稀疏 Sector、独立坐标 seed、顺序独立、永久实体、重复调查无重复收入 | geography.test.ts、engine.test.ts；两种子实玩 |
-| 实物采集、满舱、矿藏枯竭、循环采集、货物守恒、出口消费 | engine.test.ts、frontier.test.ts |
-| 航线物理距离、ETA、风险差异、循环货运和建设物资到场 | geography.test.ts、frontier.test.ts；desktop.spec.ts |
-| 新矿场/前哨/殖民地；未到物资不施工；设施独立库存与自卫 | frontier.test.ts 三种建设、普通袭击增援窗口 |
-| 五模块能力、槽位、五基地升级、制造、实际新舰籍 | frontier.test.ts；desktop.spec.ts、STARBASE 八模块显示检查 |
-| Orion 真实侦察、货值/护航判断、盗取货物、返港、资源维修/补弹/建造，无无限补敌 | frontier.test.ts；1× 实玩库存增长 → 袭击与货损 |
-| Shadow 找 Hideout；Romulan 中立、跨境/攻击 tension、真实报告升级 | frontier.test.ts |
-| 全舰损、永久档案、零库存恢复最低舰级约五分钟 | frontier.test.ts；persistence.test.ts 空舰队续存 |
-| 确定性、途中续跑、无效命令无副作用、公开快照不泄漏私有状态、冻结 LKP | architecture.test.ts、engine.test.ts |
-| 严格 v6 存档，物理容量、引用、预留、历史序列、午夜、原子写入与封存恢复 | persistence.test.ts；desktop.spec.ts 午夜、恢复失败不切换 |
-| LCARS shell/设置/动画/声音保持，六尺寸、125/150/200% 缩放 | lcars.test.ts；lcars.spec.ts |
-| 首次发现 1–2 分钟、行动/收益/成长 2–5 分钟、生态响应 5–10 分钟 | docs/verification.md，三种子真实 Electron 1× 实玩日志与截图 |
+| 指令接续、货物保留、单舰 Override、组令原子失败、成员损失 | engine.test.ts、v7.test.ts、desktop.spec.ts |
+| 600 货舱、总量分摊、协调航行、队列不预留 | v7.test.ts、编队 UI 和正常世界日志 |
+| 设施容量、仓满停产/恢复、断供、实物交付、遭抢预留 | v7.test.ts、engine.test.ts、frontier.test.ts |
+| Colony 独立物资/预算生产、真实工业、有限付费贸易、全舰损恢复 | v7.test.ts、frontier.test.ts |
+| 人员培养、任职会合、岗位效果与经验 | v7.test.ts、PERSONNEL 实玩 |
+| 事件状态证据、选择、现场行动、拒绝/延误、后续与续存 | v7.test.ts、正常世界事件响应 |
+| Wormhole 配对/路线、未知出口；生成顺序与战斗随机独立 | geography.test.ts、v7.test.ts |
+| Orion 本地/已收到情报、真实盗抢/返港、护航风险、资产损失 | frontier.test.ts、v7.test.ts、正常物流日志 |
+| Romulan 非默认敌对、现役资产部署、Hail/警告/撤离、政治后果 | frontier.test.ts、v7.test.ts |
+| v7 严格存档、旧目录保留、原子恢复、午夜与确定性 | architecture.test.ts、persistence.test.ts、desktop.spec.ts |
+| LCARS 图标、中文详情、地图坐标指令、编队与人员 UI、长标题/DPI | lcars.spec.ts、v7-ui.spec.ts |
+| 原字体、动画、音效、八模块与六分辨率/125/150/200% | lcars.test.ts、lcars.spec.ts |
 
-## 运行与证据
+必跑 `npm test`、`npm run build`、`npm run test:e2e`。实际经济链：探索新 Sector → 调查矿藏 → 建设物资到场 → 矿场生产/满仓 → 编队运回 → 真实情报形成压力 → 护航/拦截 → Materials 造舰 → Colony 产补给与预算 → 事件响应及后果。
 
-`npm test` 验证规则、确定性、存档与地图数学；`npm run test:e2e` 构建并启动真实 Electron。实玩脚本 `scripts/play-v6.mjs` 提供基于 Playwright 的真实 UI 控制，并把时间、操作、公开快照摘要和截图写到 `docs/verification/v6/`；它不向世界注入调试状态或推进模拟时钟。
-
-默认世界至少 10 分钟 1× 持续运行，另用 seed 42、1701 复查。重大暂停若发生，记录原因后由玩家继续。变更导致的失败须修复并重跑；测试通过不替代实际观察。发布包不在本轮范围。
+`node scripts/acceptance-v7.mjs 236807 --observe` 包含十分钟连续 1× 观察；seed 42、1701 复查。输出位于 `docs/verification/v7/`。失败尝试保留在原始日志中，以最后一次正常初始化后的成功段作为完成证据。发布旧包不在本轮范围，测试通过不代替实玩。

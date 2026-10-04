@@ -58,7 +58,8 @@ describe('frontier construction and capabilities', () => {
       expect(l).toBeDefined();
       expect(l.hull).toBeGreaterThan(600);
       expect(l.shield).toBeGreaterThan(300);
-      expect(l.stock.supplies).toBeGreaterThanOrEqual(8);
+      expect(l.stock.supplies).toBeGreaterThan(0);
+      expect(l.stock.supplies).toBeLessThanOrEqual(l.capacity.supplies);
       issue(
         e,
         {
@@ -73,7 +74,8 @@ describe('frontier construction and capabilities', () => {
         s.id,
       );
       until(e, () => !s.current);
-      expect(l.stock.supplies).toBeGreaterThanOrEqual(8);
+      expect(l.stock.supplies).toBeGreaterThan(0);
+      expect(l.stock.supplies).toBeLessThanOrEqual(l.capacity.supplies);
       expect(() => worldSchema.parse(e.state)).not.toThrow();
     },
   );
@@ -108,6 +110,16 @@ describe('frontier construction and capabilities', () => {
     const e = quietEngine(),
       s = e.state.ships[2],
       sys = e.state.systems[0];
+    const hidden = {
+      ...e.state.bodies[0],
+      id: 'deep-test',
+      kind: 'anomaly' as const,
+      systemId: sys.id,
+      hidden: true,
+      discovered: false,
+    };
+    e.state.bodies.push(hidden);
+    sys.bodyIds.push(hidden.id);
     e.base.stock.specialFinds = 2;
     e.state.resources.credits = 1000;
     e.base.stock.materials = 200;
@@ -199,22 +211,35 @@ describe('frontier construction and capabilities', () => {
       10,
     );
   });
-  it('all-ship loss remains permanent and minimum industrial recovery succeeds within 5 minutes at 1x', () => {
+  it('all-ship loss recovers through colony income and real paid delivery, never base production', () => {
     const e = quietEngine();
     for (const s of [...e.state.ships]) e.hit(s, 10000);
     e.finishCritical();
     e.state.resources.credits = 0;
     e.base.stock = emptyStock();
-    for (const l of e.state.locations.filter((l) => l.id !== 'base')) l.stock = emptyStock();
-    run(e, 241);
-    expect(e.state.resources.credits).toBeGreaterThanOrEqual(BUILD_COSTS.peregrine.credits);
-    expect(e.base.stock.materials).toBeGreaterThanOrEqual(BUILD_COSTS.peregrine.materials);
+    run(e, 150);
+    expect(e.base.stock.materials).toBe(0);
+    expect(
+      e.dispatchCommand({
+        type: 'tradeStock',
+        direction: 'buy',
+        cargoKind: 'materials',
+        amount: 20,
+      }).ok,
+    ).toBe(true);
+    expect(
+      e.dispatchCommand({ type: 'tradeStock', direction: 'buy', cargoKind: 'supplies', amount: 10 })
+        .ok,
+    ).toBe(true);
+    run(e, 400);
+    expect(e.base.stock.materials).toBe(20);
+    expect(e.base.stock.supplies).toBe(10);
     expect(
       e.dispatchCommand({ type: 'buildShip', classId: 'peregrine', name: 'USS RECOVERY' }).ok,
     ).toBe(true);
     run(e, 25);
     expect(e.state.ships).toHaveLength(1);
-    expect(e.state.losses).toHaveLength(4);
+    expect(e.state.losses).toHaveLength(6);
     expect(e.state.ships[0].id).not.toBe('vigil');
   });
   it('renames persist independently of stable IDs and history is not truncated by communication rolls', () => {
@@ -265,12 +290,13 @@ describe('persistent Orion and Romulan ecology', () => {
       );
       s.path = [{ x: s.x + 20, y: s.y }];
       decideThreat(e, scout);
-      expect(e.state.factions.orion.reports.some((r) => r.id === s.id)).toBe(route === 'risky');
+      expect(scout.localReports.some((r) => r.id === s.id)).toBe(route === 'risky');
       s.path = [];
       e.state.factions.orion.reports = [];
+      scout.localReports = [];
       scout.nextDecision = 0;
       decideThreat(e, scout);
-      expect(e.state.factions.orion.reports.some((r) => r.id === s.id)).toBe(false);
+      expect(scout.localReports.some((r) => r.id === s.id)).toBe(false);
     }
   });
   it('scout intelligence and exposed value cause a raid; heavy escort makes the same lane unattractive', () => {
@@ -284,12 +310,26 @@ describe('persistent Orion and Romulan ecology', () => {
     s.cargo.materials = 100;
     decideThreat(e, scout);
     decideThreat(e, raider);
+    expect(raider.intent).toBe('observe');
+    const hideout = e.state.locations.find((l) => l.id === 'orion-base')!;
+    scout.x = hideout.x;
+    scout.y = hideout.y;
+    scout.nextDecision = 0;
+    decideThreat(e, scout);
+    raider.nextDecision = 0;
+    decideThreat(e, raider);
     expect(raider.intent).toBe('raid');
     expect(raider.targetId).toBe(s.id);
     const escort = e.state.ships[3];
     escort.x = s.x;
     escort.y = s.y;
     raider.nextDecision = 0;
+    scout.x = 210;
+    scout.y = 0;
+    scout.nextDecision = 0;
+    decideThreat(e, scout);
+    scout.x = hideout.x;
+    scout.y = hideout.y;
     scout.nextDecision = 0;
     decideThreat(e, scout);
     decideThreat(e, raider);
@@ -407,7 +447,9 @@ describe('persistent Orion and Romulan ecology', () => {
     ];
     run(e, 5);
     expect(e.state.factions.romulan.stance).toBe('escalate');
-    expect(e.state.history.filter((h) => h.kind === 'border')).toHaveLength(1);
+    expect(
+      e.state.history.filter((h) => h.kind === 'border' && h.text.includes('宣布军事升级')),
+    ).toHaveLength(1);
   });
   it('an ordinary raid leaves facilities alive while reinforcement travels from Dawn', () => {
     const e = quietEngine(),
@@ -507,9 +549,12 @@ describe('faction recovery, political actions and long-lived save invariants', (
       issue(
         e,
         {
-          type: 'MINE',
-          targetId: e.state.bodies.find((b) => b.survey === 2 && b.kind === 'resource')!.id,
-          unloadId: 'base',
+          type: 'HAUL',
+          sourceId: 'mine',
+          targetId: 'base',
+          cargoKind: 'materials',
+          amount: 60,
+          route: 'direct',
           repeat: true,
         },
         'horizon',

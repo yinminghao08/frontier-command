@@ -48,7 +48,7 @@ async function screenshot(page: Page, name: string) {
 }
 test('Classic geometry, eight Starbase modules, directives and Inspector at six sizes', async () => {
   test.setTimeout(120000);
-  const directory = mkdtempSync(join(tmpdir(), 'lcars-v6-geometry-'));
+  const directory = mkdtempSync(join(tmpdir(), 'lcars-v7-geometry-'));
   new SaveStore(directory).write(quietEngine().state);
   const page = await launch(directory),
     errors: string[] = [];
@@ -78,7 +78,7 @@ test('Classic geometry, eight Starbase modules, directives and Inspector at six 
       }),
     );
     expect(overflow).toEqual([]);
-    await screenshot(page, 'v6-' + width + 'x' + height);
+    await screenshot(page, 'v7-' + width + 'x' + height);
   }
   await size(page, 1920, 1080);
   for (const nav of ['OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
@@ -97,18 +97,18 @@ test('Classic geometry, eight Starbase modules, directives and Inspector at six 
         'DEFENSE GRID',
       ]) {
         await page.getByRole('tab', { name: tab, exact: true }).click();
-        await screenshot(page, 'v6-starbase-' + tab.replaceAll(' ', '-'));
+        await screenshot(page, 'v7-starbase-' + tab.replaceAll(' ', '-'));
       }
-    await screenshot(page, 'v6-' + nav.toLowerCase());
+    await screenshot(page, 'v7-' + nav.toLowerCase());
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
   }
   await page.locator('.operation-chip').filter({ hasText: 'VERITY' }).click();
-  await expect(page.locator('.inspector')).toContainText('FINAL ADMIRAL AUTHORITY');
-  await screenshot(page, 'v6-ship');
+  await expect(page.locator('.inspector')).toContainText('Admiral 拥有最终指挥权');
+  await screenshot(page, 'v7-ship');
   await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Admiral 指令' })).toBeVisible();
-  await screenshot(page, 'v6-directive');
+  await screenshot(page, 'v7-directive');
   await page.keyboard.press('Escape');
   expect(errors).toEqual([]);
 });
@@ -193,7 +193,7 @@ test('preferences persist, three motion modes, real audio and rapid feedback are
     .click();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Console Settings', exact: true }).click();
-  await page.getByRole('button', { name: /02 OPERATIONS/ }).click();
+  await page.getByRole('button', { name: /OPERATIONS/ }).click();
   await expect(settings).not.toBeVisible();
   await expect(page.getByRole('dialog', { name: 'OPERATIONS 工作面板' })).toBeVisible();
   await page.keyboard.press('Escape');
@@ -231,7 +231,7 @@ for (const scale of [1.25, 1.5, 2])
       ).toBeInViewport();
     await screenshot(page, 'scale-' + scale * 100);
     if (scale === 2) {
-      await page.getByRole('button', { name: '打开 Inspector' }).click();
+      await page.getByRole('button', { name: '打开对象详情' }).click();
       await expect(page.locator('.inspector')).toBeVisible();
       await screenshot(page, 'compact-inspector');
       await page.keyboard.press('Escape');
@@ -245,8 +245,8 @@ for (const scale of [1.25, 1.5, 2])
       await page.keyboard.press('Escape');
       await expect(colony).toBeFocused();
     }
-    await page.getByRole('button', { name: /02 OPERATIONS/ }).click();
-    await page.getByRole('button', { name: 'Transport / Haul', exact: true }).click();
+    await page.getByRole('button', { name: /OPERATIONS/ }).click();
+    await page.getByRole('button', { name: '运输货物', exact: true }).click();
     await screenshot(page, 'scale-' + scale * 100 + '-form');
     await expect(page.getByRole('button', { name: '关闭行动编辑' })).toBeInViewport();
   });

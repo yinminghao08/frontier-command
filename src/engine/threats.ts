@@ -1,3 +1,6 @@
+import { deposit } from './inventory';
+import { loseStock } from './inventory';
+import { createEvent } from './world-events';
 import type { SimulationEngine } from './engine';
 import type { Enemy, ThreatReport } from './types';
 import { GOODS } from './types';
@@ -9,7 +12,7 @@ import { makeEnemy } from './data';
 function gather(e: SimulationEngine, s: Enemy) {
   const w = e.state,
     range = capabilities(s).sensors,
-    visible = w.ships.filter((x) => {
+    visible = [...w.ships, ...w.civilians].filter((x) => {
       const exposed =
         x.path.length > 0 &&
         x.current?.action.type === 'HAUL' &&
@@ -40,7 +43,10 @@ function gather(e: SimulationEngine, s: Enemy) {
         observerId: s.id,
         seenAt: w.time,
         kind: 'facility' as const,
-        value: l.stock.materials * 5 + l.stock.supplies * 3,
+        value:
+          l.stock.materials * 5 +
+          l.stock.supplies * 3 +
+          (l.colony ? l.colony.population * (0.5 + l.colony.industry / 100) * 0.1 : 0),
         defense:
           l.hull +
           l.shield +
@@ -48,10 +54,22 @@ function gather(e: SimulationEngine, s: Enemy) {
       })),
   ];
   const faction = w.factions[s.factionId as 'orion' | 'romulan'];
-  faction.reports = faction.reports.filter(
+  s.localReports = s.localReports.filter(
     (r) => w.time - r.seenAt < RULES.reportTTL && !reports.some((n) => n.id === r.id),
   );
-  faction.reports.push(...reports);
+  s.localReports.push(...reports);
+  const home = w.locations.find((l) => l.id === s.homeId && l.hull > 0);
+  if (home && dist(s, home) < 240) {
+    const received = s.localReports.filter((r) => w.time - r.seenAt < RULES.reportTTL);
+    faction.reports = faction.reports.filter(
+      (r) =>
+        w.time - r.seenAt < RULES.reportTTL &&
+        !received.some((n) => n.id === r.id && n.seenAt >= r.seenAt),
+    );
+    for (const r of received)
+      if (!faction.reports.some((n) => n.id === r.id && n.seenAt >= r.seenAt))
+        faction.reports.push(structuredClone(r));
+  }
 }
 export function decideThreat(e: SimulationEngine, s: Enemy) {
   if (s.intent === 'docked') return;
@@ -73,11 +91,33 @@ export function decideThreat(e: SimulationEngine, s: Enemy) {
     return;
   }
   if (s.intent === 'retreat') return;
+  if (
+    s.factionId === 'romulan' &&
+    s.role === 'warbird' &&
+    (faction.stance === 'withdraw' ||
+      (s.id === 'romulan-reserve' && !['reinforce', 'escalate'].includes(faction.stance)))
+  ) {
+    s.intent = 'retreat';
+    s.targetId = null;
+    s.destination = home ? { x: home.x, y: home.y } : null;
+    return;
+  }
   if (s.role === 'scout') {
+    if (
+      home &&
+      dist(s, home) > 240 &&
+      s.localReports.some(
+        (r) => r.value > 0 && !faction.reports.some((x) => x.id === r.id && x.seenAt >= r.seenAt),
+      )
+    ) {
+      s.intent = 'retreat';
+      s.destination = { x: home.x, y: home.y };
+      return;
+    }
     s.intent = 'observe';
     s.targetId = null;
     // Scouts inspect charted navigation nodes, then investigate locally observed traffic.
-    const traffic = faction.reports
+    const traffic = [...s.localReports, ...faction.reports]
       .filter((r) => r.kind === 'ship' && w.time - r.seenAt < 30)
       .sort((a, b) => b.value - a.value || a.id.localeCompare(b.id))[0];
     const nodes =
@@ -113,7 +153,12 @@ export function decideThreat(e: SimulationEngine, s: Enemy) {
     }))
     .sort((a, b) => b.score - a.score || a.r.id.localeCompare(b.r.id));
   const best = candidates[0];
-  if (best && best.score > 15 && (s.factionId === 'orion' || tension >= 35)) {
+  if (
+    best &&
+    best.score > 15 &&
+    (s.factionId === 'orion' || ['probe', 'reinforce', 'escalate'].includes(faction.stance)) &&
+    (s.factionId === 'orion' || best.r.x >= 650)
+  ) {
     s.targetId = best.r.id;
     s.destination = { x: best.r.x, y: best.r.y };
     s.intent = s.factionId === 'orion' ? 'raid' : 'probe';
@@ -146,11 +191,16 @@ export function advanceEnemy(e: SimulationEngine, s: Enemy, dt: number) {
     if (s.loot > 0) {
       for (const k of GOODS) {
         const sold = Math.floor(s.cargo[k] * 0.25);
-        home.stock[k] += s.cargo[k] - sold;
+        const unloaded = deposit(home, k, s.cargo[k] - sold);
+        if (unloaded < s.cargo[k] - sold) {
+          s.cargo[k] -= unloaded + sold;
+          continue;
+        }
         w.factions[s.factionId as 'orion' | 'romulan'].credits += sold * 5;
         s.cargo[k] = 0;
       }
-      s.loot = 0;
+      s.loot = cargoUsed(s);
+      if (s.loot > 0) return;
     }
     if (home.stock.materials > 0.05 && s.hull < capabilities(s).hull) {
       const amount = Math.min(home.stock.materials, dt * 0.5, (capabilities(s).hull - s.hull) / 8);
@@ -183,11 +233,11 @@ export function advanceEnemy(e: SimulationEngine, s: Enemy, dt: number) {
   );
   const target =
     report &&
-    (w.ships.find((x) => x.id === report.id) ||
+    ([...w.ships, ...w.civilians].find((x) => x.id === report.id) ||
       w.locations.find((l) => l.id === report.id && l.owner === 'starfleet'));
   if (target && dist(s, target) < capabilities(s).sensors && ['raid', 'probe'].includes(s.intent)) {
     s.destination = { x: target.x, y: target.y };
-    e.fire(s, target);
+    if (s.factionId === 'orion' || w.factions.romulan.stance === 'escalate') e.fire(s, target);
     if (
       s.factionId === 'orion' &&
       dist(s, target) < 90 &&
@@ -203,7 +253,8 @@ export function advanceEnemy(e: SimulationEngine, s: Enemy, dt: number) {
           8,
         );
         if (n <= 0) continue;
-        stock[k] -= n;
+        if ('stock' in target) loseStock(e, target, k, n);
+        else stock[k] -= n;
         s.cargo[k] += n;
         s.loot += n;
       }
@@ -232,21 +283,61 @@ export function advanceFactions(e: SimulationEngine, dt: number) {
   if (w.tick % 50 === 0) {
     const rom = w.factions.romulan,
       previous = rom.stance;
-    const fresh = rom.reports.some((r) => w.time - r.seenAt < RULES.reportTTL);
+    const fresh = rom.reports.some((r) => w.time - r.seenAt < RULES.reportTTL && r.x >= 650);
     rom.stance = !fresh
-      ? 'observe'
+      ? ['probe', 'reinforce', 'escalate', 'withdraw'].includes(previous)
+        ? 'withdraw'
+        : 'observe'
       : w.tension >= 65
         ? 'escalate'
-        : w.tension >= 35
-          ? 'probe'
-          : w.tension >= 15
-            ? 'patrol'
-            : 'observe';
+        : w.tension >= 50
+          ? 'reinforce'
+          : w.tension >= 35
+            ? 'probe'
+            : w.tension >= 15
+              ? 'patrol'
+              : 'observe';
+    if (previous !== rom.stance)
+      e.record(
+        'border',
+        'Border Command ' + rom.stance + '：依据已收到情报与 tension ' + Math.round(w.tension),
+        'romulan-base',
+      );
+    if (['probe', 'reinforce'].includes(rom.stance)) {
+      const intruder = rom.reports.find((r) => r.x >= 780 && w.ships.some((s) => s.id === r.id));
+      if (intruder)
+        createEvent(
+          e,
+          'diplomatic',
+          intruder.id,
+          'Romulan Warning：请撤离 Neutral Zone / Romulan territory',
+        );
+    }
     if (rom.stance === 'escalate' && previous !== 'escalate') {
       e.record('border', 'Romulan Border Command 宣布军事升级', 'romulan-base');
+      const assets = w.enemies.filter((s) => s.factionId === 'romulan' && s.role === 'warbird');
+      const subject = rom.reports.filter((r) => r.x >= 650).sort((a, b) => b.seenAt - a.seenAt)[0];
+      if (subject && assets.length)
+        createEvent(
+          e,
+          'invasion',
+          subject.id,
+          'Border Command 基于真实边境报告派出现役军舰',
+          assets.map((s) => s.id),
+        );
       e.critical('escalation', 'romulan-base', 'Romulan 军事升级');
     }
   }
+  w.factions.orion.pressure = Math.max(
+    0,
+    w.factions.orion.pressure +
+      dt *
+        (w.factions.orion.reports
+          .filter((r) => w.time - r.seenAt < RULES.reportTTL)
+          .reduce((n, r) => n + r.value * (1 - (w.time - r.seenAt) / RULES.reportTTL), 0) /
+          10000 -
+          0.05),
+  );
   const faction = w.factions.orion,
     home = w.locations.find((l) => l.id === 'orion-base' && l.hull > 0);
   if (!home) return;

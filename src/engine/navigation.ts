@@ -65,29 +65,78 @@ function unchartedDistance(w: Chart, start: Point, path: Point[]) {
   }
   return unknown;
 }
-export function planRoute(w: Chart, start: Point, end: Point, route: RouteKind): Point[] {
-  if (route === 'direct') return [{ ...end }];
-  if (route === 'risky')
-    return [{ x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 65 }, { ...end }];
-  const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
-  const facilities = w.locations.filter(
-    (l) => l.owner === 'starfleet' && l.hull > 0 && dist(l, start) > 20 && dist(l, end) > 20,
-  );
-  const nearest = facilities.sort(
-    (a, b) => dist(start, a) + dist(a, end) - (dist(start, b) + dist(b, end)),
-  )[0];
-  const hazards = [
+export function knownRouteHazards(w: Chart) {
+  return [
     ...w.bodies.filter((b) => b.discovered && b.kind === 'anomaly'),
     ...(w.intel ?? w.contacts ?? []).filter(
       (i) => i.hostile && !i.resolved && w.time - i.lastSeen <= RULES.intelTTL,
     ),
+  ].sort((a, b) => a.id.localeCompare(b.id));
+}
+export function safeRouteBlocked(w: Chart, start: Point, path: Point[]) {
+  let at = start;
+  const hazards = knownRouteHazards(w).filter(
+    (h) => dist(h, start) > 85 && dist(h, path.at(-1) ?? start) > 85,
+  );
+  for (const p of path) {
+    if (hazards.some((h) => segmentDistance(h, at, p) < 85 - 1e-8)) return true;
+    at = p;
+  }
+  return false;
+}
+export function planRoute(w: Chart, start: Point, end: Point, route: RouteKind): Point[] {
+  if (route === 'direct') return [{ x: end.x, y: end.y }];
+  if (route === 'risky')
+    return [
+      { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 65 },
+      { x: end.x, y: end.y },
+    ];
+  const hazards = knownRouteHazards(w).filter(
+    (h) => dist(h, start) > 85 && dist(h, end) > 85 && segmentDistance(h, start, end) < 240,
+  );
+  if (!hazards.some((h) => segmentDistance(h, start, end) < 85)) return [{ x: end.x, y: end.y }];
+  // Visibility graph: only known hazards, deterministic vertices and tie-breaking.
+  const nodes: Point[] = [
+    { x: start.x, y: start.y },
+    { x: end.x, y: end.y },
   ];
-  const crossing = hazards.find((h) => segmentDistance(h, start, end) < 85);
-  if (crossing) return [{ x: mid.x - 100, y: mid.y + 140 }, { ...end }];
-  if (dist(start, end) < 80) return [{ ...end }];
-  if (nearest && dist(start, nearest) + dist(nearest, end) <= dist(start, end) * 1.35 + 40)
-    return [{ x: nearest.x, y: nearest.y }, { ...end }];
-  return [{ x: mid.x, y: mid.y + 100 }, { ...end }];
+  for (const h of hazards.slice(0, 24))
+    for (let i = 0; i < 8; i++) {
+      const p = {
+        x: h.x + Math.cos((i * Math.PI) / 4) * 112,
+        y: h.y + Math.sin((i * Math.PI) / 4) * 112,
+      };
+      if (!hazards.some((other) => dist(other, p) < 85)) nodes.push(p);
+    }
+  const lengths = nodes.map(() => Infinity),
+    previous = nodes.map(() => -1),
+    visited = new Set<number>();
+  lengths[0] = 0;
+  for (let step = 0; step < nodes.length; step++) {
+    let at = -1;
+    for (let i = 0; i < nodes.length; i++)
+      if (!visited.has(i) && (at < 0 || lengths[i] < lengths[at])) at = i;
+    if (at < 0 || !Number.isFinite(lengths[at])) break;
+    if (at === 1) {
+      const path: Point[] = [];
+      for (let i = 1; i !== 0; i = previous[i]) path.unshift(nodes[i]);
+      return path;
+    }
+    visited.add(at);
+    for (let i = 1; i < nodes.length; i++) {
+      if (
+        visited.has(i) ||
+        hazards.some((h) => segmentDistance(h, nodes[at], nodes[i]) < 85 - 1e-8)
+      )
+        continue;
+      const candidate = lengths[at] + dist(nodes[at], nodes[i]);
+      if (candidate < lengths[i] - 1e-8) {
+        lengths[i] = candidate;
+        previous[i] = at;
+      }
+    }
+  }
+  return [{ x: end.x, y: end.y }];
 }
 export function routeEstimate(w: Chart, s: ReadonlyDeep<Ship>, end: Point, route: RouteKind) {
   const path = planRoute(w, s, end, route);
@@ -108,7 +157,11 @@ export function routeEstimate(w: Chart, s: ReadonlyDeep<Ship>, end: Point, route
     eta: Math.ceil(length / (capabilities(s).warp * factor) + 4),
     risk:
       route === 'safe'
-        ? 'LOW / defensive detour'
+        ? safeRouteBlocked(w, s, path)
+          ? 'ELEVATED / 无安全通路，需护航或改线'
+          : path.length > 1
+            ? 'LOW / 绕开已知危险'
+            : 'LOW / 直接通路'
         : route === 'risky'
           ? 'HIGH / turbulent, exposed corridor'
           : contacts

@@ -12,7 +12,7 @@ import { assistEvent, createEvent } from '../src/engine/world-events';
 import { FACILITIES, BUILD_COSTS } from '../src/engine/definitions/progression';
 import { dist, segmentDistance } from '../src/engine/navigation';
 
-describe('v8 command authority and economic boundaries', () => {
+describe('v9 command authority and economic boundaries', () => {
   it.each(['idle', 'low ammunition', 'low noncombat condition', 'completion', 'cancel', 'restart'])(
     '%s leaves default ships at their actual position',
     (condition) => {
@@ -75,7 +75,7 @@ describe('v8 command authority and economic boundaries', () => {
     until(e, () => !s.current);
     expect(s.x).toBeGreaterThan(740);
   });
-  it('inventory keys and strict v8 saves contain only the physical goods, and reject old formats', () => {
+  it('inventory keys and strict v9 saves contain only the physical goods, and reject old formats', () => {
     const e = quietEngine();
     const keys = ['materials', 'photon', 'quantum', 'specialFinds'];
     for (const x of [...e.state.locations, ...e.state.ships])
@@ -236,9 +236,9 @@ describe('physical SHADOW evidence, evasion and progressive location intelligenc
       const end = e.state.tick + 1600;
       while (e.state.tick < end) {
         e.dispatchCommand({ type: 'pause', paused: false });
-        e.advanceFrame();
+        e.advanceFrame((_events,state)=>{if(state.tick===end) state.paused=true;});
       }
-      worlds.push({ ...e.state, speed: 1 });
+      worlds.push({ ...e.state, speed: 1, paused: false });
     }
     expect(worlds[1]).toEqual(worlds[0]);
     expect(worlds[2]).toEqual(worlds[0]);

@@ -81,8 +81,10 @@ export function placeLabels(
   height: number,
   scale = 1,
   obstacles: LabelObstacle[] = [],
+  fontSize = 14 * scale,
 ) {
-  const placed: (MapLabel & { width: number; height: number; anchor: Point })[] = [];
+  const placed: (MapLabel & { width: number; height: number; anchor: Point; connector: Point })[] =
+    [];
   const occupied: LabelObstacle[] = [...obstacles];
   const intersects = (a: LabelObstacle, b: LabelObstacle) =>
     a.x < b.x + b.width + 4 &&
@@ -103,12 +105,6 @@ export function placeLabels(
       [-w / 2 - 24 * scale, 32 * scale],
       [w / 2 + 24 * scale, -25 * scale],
       [-w / 2 - 24 * scale, -25 * scale],
-      ...(l.priority >= 100
-        ? [
-            [width / 2 - l.x, 24 * scale - l.y],
-            [width / 2 - l.x, height - 10 * scale - l.y],
-          ]
-        : []),
     ]) {
       const p = { ...l, x: l.x + dx, y: l.y + dy, width: w, height: h, anchor: { x: l.x, y: l.y } };
       const box = { x: p.x - w / 2, y: p.y - h, width: w, height: h + 4 };
@@ -120,7 +116,12 @@ export function placeLabels(
       )
         continue;
       if (occupied.some((b) => intersects(box, b))) continue;
-      placed.push(p);
+      const connector = {
+        x: Math.max(box.x, Math.min(l.x, box.x + box.width)),
+        y: Math.max(box.y, Math.min(l.y, box.y + box.height)),
+      };
+      if (Math.hypot(connector.x - l.x, connector.y - l.y) > 4 * fontSize) continue;
+      placed.push({ ...p, connector });
       occupied.push(box);
       break;
     }

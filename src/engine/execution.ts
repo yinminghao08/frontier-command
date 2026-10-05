@@ -12,7 +12,7 @@ import type { SimulationEngine } from './engine';
 import type { Directive, Point, Ship } from './types';
 import { GOODS } from './types';
 import { capabilities, cargoUsed } from './capabilities';
-import { dist, move, planRoute } from './navigation';
+import { dist, move, planRoute, safeRouteBlocked } from './navigation';
 import { regenerate } from './combat';
 import { available, inventory, validateAction } from './command-system';
 import { RULES } from './definitions/rules';
@@ -74,7 +74,10 @@ export function go(
   if (s.path[0] && move(s, s.path[0], dt, factor * groupSpeed(e, s, d))) s.path.shift();
   borderCrossing(e, s, previous);
   d.moved += dist(previous, s);
-  d.note = '航行 / ' + route;
+  d.note =
+    '航行 / ' +
+    route +
+    (route === 'safe' && safeRouteBlocked(e.state, s, s.path) ? ' / 无安全通路，请护航或改线' : '');
   if (route === 'risky') e.hit(s, 0.75 * dt * capabilities(s).hazardFactor);
   return dist(s, p) <= range + 1e-8;
 }
@@ -221,6 +224,12 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
           other.stability = h.stability;
           other.stable = h.stable;
         }
+        e.pendingEvents.push({
+          type: 'shipTransited',
+          shipId: s.id,
+          destination: { x: s.x, y: s.y },
+          tick: w.tick,
+        });
         e.record('wormhole', s.name + '实际穿越 ' + h.name + '，航线与星图改变', h.id);
         e.complete(s, 'Wormhole 航行完成');
       }
@@ -287,6 +296,23 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         target.id,
       );
       e.complete(s, a.deep ? '隐藏异常已进入星图' : '调查完成；信息与矿藏持久保存');
+      for (const body of w.bodies.filter(
+        (body) =>
+          body.discovered &&
+          body.survey >= 2 &&
+          body.kind === 'derelict' &&
+          (body.id === a.targetId || body.systemId === a.targetId),
+      )) {
+        if (!w.events.some((v) => v.kind === 'derelict' && v.subjectId === body.id))
+          createEvent(
+            e,
+            'derelict',
+            body.id,
+            body.id === 'veil-derelict'
+              ? body.name + '无人舰桥已确认，可现场接管'
+              : body.name + '存在真实可打捞库存',
+          );
+      }
     }
   } else if (a.type === 'HAUL') {
     const src = inventory(w, a.sourceId),

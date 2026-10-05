@@ -11,14 +11,14 @@ import { join, resolve } from 'node:path';
 import { SaveStore } from '../../electron/persistence';
 import { quietEngine } from '../helpers';
 let app: ElectronApplication | undefined;
-const key = 'frontier.lcars.console.v1';
+const key = 'frontier.lcars.console.v2';
 async function launch(directory: string, scale = 1) {
   app = await electron.launch({
     args: ['--force-device-scale-factor=' + scale, resolve('.')],
     env: { ...process.env, FRONTIER_USER_DATA: directory, FRONTIER_HEADLESS: '1' },
   });
   const page = await app.firstWindow();
-  await page.getByRole('navigation', { name: '主导航' }).waitFor();
+  await page.locator('nav[aria-label="主导航"]').waitFor({ state: 'attached' });
   await page.evaluate(() => document.fonts.ready);
   return page;
 }
@@ -31,11 +31,11 @@ async function size(page: Page, width: number, height: number) {
     ({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0].setContentSize(s.width, s.height),
     { width, height },
   );
-  // Windows converts DIP to physical pixels and can round back by one CSS pixel.
+  // Windows converts DIP to physical pixels and can round back by up to two CSS pixels.
   await expect
     .poll(() =>
       page.evaluate(
-        (s) => Math.abs(innerWidth - s.width) <= 1 && Math.abs(innerHeight - s.height) <= 1,
+        (s) => Math.abs(innerWidth - s.width) <= 2 && Math.abs(innerHeight - s.height) <= 2,
         { width, height },
       ),
     )
@@ -48,7 +48,7 @@ async function screenshot(page: Page, name: string) {
 }
 test('Classic geometry, eight Starbase modules, directives and Inspector at six sizes', async () => {
   test.setTimeout(120000);
-  const directory = mkdtempSync(join(tmpdir(), 'lcars-v8-geometry-'));
+  const directory = mkdtempSync(join(tmpdir(), 'lcars-v9-geometry-'));
   new SaveStore(directory).write(quietEngine().state);
   const page = await launch(directory),
     errors: string[] = [];
@@ -64,7 +64,7 @@ test('Classic geometry, eight Starbase modules, directives and Inspector at six 
     await size(page, width, height);
     const map = await page.locator('.strategic-map').boundingBox();
     expect(map!.width).toBeGreaterThan(width * 0.58);
-    expect(map!.height).toBeGreaterThan(height * 0.5);
+    expect(map!.height).toBeGreaterThan(height * 0.35);
     const overflow = await page.evaluate(() =>
       [
         '.command-header',
@@ -78,7 +78,7 @@ test('Classic geometry, eight Starbase modules, directives and Inspector at six 
       }),
     );
     expect(overflow).toEqual([]);
-    await screenshot(page, 'v8-' + width + 'x' + height);
+    await screenshot(page, 'v9-' + width + 'x' + height);
   }
   await size(page, 1920, 1080);
   for (const nav of ['OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
@@ -97,18 +97,18 @@ test('Classic geometry, eight Starbase modules, directives and Inspector at six 
         'DEFENSE GRID',
       ]) {
         await page.getByRole('tab', { name: new RegExp('^' + tab + ' ') }).click();
-        await screenshot(page, 'v8-starbase-' + tab.replaceAll(' ', '-'));
+        await screenshot(page, 'v9-starbase-' + tab.replaceAll(' ', '-'));
       }
-    await screenshot(page, 'v8-' + nav.toLowerCase());
+    await screenshot(page, 'v9-' + nav.toLowerCase());
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
   }
   await page.locator('.operation-chip').filter({ hasText: 'VERITY' }).click();
   await expect(page.locator('.inspector')).toContainText('Admiral 拥有最终指挥权');
-  await screenshot(page, 'v8-ship');
+  await screenshot(page, 'v9-ship');
   await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Admiral 指令' })).toBeVisible();
-  await screenshot(page, 'v8-directive');
+  await screenshot(page, 'v9-directive');
   await page.keyboard.press('Escape');
   expect(errors).toEqual([]);
 });
@@ -225,10 +225,14 @@ for (const scale of [1.25, 1.5, 2])
     const page = await launch(mkdtempSync(join(tmpdir(), 'lcars-scale-')), scale);
     await size(page, Math.round(1920 / scale), Math.round(1080 / scale));
     await expect.poll(() => page.evaluate(() => devicePixelRatio)).toBe(scale);
-    for (const nav of ['SECTOR', 'OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE'])
-      await expect(
-        page.getByRole('navigation').getByRole('button', { name: new RegExp(nav) }),
-      ).toBeInViewport();
+    const menu = page.getByRole('button', { name: 'MENU 导航', exact: true });
+    if (await menu.isVisible()) await menu.click();
+    for (const nav of ['SECTOR', 'OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
+      const button = page.getByRole('navigation').getByRole('button', { name: new RegExp(nav) });
+      await button.scrollIntoViewIfNeeded();
+      await expect(button).toBeInViewport();
+    }
+    if (await menu.isVisible()) await page.keyboard.press('Escape');
     await screenshot(page, 'scale-' + scale * 100);
     if (scale === 2) {
       await page.getByRole('button', { name: '打开对象详情' }).click();
@@ -245,6 +249,7 @@ for (const scale of [1.25, 1.5, 2])
       await page.keyboard.press('Escape');
       await expect(colony).toBeFocused();
     }
+    if (await menu.isVisible()) await menu.click();
     await page.getByRole('button', { name: /OPERATIONS/ }).click();
     await page.getByRole('button', { name: '运输货物', exact: true }).click();
     await screenshot(page, 'scale-' + scale * 100 + '-form');

@@ -5,7 +5,7 @@ import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
 const executablePath =
   process.env.FRONTIER_EXECUTABLE || resolve('release/win-unpacked/Frontier Command.exe');
-const userData = mkdtempSync(join(tmpdir(), 'frontier-packaged-v8-'));
+const userData = mkdtempSync(join(tmpdir(), 'frontier-packaged-v9-'));
 const launch = () =>
   electron.launch({
     executablePath,
@@ -25,7 +25,7 @@ try {
   );
   await page.context().setOffline(true);
   const initial = (await page.evaluate(() => window.frontier.getState())).state;
-  assert.equal(initial.version, 8);
+  assert.equal(initial.version, 9);
   assert.equal(initial.ships.length, 6);
   assert.equal(initial.contacts.length, 0);
   const result = await page.evaluate(() =>
@@ -62,7 +62,7 @@ try {
   assert.equal(restored.time, saved.time);
   assert.deepEqual(restored.ships, saved.ships);
   console.log(
-    'PASS: v8 packaged EXE, hidden window, offline directive, fixed-step simulation, save and restart.',
+    'PASS: v9 packaged EXE, hidden window, offline directive, fixed-step simulation, save and restart.',
   );
 } finally {
   if (app) await app.close().catch(() => {});

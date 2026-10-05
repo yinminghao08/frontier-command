@@ -10,6 +10,7 @@ import { capabilities, cargoUsed } from './capabilities';
 import { BUILD_COSTS, FACILITIES, UPGRADES, cost } from './definitions/progression';
 import { RULES } from './definitions/rules';
 import { SHIP_CLASSES } from './definitions/ships';
+import { markerRemovalReason } from './map-markers';
 export const ok = (reason = '命令已接受'): CommandResult => ({ ok: true, reason });
 export const no = (reason: string): CommandResult => ({ ok: false, reason });
 export { inventory, available } from './inventory';
@@ -156,6 +157,10 @@ export function validate(
     }
     return ok();
   }
+  if (c.type === 'dismissMapMarker') {
+    const reason = markerRemovalReason(w, c.entityId);
+    return reason ? no(reason) : ok();
+  }
   const frontierResult = validateFrontierCommand(this, c);
   if (frontierResult) return frontierResult;
   if (c.type === 'cancelDirective' || c.type === 'standingOrders')
@@ -177,6 +182,7 @@ export function validate(
     const b = w.bodies.find((b) => b.id === c.siteId && b.discovered),
       sys = w.systems.find((s) => s.id === c.siteId && s.discovered);
     if (!b && !sys) return no('请选择已发现地点');
+    if (b?.kind === 'derelict') return no('失落舰船需要调查与接管，不能建设设施');
     if ((b?.survey ?? sys?.survey ?? 0) < 2) return no('建设需要近距调查');
     if (c.kind === 'mine' && (!b || b.kind !== 'resource' || b.remaining <= 0))
       return no('矿场需要可采矿藏');
@@ -267,6 +273,16 @@ export function dispatchCommand(
     w = this.state;
   const applied = applyFrontierCommand(this, c);
   if (applied) return applied;
+  if (c.type === 'dismissMapMarker') {
+    const ids = [c.entityId];
+    if (w.bodies.some((b) => b.id === c.entityId)) {
+      const wreck = w.wrecks.find((x) => x.id === 'wreck:' + c.entityId);
+      if (wreck) ids.push(wreck.id);
+    }
+    w.dismissedMarkerIds = [...new Set([...w.dismissedMarkerIds, ...ids])].sort();
+    this.record('mapCleanup', '已移除无价值标记，历史与实体保留', c.entityId);
+    return ok('标记已永久移除');
+  }
   if (c.type === 'pause') {
     w.paused = c.paused;
     if (!c.paused) w.pauseReasons = [];

@@ -1,4 +1,4 @@
-import { _electron as electron } from '@playwright/test';
+import { _electron as electron, expect } from '@playwright/test';
 import { createRequire } from 'node:module';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,8 +8,8 @@ const require = createRequire(import.meta.url);
 const { createWorld } = require('../dist-electron/src/engine/data.js');
 const { SaveStore } = require('../dist-electron/electron/persistence.js');
 const seed = Number(process.argv[2] ?? 236807),
-  directory = mkdtempSync(join(tmpdir(), 'frontier-v8-acceptance-'));
-const output = resolve('docs/verification/v8');
+  directory = mkdtempSync(join(tmpdir(), 'frontier-v9-acceptance-'));
+const output = resolve('docs/verification/v9');
 mkdirSync(output, { recursive: true });
 new SaveStore(directory).write(createWorld(seed));
 const app = await electron.launch({
@@ -27,7 +27,21 @@ async function wait(predicate, label, timeout = 60000) {
     const s = await state();
     assert.equal(s.status, 'active');
     if (predicate(s)) return s;
-    if (s.paused) await page.getByRole('button', { name: '继续', exact: true }).click();
+    if (s.paused) {
+      const alert = page.getByRole('dialog', { name: '接触警报' });
+      if (
+        s.pauseReasons.some(
+          (r) =>
+            r.kind === 'newContact' &&
+            s.communications.some((c) => !c.read && c.entityId === r.entityId && c.time === r.time),
+        )
+      ) {
+        await expect(alert).toBeVisible();
+        await alert.getByRole('button', { name: '确认 / 保持暂停', exact: true }).click();
+        await expect(alert).not.toBeVisible();
+      }
+      await page.getByRole('button', { name: '继续', exact: true }).click();
+    }
     await page.waitForTimeout(150);
   }
   throw Error('Timeout: ' + label);
@@ -64,11 +78,14 @@ async function capture(name) {
   console.log('PASS ' + name + ' at ' + s.time + ' game minutes');
 }
 try {
-  await page.getByRole('navigation', { name: '主导航' }).waitFor();
+  await page.locator('nav[aria-label="主导航"]').waitFor({ state: 'attached' });
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setContentSize(1920, 1200),
+  );
   await page.context().setOffline(true);
   await page.evaluate(() => document.fonts.ready);
   const initial = await state();
-  assert.equal(initial.version, 8);
+  assert.equal(initial.version, 9);
   assert.equal(initial.ships.length, 6);
   assert.equal(initial.locations.find((l) => l.id === 'mine').capacity.materials, 3000);
   await capture('start');
@@ -99,7 +116,7 @@ try {
   writeFileSync(
     join(output, `acceptance-${seed}.json`),
     JSON.stringify(
-      { seed, version: 8, complete: true, isolatedUserData: directory, steps, errors },
+      { seed, version: 9, complete: true, isolatedUserData: directory, steps, errors },
       null,
       2,
     ),

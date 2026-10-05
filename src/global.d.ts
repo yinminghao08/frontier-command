@@ -1,4 +1,10 @@
-import type { Command, SessionCommand, CommandResult, Snapshot } from './engine/types';
+import type {
+  Command,
+  SessionCommand,
+  CommandResult,
+  Snapshot,
+  PublicSimulationEvent,
+} from './engine/types';
 import type { TimelineStatus } from './engine/timeline';
 declare global {
   interface Window {
@@ -13,6 +19,8 @@ declare global {
       save(): Promise<CommandResult>;
       timeline(): Promise<TimelineStatus>;
       onState(callback: (state: Snapshot) => void): () => void;
+      onEvents(callback: (events: PublicSimulationEvent[]) => void): () => void;
+      setDisplayZoom(factor: number): Promise<number>;
     };
   }
 }

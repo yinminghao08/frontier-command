@@ -1,6 +1,6 @@
 import { StandingPanel } from './StandingPanel';
 import { EventsView } from './EventsView';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Snapshot, Action, FacilityKind } from '../engine/types';
 import type { Selection } from '../StrategicMap';
 import type { CommandSender } from './types';
@@ -38,12 +38,14 @@ function Rename({ id, name, command }: { id: string; name: string; command: Comm
 export function Inspector({
   world,
   selection,
+  selectedShipIds,
   select,
   command,
   create,
 }: {
   world: Snapshot;
   selection: Selection | null;
+  selectedShipIds: string[];
   select: (s: Selection) => void;
   command: CommandSender;
   create: (r: ComposerRequest) => void;
@@ -53,8 +55,26 @@ export function Inspector({
     [freighter, setFreighter] = useState(
       world.ships.find((s) => s.classId === 'antares')?.id ?? world.ships[0]?.id ?? '',
     );
+  useEffect(() => {
+    if (selectedShipIds[0]) setFreighter(selectedShipIds[0]);
+  }, [selectedShipIds]);
   const launch = (type: Action['type'], shipId?: string) =>
-    create({ action: defaultAction(type, world, selection), shipId });
+    create({
+      action: defaultAction(type, world, selection),
+      ...(shipId && selectedShipIds.length > 1 && selectedShipIds.includes(shipId)
+        ? { shipIds: selectedShipIds }
+        : { shipId }),
+    });
+  const returnActions = (
+    <div className="inline-actions">
+      <LcarsButton onClick={() => create({ action: { type: 'RETURN' } })}>
+        返回 Dawn / 保留货物
+      </LcarsButton>
+      <LcarsButton onClick={() => create({ action: { type: 'UNLOAD', targetId: 'base' } })}>
+        返回 Dawn 并卸货
+      </LcarsButton>
+    </div>
+  );
   if (!selection) return <p>选择舰船、设施、恒星系或 UNKNOWN SPACE，下达 Admiral 意图。</p>;
   if (selection.type === 'siteContact') {
     const site = world.siteContacts.find((s) => s.id === selection.id);
@@ -185,7 +205,11 @@ export function Inspector({
             </LcarsButton>
             <p>
               隐形状态：
-              {s.cloak === 'on' ? '持续隐形' : s.cloak === 'decloaking' ? '解除隐形中' : '可被探测'}{' '}
+              {s.cloak === 'on'
+                ? '持续隐形'
+                : s.cloak === 'decloaking'
+                  ? '解除隐形中'
+                  : '可被探测'}{' '}
               · 开始跟踪时自动开启，开火解除隐形。
             </p>
           </>
@@ -234,6 +258,7 @@ export function Inspector({
           </p>
         ))}
         <LcarsButton onClick={() => launch('UNLOAD', s.id)}>卸货入库</LcarsButton>
+        {returnActions}
         <LcarsTextBar>
           模块 / {s.modules.length} / {c.moduleSlots}
         </LcarsTextBar>
@@ -267,6 +292,34 @@ export function Inspector({
       sys = world.systems.find((s) => s.id === selection.id),
       entity = b ?? sys;
     if (!entity) return <p>当前情报不可用。</p>;
+    if (b?.kind === 'derelict') {
+      const event = world.events.find((v) => v.subjectId === b.id && v.kind === 'derelict');
+      return (
+        <>
+          <LcarsTextBar>{b.name}</LcarsTextBar>
+          <p>失落舰船 · 调查 {b.survey}/2</p>
+          {event && (
+            <>
+              <LcarsMeter label="现场接管进度" value={event.work} max={20} />
+              <p>
+                {event.outcome || (event.stage === 'responding' ? '接管执行中' : '等待现场接管')}
+              </p>
+            </>
+          )}
+        </>
+      );
+    }
+    const buildOptions = [
+      ...(b?.kind === 'resource' && b.remaining > 0 ? ['mine' as const] : []),
+      ...(b?.kind === 'planet' && b.habitable ? ['colony' as const] : []),
+      'outpost' as const,
+      ...(world.upgrades.defense ? ['platform' as const] : []),
+    ].filter(
+      (kind) =>
+        !world.locations.some((l) => l.siteId === entity.id && l.kind === kind && l.hull > 0) &&
+        !world.projects.some((p) => p.siteId === entity.id && p.kind === kind),
+    );
+    const chosenBuild = buildOptions.includes(buildKind) ? buildKind : buildOptions[0];
     return (
       <>
         <LcarsTextBar>{entity.name}</LcarsTextBar>
@@ -305,45 +358,50 @@ export function Inspector({
               )
             );
           })}
-        <LcarsTextBar>前沿建设</LcarsTextBar>
-        <LcarsField>
-          设施类型
-          <select
-            aria-label="设施类型"
-            value={buildKind}
-            onChange={(e) => setBuildKind(e.target.value as typeof buildKind)}
-          >
-            <option value="mine">矿场</option>
-            <option value="outpost">前哨</option>
-            <option value="colony">殖民地</option>
-            <option value="platform">防御平台</option>
-          </select>
-        </LcarsField>
-        <LcarsField>
-          设施名称
-          <input
-            aria-label="新设施名称"
-            value={projectName}
-            placeholder={entity.name + ' ' + FACILITY_LABELS[buildKind]}
-            onChange={(e) => setProjectName(e.target.value)}
-          />
-        </LcarsField>
-        <p>
-          {FACILITIES[buildKind].cost.credits} 预算 · {FACILITIES[buildKind].cost.materials} 材料 /
-          必须运到现场
-        </p>
-        <LcarsButton
-          onClick={() =>
-            command({
-              type: 'startConstruction',
-              siteId: entity.id,
-              kind: buildKind,
-              name: projectName.trim() || entity.name + ' ' + FACILITY_LABELS[buildKind],
-            })
-          }
-        >
-          建立现场建设项目
-        </LcarsButton>
+        {buildOptions.length > 0 && (
+          <>
+            <LcarsTextBar>前沿建设</LcarsTextBar>
+            <LcarsField>
+              设施类型
+              <select
+                aria-label="设施类型"
+                value={chosenBuild}
+                onChange={(e) => setBuildKind(e.target.value as typeof buildKind)}
+              >
+                {buildOptions.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {FACILITY_LABELS[kind]}
+                  </option>
+                ))}
+              </select>
+            </LcarsField>
+            <LcarsField>
+              设施名称
+              <input
+                aria-label="新设施名称"
+                value={projectName}
+                placeholder={entity.name + ' ' + FACILITY_LABELS[chosenBuild]}
+                onChange={(e) => setProjectName(e.target.value)}
+              />
+            </LcarsField>
+            <p>
+              {FACILITIES[chosenBuild].cost.credits} 预算 · {FACILITIES[chosenBuild].cost.materials}{' '}
+              材料 / 必须运到现场
+            </p>
+            <LcarsButton
+              onClick={() =>
+                command({
+                  type: 'startConstruction',
+                  siteId: entity.id,
+                  kind: chosenBuild,
+                  name: projectName.trim() || entity.name + ' ' + FACILITY_LABELS[chosenBuild],
+                })
+              }
+            >
+              建立现场建设项目
+            </LcarsButton>
+          </>
+        )}
         {(!b || b.kind === 'planet') && (
           <Rename key={entity.id} id={entity.id} name={entity.name} command={command} />
         )}
@@ -378,31 +436,34 @@ export function Inspector({
         <LcarsButton
           disabled={p.complete}
           onClick={async () => {
-            const s = world.ships.find((s) => s.id === freighter);
-            if (!s) return;
-            const capacity = capabilities(s).cargo;
-            let first = true;
-            for (const [kind, needed] of [
-              ['materials', Math.max(0, Math.ceil(p.cost.materials - p.stock.materials))],
-            ] as const) {
-              for (let left = needed; left > 0; left -= capacity) {
-                const r = await command({
+            const ids = selectedShipIds.length > 0 ? selectedShipIds : [freighter];
+            const ships = world.ships.filter((s) => ids.includes(s.id));
+            let left = Math.max(0, Math.ceil(p.cost.materials - p.stock.materials));
+            const started = new Set<string>();
+            while (left > 0 && ships.length > 0) {
+              for (const ship of ships) {
+                if (left <= 0) break;
+                const amount = Math.min(capabilities(ship).cargo, left);
+                if (amount <= 0) continue;
+                const result = await command({
                   type: 'issueDirective',
-                  shipIds: [s.id],
-                  mode: first ? 'REPLACE' : 'QUEUE',
+                  shipIds: [ship.id],
+                  mode: started.has(ship.id) ? 'QUEUE' : 'REPLACE',
                   action: {
                     type: 'HAUL',
                     sourceId: 'base',
                     targetId: p.id,
-                    cargoKind: kind,
-                    amount: Math.min(capacity, left),
+                    cargoKind: 'materials',
+                    amount,
                     route: 'safe',
                     repeat: false,
                   },
                 });
-                if (!r.ok) return;
-                first = false;
+                if (!result.ok) return;
+                started.add(ship.id);
+                left -= amount;
               }
+              if (!ships.some((s) => capabilities(s).cargo > 0)) break;
             }
           }}
         >
@@ -443,6 +504,7 @@ export function Inspector({
                   ))}
               </div>
             )}
+            {l.kind === 'mine' && returnActions}
             {l.colony && (
               <p>
                 核心产出：Credits 预算收益 · 每 5 游戏分钟结算，随人口、工业、稳定、事件和 Commander

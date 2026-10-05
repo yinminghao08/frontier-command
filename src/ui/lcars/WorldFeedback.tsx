@@ -19,7 +19,13 @@ export function WorldFeedback({ world, branch }: { world: Snapshot; branch: stri
           if (
             !before.communications.has(communication.id) &&
             !communication.read &&
-            communication.priority === 'urgent'
+            communication.priority === 'urgent' &&
+            !world.pauseReasons.some(
+              (r) =>
+                r.kind === 'newContact' &&
+                r.entityId === communication.entityId &&
+                r.time === communication.time,
+            )
           )
             audio.play('alert', `${branch}:communication:${communication.id}`);
     }

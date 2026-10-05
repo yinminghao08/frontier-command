@@ -10,14 +10,14 @@ import { createEvent } from '../../src/engine/world-events';
 import type { WorldState } from '../../src/engine/types';
 let app: ElectronApplication | undefined;
 async function launch(world?: WorldState, scale = 1) {
-  const dir = mkdtempSync(join(tmpdir(), 'frontier-v8-ui-'));
+  const dir = mkdtempSync(join(tmpdir(), 'frontier-v9-ui-'));
   if (world) new SaveStore(dir).write(world);
   app = await electron.launch({
     args: ['--force-device-scale-factor=' + scale, resolve('.')],
     env: { ...process.env, FRONTIER_USER_DATA: dir, FRONTIER_HEADLESS: '1' },
   });
   const p = await app.firstWindow();
-  await p.getByRole('navigation', { name: '主导航' }).waitFor();
+  await p.locator('nav[aria-label="主导航"]').waitFor({ state: 'attached' });
   await p.evaluate(() => document.fonts.ready);
   return p;
 }
@@ -195,8 +195,11 @@ test('all map entity silhouettes and Chinese Inspector domains render including 
   const p = await launch(e.state),
     errors: string[] = [];
   p.on('pageerror', (error) => errors.push(error.message));
+  await app!.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setContentSize(1920, 1200),
+  );
   const map = p.locator('.strategic-map');
-  for (let n = 0; n < 3; n++) {
+  for (let n = 0; n < 10 && (await map.getAttribute('data-level')) !== 'LOCAL'; n++) {
     await p.getByRole('button', { name: '放大地图' }).click();
     await p.waitForTimeout(220);
   }
@@ -267,7 +270,7 @@ test('all map entity silhouettes and Chinese Inspector domains render including 
     'Commander 陈星',
   );
   await expect(p.getByLabel('任职目标 commander-colony')).toBeVisible();
-  await p.screenshot({ path: 'test-results/v8-personnel-and-inspectors.png' });
+  await p.screenshot({ path: 'test-results/v9-personnel-and-inspectors.png' });
   expect(errors).toEqual([]);
 });
 for (const scale of [1.25, 1.5, 2])
@@ -299,9 +302,8 @@ for (const scale of [1.25, 1.5, 2])
     expect(geometry.beforeShrink).toBe('0');
     expect(geometry.afterBasis).toBeGreaterThan(10);
     expect(geometry.height).toBeGreaterThan(5);
-    expect(geometry.overflow).toBe('ellipsis');
-    expect(geometry.nowrap).toBe('nowrap');
-    expect(geometry.textScroll).toBeGreaterThan(geometry.textWidth);
+    expect(geometry.nowrap).toBe('normal');
+    expect(geometry.textScroll).toBeLessThanOrEqual(geometry.textWidth);
     expect(geometry.textWidth).toBeLessThan(geometry.barWidth);
-    await p.screenshot({ path: `test-results/v8-long-title-${scale * 100}.png` });
+    await p.screenshot({ path: `test-results/v9-long-title-${scale * 100}.png` });
   });

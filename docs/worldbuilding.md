@@ -64,15 +64,19 @@ The frontier generates its own MMO content:
 The four core activities share one world:
 
 ### Combat / Security
+
 Patrol, escort, intercept, shadow, attack, disable, drive off and retreat. Combat affects real ships, facilities, cargo and political tension.
 
 ### Exploration / Survey
+
 Unknown systems, planets, anomalies and resource sites are genuinely discovered. Remote and close survey trade safety for information and reward.
 
 ### Mining / Extraction
+
 Persistent resource sites produce physical materials. Mine facilities extract finite deposits into limited local storage. Exposure, accidents and physical transport determine output. Vessels cannot replace the mine production chain.
 
 ### Transport / Logistics
+
 Real goods move between real inventories. Route choice trades travel time against known and unknown risk.
 
 Activities should create opportunities for each other instead of behaving as independent task lists.
@@ -117,9 +121,11 @@ A Romulan vessel is not automatically a legal hostile target. Shadow, intercept,
 Growth has two main forms.
 
 ### Fleet Development
+
 Ships use limited module slots. Useful upgrades unlock new options such as deep scanning, long-range detection, precision subsystem targeting, stronger hazardous-route survival or expanded cargo.
 
 ### Frontier Development
+
 Starbase and frontier infrastructure unlock wider strategic options through better sensors, shipbuilding, armory capacity, logistics and defenses.
 
 Growth should change what the player can do in the next activity, not merely add passive percentage bonuses.
@@ -149,7 +155,7 @@ Dawn sits at world (-240, 0), behind the frontier. Initial Federation assets are
 
 Unknown sectors form a sparse 400-unit grid in several directions. Each seed generates persistent systems, planets, normal anomalies and deposits, plus hidden anomalies unlocked by Deep Scan. Remote survey gives charted outlines; close survey confirms usable deposits, habitability and hazards. A normal anomaly's special sample can be collected once into cargo, then physically unloaded for an upgrade.
 
-Safe logistics detours through defended nodes and around observed dangers. Direct travel preserves uncertainty about uncharted space. Risky corridors trade a faster warp passage for physical turbulence and a stronger detectable signature while underway. Admiral route forecasts show the uncharted fraction from known geography, rather than suggesting certainty about hidden threats.
+Safe logistics goes directly to the ordered destination when no observed danger requires avoidance. Facilities are destinations or services, not compulsory waypoints. Only charted anomalies and fresh hostile contacts may cause a deterministic detour. Direct travel preserves uncertainty about uncharted space. Risky corridors trade a faster warp passage for physical turbulence and a stronger detectable signature while underway. Admiral route forecasts show the uncharted fraction from known geography, rather than suggesting certainty about hidden threats.
 
 The initial Orion hideout supports one scout and two raiders, finite stock and magazines. The scout inspects known frontier traffic and follows valuable locally observed cargo; it does not know all Federation assets. Raider opportunities depend on fresh reports, freight/stock value, distance and escort strength. Theft harms the actual source inventory, and the resulting cargo must survive the return journey. A quarter of returned goods is consumed by black-market export; the remainder supports repairs and industry. Destroying assets or the hideout changes its ability to act. Shadow can follow a returning raider to the source of this pressure.
 
@@ -159,16 +165,22 @@ Fleet roles are performance profiles. A Peregrine can survey or haul small batch
 
 There are no Science, Intel or Allocation currencies, mission payouts for moving the same goods, or menus that manufacture an enemy target. The OPERATIONS view reads discoverable sectors, transport demand, valuable inventory, construction demand and observed threats. Hail, warnings, withdrawal demands and persistent diplomatic incidents use rules. LLM personality decisions and formal online multiplayer remain future work.
 
-## v8 society and events
+## Society and events
 
-New Horizon begins with 1000 residents and its own Commander. New colonies begin with 250. Population, housing, stability, morale, security, industry and science persist. Daily income provides the command budget; housing, industry, science and security development require local Materials and budget. Cadet training and appointments affect rules while leaving Admiral authority unchanged.
+New Horizon begins with 1000 residents and its own Commander. New colonies begin with 250. Population, housing, stability, morale, security, industry and science persist. Credits production every five game minutes provides the command budget; housing, industry, science and security development require local Materials and budget. Cadet training and appointments affect rules while leaving Admiral authority unchanged.
 
 Wormholes create actual paired routes. Plague reduces population, morale and production, while quarantine trades income for containment. Mining accidents halt a real facility until on-site action repairs it. Distress originates from actual damage. Refugee transport preserves source population, carrier occupancy and destination changes. Investigating ruins or derelicts yields finite discoveries, cargo or contamination follow-ups. Every event keeps its evidence and consequences after the communication scrolls away.
 
-## v8 stealth frontier
+## Stealth frontier
 
 A fixed Dawn Passage in FRONTIER 0/0 leads to deterministic sector 0/12 and its unique abandoned Veil reconnaissance vessel. Survey and on-site event assistance establish the permanent ship registry. It has minimal combat power and high passive sensors; cloak costs less than its core regeneration. Recovery can be delayed without losing the vessel, while destruction after recovery remains permanent.
 
 Orion and Romulan ships can recognize sustained physically observed followers, then take decoy routes and detours until the detected tail disappears. Romulan counter-cloak detection is stronger. Veil's low signature permits secret following. Unknown destination facilities remain unidentified signals until ten minutes of continuous local observation; an enemy's internal home or docked state never grants a discovery.
 
 Dawn's mine capacity is 3000 Materials; Colony produces Credits. Facilities have no recurring maintenance fee. Owned ships default to holding position; emergency disengagement ends locally, and return to base requires an Admiral directive. The map palette distinguishes Federation cyan, Dawn amber, Romulan green, Orion yellow-green and fixed body-type colors.
+
+## v9 Admiral response
+
+Every newly observed external vessel raises a contact alert and pauses at its real detection tick. Romulan identity does not establish hostility. Acknowledging or locating the contact and issuing orders keep the world paused until the Admiral resumes. Continuous observation is deduplicated; ten minutes without signal or first confirmed hostility can warrant another alert.
+
+Surveyed Veil recovery is an immediate contextual opportunity, using the same persistent event and on-site assistance. Contextual next steps expose exploration, construction and actual delivery requirements without inventing automatic missions. Claimed or emptied wreck markers can be dismissed while their entities and historical consequences remain in the save.

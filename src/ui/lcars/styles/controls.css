@@ -189,7 +189,7 @@ select {
   background: var(--ink);
   color: var(--almond-creme);
   font-family: var(--body-family);
-  font-size: max(12px, 0.9em);
+  font-size: 1em;
 }
 input:disabled,
 select:disabled {

@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from 'react';
 import { AudioManager } from './audio-manager';
 import { WebAudioDriver } from './web-audio';
 import { parsePreferences, PREFERENCES_KEY, type ConsolePreferences } from './preferences';
@@ -14,12 +21,48 @@ export function LcarsProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState(() => {
     let raw: string | null = null;
     try {
-      raw = localStorage.getItem(PREFERENCES_KEY);
+      raw =
+        localStorage.getItem(PREFERENCES_KEY) ?? localStorage.getItem('frontier.lcars.console.v1');
     } catch {
       /* Session preferences still work. */
     }
     return parsePreferences(raw, matchMedia('(prefers-reduced-motion: reduce)').matches);
   });
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty('--text-scale', String(preferences.textScale));
+    const update = () => {
+      const unit = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      document.documentElement.dataset.consoleLayout =
+        innerWidth / unit >= 84 ? 'wide' : innerWidth / unit >= 68 ? 'medium' : 'compact';
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [preferences.textScale]);
+  useEffect(() => {
+    void window.frontier.setDisplayZoom(preferences.interfaceZoom);
+  }, [preferences.interfaceZoom]);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || !['+', '=', '-', '0'].includes(event.key)) return;
+      event.preventDefault();
+      setPreferences((p) => ({
+        ...p,
+        interfaceZoom:
+          event.key === '0'
+            ? 1
+            : Math.max(
+                1,
+                Math.min(
+                  2,
+                  Math.round((p.interfaceZoom + (event.key === '-' ? -0.1 : 0.1)) * 10) / 10,
+                ),
+              ),
+      }));
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.motion = preferences.animations;
     document.documentElement.dataset.sound = preferences.sound ? 'on' : 'off';

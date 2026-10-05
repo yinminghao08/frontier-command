@@ -414,6 +414,7 @@ export interface Beam {
   expires: number;
 }
 export const CRITICAL_KINDS = [
+  'newContact',
   'lowHull',
   'shipDestroyed',
   'facilityDestroyed',
@@ -428,10 +429,18 @@ export interface CriticalReason {
   message: string;
 }
 export type SimulationEvent =
+  | PublicSimulationEvent
   | { type: 'dayBoundary'; day: number; tick: number; time: number }
   | { type: 'criticalPause'; reasons: CriticalReason[] }
   | { type: 'shipDestroyed'; shipId: string; operatorIds: string[]; tick: number }
   | { type: 'commandLost'; tick: number };
+/** Only completed, visible own-ship actions may be delivered as UI events. */
+export type PublicSimulationEvent = {
+  type: 'shipTransited';
+  shipId: string;
+  destination: Point;
+  tick: number;
+};
 export interface Wreck extends Point {
   id: string;
   name: string;
@@ -446,7 +455,7 @@ export interface SiteIntel extends Point {
   lastSeen: number;
 }
 export interface WorldState {
-  version: 8;
+  version: 9;
   tick: number;
   time: number;
   seed: number;
@@ -471,6 +480,8 @@ export interface WorldState {
   intel: IntelRecord[];
   siteIntel: SiteIntel[];
   recoveredVeil: boolean;
+  contactAlerts: { contactId: string; lastAlertAt: number; hostileAlerted: boolean }[];
+  dismissedMarkerIds: string[];
   factions: { orion: FactionState; romulan: FactionState };
   tension: number;
   resources: { credits: number };
@@ -498,7 +509,7 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 8;
+  version: 9;
   tick: number;
   time: number;
   paused: boolean;
@@ -520,6 +531,8 @@ interface SnapshotData {
   jobs: IndustryJob[];
   wrecks: Wreck[];
   resources: WorldState['resources'];
+  baseResources: { credits: number; stock: Stock; available: Stock; reserved: Stock };
+  mapMarkers: { dismissedIds: string[]; removableIds: string[] };
   upgrades: WorldState['upgrades'];
   tension: number;
   communications: Communication[];
@@ -536,6 +549,7 @@ interface SnapshotData {
   trade: TradeState;
 }
 export type Command =
+  | { type: 'dismissMapMarker'; entityId: string }
   | {
       type: 'issueDirective';
       shipIds: string[];

@@ -39,7 +39,7 @@ const checkSteps = (e: SimulationEngine, n: number) => {
     expect(worldSchema.safeParse(e.state).success).toBe(true);
   }
 };
-describe('v8 finite physical economy', () => {
+describe('v9 finite physical economy', () => {
   it('has no rear production or economic vessel mining and starts three bulk freighters', () => {
     const e = quietEngine();
     expect('rearProduction' in e.state).toBe(false);

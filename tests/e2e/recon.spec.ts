@@ -15,17 +15,17 @@ import { MAP_PALETTE } from '../../src/ui/map/palette';
 import type { Snapshot, WorldState, Action } from '../../src/engine/types';
 import { inspectTitleBars, inspectTypography } from './typography';
 let app: ElectronApplication | undefined;
-const output = resolve('docs/verification/v8');
+const output = resolve('docs/verification/v9');
 async function launch(world: WorldState, scale = 1, visible = false) {
   mkdirSync(output, { recursive: true });
-  const directory = mkdtempSync(join(tmpdir(), 'frontier-recon-v8-'));
+  const directory = mkdtempSync(join(tmpdir(), 'frontier-recon-v9-'));
   new SaveStore(directory).write(world);
   app = await electron.launch({
     args: ['--force-device-scale-factor=' + scale, resolve('.')],
     env: { ...process.env, FRONTIER_USER_DATA: directory, FRONTIER_HEADLESS: visible ? '0' : '1' },
   });
   const page = await app.firstWindow();
-  await page.getByRole('navigation', { name: '主导航' }).waitFor();
+  await page.locator('nav[aria-label="主导航"]').waitFor({ state: 'attached' });
   await page.context().setOffline(true);
   await page.evaluate(() => document.fonts.ready);
   return { page, directory };
@@ -47,17 +47,32 @@ async function issueUI(page: Page, shipId: string, type: Action['type'], targetI
 }
 async function runUI(page: Page) {
   await page.getByRole('button', { name: '16×', exact: true }).click();
-  if ((await state(page)).paused)
-    await page.getByRole('button', { name: '继续', exact: true }).click();
+  const s = await state(page);
+  if (s.paused) await resumeUI(page, s);
+}
+async function resumeUI(page: Page, s: Snapshot) {
+  if (
+    s.pauseReasons.some(
+      (r) =>
+        r.kind === 'newContact' &&
+        s.communications.some((c) => !c.read && c.entityId === r.entityId && c.time === r.time),
+    )
+  ) {
+    const alert = page.getByRole('dialog', { name: '接触警报' });
+    await expect(alert).toBeVisible();
+    await alert.getByRole('button', { name: '确认 / 保持暂停', exact: true }).click();
+    await expect(alert).not.toBeVisible();
+  }
+  await page.getByRole('button', { name: '继续', exact: true }).click();
 }
 async function waitFor(page: Page, predicate: (s: Snapshot) => boolean, timeout = 45000) {
   await expect
     .poll(
       async () => {
         const s = await state(page);
-        if (s.paused && s.status === 'active')
-          await page.getByRole('button', { name: '继续', exact: true }).click();
-        return predicate(s);
+        if (predicate(s)) return true;
+        if (s.paused && s.status === 'active') await resumeUI(page, s);
+        return false;
       },
       { timeout, intervals: [150] },
     )
@@ -102,7 +117,7 @@ test('visible offline Electron: actual passage, survey, Veil recovery, cloak con
     env: { ...process.env, FRONTIER_USER_DATA: directory, FRONTIER_HEADLESS: '1' },
   });
   const restoredPage = await app.firstWindow();
-  await restoredPage.getByRole('navigation', { name: '主导航' }).waitFor();
+  await restoredPage.locator('nav[aria-label="主导航"]').waitFor({ state: 'attached' });
   const restored = await state(restoredPage);
   expect(restored.ships).toEqual(saved.ships);
   expect(restored.paused).toBe(true);
@@ -161,6 +176,8 @@ for (const faction of ['orion', 'romulan'] as const)
         await expect
           .poll(
             async () => {
+              const snapshot = await state(page);
+              if (snapshot.paused) await resumeUI(page, snapshot);
               await page.evaluate(() => window.frontier.save());
               return new SaveStore(directory)
                 .read()

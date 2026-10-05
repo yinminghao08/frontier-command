@@ -327,7 +327,6 @@
   border-color: var(--red);
 }
 .notification .lcars-button {
-  font-size: 0.8em;
   min-height: 32px;
 }
 .loading {
@@ -370,7 +369,6 @@
 }
 .template-credit p {
   font-family: var(--body-family);
-  font-size: 0.85em;
   color: var(--muted);
 }
 .template-credit a {
@@ -392,7 +390,6 @@
     right: 0.5em;
     z-index: 7;
     min-height: 32px;
-    font-size: 12px;
   }
   .lcars-dialog {
     --frame-rail: 42px;

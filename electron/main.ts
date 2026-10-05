@@ -150,6 +150,13 @@ app.whenReady().then(async () => {
     trusted(event);
     return store.status(engine.state.tick);
   });
+  ipcMain.handle('display:zoom', (event, factor: unknown) => {
+    trusted(event);
+    const zoom = z.number().finite().min(1).max(2).parse(factor);
+    if (Math.abs(window!.webContents.getZoomFactor() - zoom) > 1e-8)
+      window!.webContents.setZoomFactor(zoom);
+    return zoom;
+  });
   window.on('close', () => {
     const result = save();
     if (!result.ok) console.error(result.reason);
@@ -183,6 +190,9 @@ app.whenReady().then(async () => {
       }
     }
     send();
+    const publicEvents = events.filter((event) => event.type === 'shipTransited');
+    if (publicEvents.length && window && !window.isDestroyed())
+      window.webContents.send('world:events', publicEvents);
   }, HOST_FRAME_MS);
 });
 app.on('second-instance', () => {

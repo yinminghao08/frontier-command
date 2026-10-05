@@ -1,3 +1,4 @@
+import type { CommandSender } from './ui/types';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useLcars } from './ui/lcars/LcarsProvider';
 import { MapSymbol, type SymbolKind } from './ui/map/MapSymbol';
@@ -47,12 +48,20 @@ export function StrategicMap({
   focus,
   destination,
   commandTarget,
+  selectedShipIds,
+  command,
+  followShipId,
+  onManualCamera,
 }: {
   destination: Point | null;
   commandTarget: Selection | null;
   world: Snapshot;
   selection: Selection | null;
-  onSelect: (s: Selection) => void;
+  onSelect: (s: Selection, additive?: boolean) => void;
+  selectedShipIds: string[];
+  command: CommandSender;
+  followShipId: string | null;
+  onManualCamera: () => void;
   focus: { point: Point; serial: number } | null;
 }) {
   const { preferences, audio } = useLcars(),
@@ -61,6 +70,15 @@ export function StrategicMap({
   const viewport = useRef<HTMLDivElement>(null),
     svg = useRef<SVGSVGElement>(null),
     initialized = useRef(false);
+  const [contextMenu, setContextMenu] = useState<{
+    id: string;
+    name: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const menuElement = useRef<HTMLDivElement>(null);
+  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const [labelFont, setLabelFont] = useState(18);
   const [fontVersion, setFontVersion] = useState(0);
   const measurement = useRef<CanvasRenderingContext2D | null>(null);
   useEffect(() => {
@@ -75,12 +93,32 @@ export function StrategicMap({
       alive = false;
     };
   }, []);
+  useLayoutEffect(() => {
+    setLabelFont(parseFloat(getComputedStyle(document.documentElement).fontSize));
+  }, [preferences.textScale]);
   const known = () => [...world.locations, ...world.systems];
   const [camera, setCamera] = useState(() => fitCamera(1, 1, boundsOf(known()))),
     current = useRef(camera),
     target = useRef(camera),
     frame = useRef(0);
   const [layers, setLayers] = useState({ Routes: true, Sensors: false, Intelligence: true });
+  useLayoutEffect(() => {
+    if (!contextMenu || !menuElement.current) return;
+    const bounds = menuElement.current.getBoundingClientRect(),
+      margin = labelFont * 0.5;
+    setMenuPosition({
+      x: Math.max(margin, Math.min(contextMenu.x, innerWidth - bounds.width - margin)),
+      y: Math.max(margin, Math.min(contextMenu.y, innerHeight - bounds.height - margin)),
+    });
+  }, [contextMenu, labelFont, camera.width, camera.height]);
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setContextMenu(null);
+    };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [contextMenu]);
   const drag = useRef<{ point: Point; camera: Camera } | null>(null),
     moved = useRef(false);
   const commit = (c: Camera) => {
@@ -143,9 +181,18 @@ export function StrategicMap({
     if (focus) animate(focusCamera(current.current, focus.point));
   }, [focus]);
   useEffect(() => {
+    const ship = world.ships.find((s) => s.id === followShipId);
+    if (ship) {
+      cancelAnimationFrame(frame.current);
+      commit({ ...current.current, x: ship.x, y: ship.y, k: Math.max(0.85, current.current.k) });
+    }
+  }, [followShipId, world.time]);
+  useEffect(() => {
     const el = svg.current!,
       wheel = (e: WheelEvent) => {
         e.preventDefault();
+        onManualCamera();
+        setContextMenu(null);
         animate(
           zoomCamera(
             target.current,
@@ -158,10 +205,8 @@ export function StrategicMap({
     return () => el.removeEventListener('wheel', wheel);
   }, []);
   const active = (id: string) =>
-      (selection && 'id' in selection && selection.id === id) ||
-      (commandTarget?.type === 'ship' && commandTarget.id === id) ||
-      (commandTarget?.type === 'group' &&
-        world.groups.find((g) => g.id === commandTarget.id)?.shipIds.includes(id)),
+      selectedShipIds.includes(id) ||
+      (selection && selection.type !== 'ship' && 'id' in selection && selection.id === id),
     level = camera.k < 0.65 ? 'SECTOR' : camera.k < 1.5 ? 'SYSTEM' : 'LOCAL',
     pos = (p: Point) => project(p, camera);
   const visible = (p: Point) => {
@@ -180,7 +225,22 @@ export function StrategicMap({
       e.stopPropagation();
       if (!moved.current) {
         audio.play('navigation');
-        onSelect(s);
+        onSelect(s, e.ctrlKey);
+      }
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (
+        s.type === 'wreck' ||
+        (s.type === 'body' && world.bodies.some((b) => b.id === s.id && b.kind === 'derelict'))
+      ) {
+        setContextMenu({
+          id: s.id,
+          name,
+          x: e.clientX,
+          y: e.clientY,
+        });
       }
     },
     onKeyDown: (e: React.KeyboardEvent) => {
@@ -198,6 +258,7 @@ export function StrategicMap({
     selection: Selection;
     kind: SymbolKind;
     color: string;
+    cloak?: 'off' | 'on' | 'decloaking';
   }[] = [
     ...world.systems.filter(visible).map((s) => ({
       id: s.id,
@@ -211,7 +272,8 @@ export function StrategicMap({
       .filter(
         (b) =>
           visible(b) &&
-          (level === 'LOCAL' || active(b.id) || active(b.systemId)) &&
+          !world.mapMarkers.dismissedIds.includes(b.id) &&
+          (b.kind === 'derelict' || level === 'LOCAL' || active(b.id) || active(b.systemId)) &&
           (!world.locations.some((l) => l.siteId === b.id) || active(b.id)),
       )
       .map((b) => ({
@@ -244,6 +306,7 @@ export function StrategicMap({
       .filter(
         (w) =>
           visible(w) &&
+          !world.mapMarkers.dismissedIds.includes(w.id) &&
           (level === 'LOCAL' ||
             !world.bodies.some(
               (b) => b.kind === 'derelict' && Math.hypot(b.x - w.x, b.y - w.y) < 1,
@@ -275,6 +338,7 @@ export function StrategicMap({
         selection: { type: 'ship', id: s.id } as Selection,
         kind: s.classId === 'antares' ? ('freighter' as const) : ('ship' as const),
         color: MAP_PALETTE.factions.starfleet,
+        cloak: s.cloak,
       })),
     ...world.wormholes.filter(visible).map((w) => ({
       id: w.id,
@@ -302,16 +366,14 @@ export function StrategicMap({
         kind: c.classId ? ('ship' as const) : ('contact' as const),
         color: c.factionId ? MAP_PALETTE.factions[c.factionId] : MAP_PALETTE.unknown,
       })),
-    ...world.siteContacts
-      .filter(visible)
-      .map((c) => ({
-        id: c.id,
-        name: 'UNCONFIRMED SITE / 未确认设施',
-        p: c,
-        selection: { type: 'siteContact', id: c.id } as Selection,
-        kind: 'contact' as const,
-        color: MAP_PALETTE.unknown,
-      })),
+    ...world.siteContacts.filter(visible).map((c) => ({
+      id: c.id,
+      name: 'UNCONFIRMED SITE / 未确认设施',
+      p: c,
+      selection: { type: 'siteContact', id: c.id } as Selection,
+      kind: 'contact' as const,
+      color: MAP_PALETTE.unknown,
+    })),
   ];
   const markerScale = Math.min(1.5, Math.max(1, camera.width / 1500));
   const displayPositions = new Map<string, Point>();
@@ -348,17 +410,17 @@ export function StrategicMap({
   const measure = (text: string) => {
     const context = measurement.current;
     if (context) {
-      context.font = `400 ${14 * markerScale}px Antonio, "Alibaba PuHuiTi", sans-serif`;
+      context.font = `400 ${labelFont * markerScale}px Antonio, "Alibaba PuHuiTi", sans-serif`;
       return context.measureText(text).width + 8 * markerScale;
     }
     return [...text].reduce(
-      (n, ch) => n + (/[\u2e80-\uffff]/.test(ch) ? 14 : 6.8) * markerScale,
+      (n, ch) => n + (/[\u2e80-\uffff]/.test(ch) ? labelFont : labelFont * 0.48) * markerScale,
       8,
     );
   };
   const labels: MapLabel[] = markers.map((m) => {
     let text = m.name.split(' / ')[0];
-    const maximum = Math.min(420, camera.width * 0.55);
+    const maximum = Math.min(labelFont * 24, camera.width * 0.55);
     if (measure(text) > maximum) {
       while (text.length > 1 && measure(text + '…') > maximum) text = text.slice(0, -1);
       text += '…';
@@ -368,7 +430,7 @@ export function StrategicMap({
       id: m.id,
       text,
       width: measure(text),
-      height: 18 * markerScale,
+      height: labelFont * 1.35 * markerScale,
       priority: active(m.id)
         ? 110
         : world.contacts.some((c) => c.id === m.id && c.hostile)
@@ -405,10 +467,17 @@ export function StrategicMap({
   }));
   for (const c of cells) {
     const point = pos({ x: sectorCenter(c).x, y: sectorCenter(c).y - 200 });
-    if (SECTOR_SIZE * camera.k > 110)
+    if (SECTOR_SIZE * camera.k > labelFont * markerScale * 12)
       obstacles.push({ x: point.x - 110, y: point.y + 12, width: 220, height: 22 * markerScale });
   }
-  const placed = placeLabels(labels, camera.width, camera.height, markerScale, obstacles);
+  const placed = placeLabels(
+    labels,
+    camera.width,
+    camera.height,
+    markerScale,
+    obstacles,
+    labelFont * markerScale,
+  );
   return (
     <section
       className="map-container"
@@ -416,8 +485,8 @@ export function StrategicMap({
       data-font-version={fontVersion}
       style={
         {
-          '--map-label-size': 14 * markerScale + 'px',
-          '--map-region-size': 17 * markerScale + 'px',
+          '--map-label-size': markerScale + 'rem',
+          '--map-region-size': 1.2 * markerScale + 'rem',
         } as CSSProperties
       }
     >
@@ -444,6 +513,7 @@ export function StrategicMap({
           className="strategic-map"
           aria-label="战略星图"
           viewBox={'0 0 ' + camera.width + ' ' + camera.height}
+          data-follow-ship-id={followShipId ?? ''}
           data-view={JSON.stringify(camera)}
           data-level={level}
           onPointerDown={(e) => {
@@ -459,6 +529,8 @@ export function StrategicMap({
             const p = local(e.clientX, e.clientY);
             if (Math.hypot(p.x - d.point.x, p.y - d.point.y) > 5) {
               moved.current = true;
+              onManualCamera();
+              setContextMenu(null);
               commit({
                 ...d.camera,
                 x: d.camera.x - (p.x - d.point.x) / d.camera.k,
@@ -507,7 +579,7 @@ export function StrategicMap({
                   stroke={MAP_PALETTE.decoration.grid}
                   strokeOpacity=".15"
                 />
-                {size > 110 && (
+                {size > labelFont * markerScale * 12 && (
                   <text
                     x={p.x + size / 2}
                     y={p.y + 30}
@@ -567,10 +639,36 @@ export function StrategicMap({
               <g
                 key={m.id}
                 data-entity-id={m.id}
+                data-cloak={m.cloak}
+                aria-pressed={!!active(m.id)}
                 transform={'translate(' + p.x + ' ' + p.y + ') scale(' + markerScale + ')'}
                 {...interactive(m.selection, m.name)}
               >
+                <title>
+                  {m.name}
+                  {m.cloak === 'on' ? ' / 隐形' : m.cloak === 'decloaking' ? ' / 解除中' : ''}
+                </title>
                 <circle r="17" fill="transparent" />
+                {m.cloak && m.cloak !== 'off' && (
+                  <g className="cloak-state" data-testid="cloak-marker">
+                    <path
+                      d="M-23-9L-17-22H17L23-9V14L0 25 -23 14Z"
+                      fill="none"
+                      stroke={m.color}
+                      strokeWidth="2"
+                      strokeDasharray={m.cloak === 'on' ? '4 3' : '2 4'}
+                    />
+                    <text
+                      className="cloak-status-label"
+                      x="0"
+                      y="-30"
+                      textAnchor="middle"
+                      fill={m.color}
+                    >
+                      {m.cloak === 'on' ? '隐形' : '解除中'}
+                    </text>
+                  </g>
+                )}
                 {active(m.id) && (
                   <circle
                     className="selection-reticle"
@@ -589,7 +687,9 @@ export function StrategicMap({
                     strokeDasharray="3 3"
                   />
                 )}
-                <MapSymbol kind={m.kind} color={m.color} />
+                <g opacity={m.cloak === 'on' ? 0.7 : 1}>
+                  <MapSymbol kind={m.kind} color={m.color} />
+                </g>
                 {m.selection.type === 'location' &&
                   level !== 'LOCAL' &&
                   world.ships.filter((s) => !s.current && Math.hypot(s.x - m.p.x, s.y - m.p.y) < 90)
@@ -608,19 +708,12 @@ export function StrategicMap({
           {destination &&
             (() => {
               const p = pos(destination);
-              const origin =
-                commandTarget?.type === 'ship'
-                  ? world.ships.find((s) => s.id === commandTarget.id)
-                  : commandTarget?.type === 'group'
-                    ? world.ships.find(
-                        (s) =>
-                          s.id === world.groups.find((g) => g.id === commandTarget.id)?.flagshipId,
-                      )
-                    : null;
+              const origins = world.ships.filter((s) => selectedShipIds.includes(s.id));
               return (
                 <g pointerEvents="none" data-testid="destination-preview">
-                  {origin && (
+                  {origins.map((origin) => (
                     <line
+                      key={origin.id}
                       x1={pos(origin).x}
                       y1={pos(origin).y}
                       x2={p.x}
@@ -628,7 +721,7 @@ export function StrategicMap({
                       stroke={MAP_PALETTE.decoration.destination}
                       strokeDasharray="6 4"
                     />
-                  )}
+                  ))}
                   <path
                     d={`M${p.x - 10} ${p.y}H${p.x + 10}M${p.x} ${p.y - 10}V${p.y + 10}`}
                     stroke={MAP_PALETTE.decoration.destination}
@@ -683,14 +776,18 @@ export function StrategicMap({
               />
             ))}
           {placed
-            .filter((l) => Math.hypot(l.x - l.anchor.x, l.y - l.anchor.y) > 45 * markerScale)
+            .filter(
+              (l) =>
+                Math.hypot(l.connector.x - l.anchor.x, l.connector.y - l.anchor.y) >
+                labelFont * 1.5 * markerScale,
+            )
             .map((l) => (
               <line
                 key={'label-line-' + l.id}
                 x1={l.anchor.x}
                 y1={l.anchor.y}
-                x2={l.x}
-                y2={l.y - 8 * markerScale}
+                x2={l.connector.x}
+                y2={l.connector.y}
                 stroke={l.color}
                 opacity=".35"
                 pointerEvents="none"
@@ -712,6 +809,33 @@ export function StrategicMap({
           ))}
         </svg>
       </div>
+      {contextMenu && (
+        <div
+          ref={menuElement}
+          className="map-context-menu"
+          role="menu"
+          aria-label="地图标记操作"
+          style={{ left: menuPosition.x, top: menuPosition.y }}
+        >
+          <p>{contextMenu.name}</p>
+          <LcarsButton
+            role="menuitem"
+            disabled={!world.mapMarkers.removableIds.includes(contextMenu.id)}
+            onClick={async () => {
+              const result = await command({ type: 'dismissMapMarker', entityId: contextMenu.id });
+              if (result.ok) setContextMenu(null);
+            }}
+          >
+            移除无价值标记
+          </LcarsButton>
+          {!world.mapMarkers.removableIds.includes(contextMenu.id) && (
+            <p>仍有货物、奖励或未完成事件，暂不可移除。</p>
+          )}
+          <LcarsButton role="menuitem" onClick={() => setContextMenu(null)}>
+            关闭
+          </LcarsButton>
+        </div>
+      )}
       <details className="map-legend">
         <summary>LEGEND 图例</summary>
         <div>
@@ -735,34 +859,39 @@ export function StrategicMap({
           <LcarsButton
             sound="navigation"
             aria-label="缩小地图"
-            onClick={() =>
+            onClick={() => {
+              onManualCamera();
               animate(
                 zoomCamera(current.current, current.current.k / 1.4, {
                   x: camera.width / 2,
                   y: camera.height / 2,
                 }),
-              )
-            }
+              );
+            }}
           >
             −
           </LcarsButton>
           <LcarsButton
             sound="navigation"
             aria-label="放大地图"
-            onClick={() =>
+            onClick={() => {
+              onManualCamera();
               animate(
                 zoomCamera(current.current, current.current.k * 1.4, {
                   x: camera.width / 2,
                   y: camera.height / 2,
                 }),
-              )
-            }
+              );
+            }}
           >
             +
           </LcarsButton>
           <LcarsButton
             sound="navigation"
-            onClick={() => commit(fitCamera(camera.width, camera.height, boundsOf(known())))}
+            onClick={() => {
+              onManualCamera();
+              commit(fitCamera(camera.width, camera.height, boundsOf(known())));
+            }}
           >
             FIT
           </LcarsButton>

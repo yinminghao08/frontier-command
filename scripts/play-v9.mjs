@@ -5,14 +5,14 @@ import { resolve, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const directory = mkdtempSync(join(tmpdir(), 'frontier-v8-play-'));
+const directory = mkdtempSync(join(tmpdir(), 'frontier-v9-play-'));
 const seed = process.argv[2] ? Number(process.argv[2]) : undefined;
 if (seed !== undefined) {
   const { createWorld } = require('../dist-electron/src/engine/data.js');
   const { SaveStore } = require('../dist-electron/electron/persistence.js');
   new SaveStore(directory).write(createWorld(seed));
 }
-const output = resolve('docs/verification/v8');
+const output = resolve('docs/verification/v9');
 mkdirSync(output, { recursive: true });
 const log = join(output, 'play-' + (seed ?? 'default') + '.jsonl');
 const app = await electron.launch({
@@ -21,7 +21,7 @@ const app = await electron.launch({
 });
 const page = await app.firstWindow();
 page.setDefaultTimeout(7000);
-await page.getByRole('navigation', { name: '主导航' }).waitFor();
+await page.locator('nav[aria-label="主导航"]').waitFor({ state: 'attached' });
 const state = async () => (await page.evaluate(() => window.frontier.getState())).state;
 const record = (data) => {
   const item = { wall: new Date().toISOString(), ...data };
@@ -110,6 +110,8 @@ rl.on('line', (line) => {
         record({ event: 'action', ...q, time: (await state()).time });
       }
       if (q.op === 'nav') {
+        const menu = page.getByRole('button', { name: 'MENU 导航', exact: true });
+        if (await menu.isVisible()) await menu.click();
         await page
           .getByRole('navigation')
           .getByRole('button', { name: new RegExp(q.page) })

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef, type ReactNode } from 'react';
 import type { Snapshot } from '../../engine/types';
 import type { CommandSender, Page } from '../types';
 import { gameCalendar } from '../../engine/clock';
@@ -28,24 +28,61 @@ export function LcarsShell({
   overlay,
   onSettings,
   contextSerial,
+  selectedShipIds,
 }: {
   world: Snapshot;
   page: Page;
   onPage: (p: Page) => void;
   command: CommandSender;
-  locate: (id: string | null) => void;
+  locate: (id: string | null, additive?: boolean) => void;
   children: ReactNode;
   inspector: ReactNode;
   overlay?: ReactNode;
   onSettings: () => void;
   contextSerial: string;
+  selectedShipIds: string[];
 }) {
   const [showRead, setShowRead] = useState(false),
-    [showContext, setShowContext] = useState(false);
+    [showContext, setShowContext] = useState(false),
+    [showNav, setShowNav] = useState(false);
   const contextRef = usePanelFocus(() => setShowContext(false), false, showContext);
+  const navRef = usePanelFocus(() => setShowNav(false), true, showNav);
+  const workspaceRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const workspace = workspaceRef.current,
+      consoleRoot = workspace?.parentElement;
+    if (!workspace || !consoleRoot) return;
+    const update = () => {
+      const box = workspace.getBoundingClientRect();
+      document.documentElement.style.setProperty(
+        '--workspace-top',
+        Math.max(16, Math.min(box.top, innerHeight * 0.45)) + 'px',
+      );
+      document.documentElement.style.setProperty(
+        '--workspace-bottom',
+        Math.max(16, Math.min(innerHeight - box.bottom, innerHeight * 0.2)) + 'px',
+      );
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(workspace);
+    consoleRoot.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    update();
+    return () => {
+      observer.disconnect();
+      consoleRoot.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+  const previousContext = useRef(contextSerial);
   useEffect(() => {
-    if (matchMedia('(max-width: 1100px)').matches) setShowContext(true);
+    if (previousContext.current === contextSerial) return;
+    previousContext.current = contextSerial;
+    if (document.documentElement.dataset.consoleLayout !== 'wide') setShowContext(true);
   }, [contextSerial]);
+  useEffect(() => {
+    if (overlay) setShowContext(false);
+  }, [page, !!overlay]);
   const cal = gameCalendar(world.tick),
     active = world.ships,
     lost = world.status === 'commandLost';
@@ -75,6 +112,13 @@ export function LcarsShell({
         </div>
         <div className="header-body">
           <div className="banner">
+            <LcarsButton
+              className="compact-nav"
+              onClick={() => setShowNav((v) => !v)}
+              aria-expanded={showNav}
+            >
+              MENU 导航
+            </LcarsButton>
             <span>FEDERATION NETWORK / LCARS 26</span>
             <h1>FRONTIER COMMAND</h1>
           </div>
@@ -184,10 +228,52 @@ export function LcarsShell({
               </div>
             </section>
           </div>
+          <section className="resource-strip" aria-label="基地可用资源">
+            {[
+              ['credits', 'CREDITS 信用点'],
+              ['materials', 'MATERIALS 材料'],
+              ['photon', 'PHOTON 光子鱼雷'],
+              ['quantum', 'QUANTUM 量子鱼雷'],
+              ['specialFinds', 'SPECIAL FINDS 特殊发现'],
+            ].map(([key, label]) => (
+              <div key={key} data-resource={key}>
+                <span>{label}</span>
+                <b>
+                  {Math.floor(
+                    key === 'credits'
+                      ? world.baseResources.credits
+                      : world.baseResources.available[
+                          key as keyof typeof world.baseResources.available
+                        ],
+                  ).toLocaleString('en-US')}
+                </b>
+              </div>
+            ))}
+            <details>
+              <summary>库存 / 预留</summary>
+              <div className="resource-details">
+                {Object.entries(world.baseResources.stock).map(([key, n]) => (
+                  <p key={key}>
+                    {key} · 库存 {Math.floor(n)} · 预留{' '}
+                    {Math.ceil(
+                      world.baseResources.reserved[
+                        key as keyof typeof world.baseResources.reserved
+                      ],
+                    )}
+                  </p>
+                ))}
+              </div>
+            </details>
+          </section>
           <LcarsBar className="header-band" />
         </div>
       </header>
-      <nav className="section-nav" aria-label="主导航">
+      <nav ref={navRef} className={'section-nav ' + (showNav ? 'is-open' : '')} aria-label="主导航">
+        <div className="compact-nav-controls">
+          <LcarsButton onClick={() => setShowNav(false)} aria-label="关闭导航">
+            CLOSE 关闭导航
+          </LcarsButton>
+        </div>
         <LcarsElbow className="nav-cap">
           <span>SECTOR</span>
           <strong>047</strong>
@@ -199,7 +285,10 @@ export function LcarsShell({
             tone={i === 1 || i === 4 ? 'orange' : i === 3 ? 'secondary' : 'almond'}
             sound="navigation"
             aria-current={page === p ? 'page' : undefined}
-            onClick={() => onPage(page === p ? 'SECTOR' : p)}
+            onClick={() => {
+              onPage(page === p ? 'SECTOR' : p);
+              setShowNav(false);
+            }}
           >
             <small>0{i + 1}</small>
             <b>{p}</b>
@@ -216,7 +305,10 @@ export function LcarsShell({
             shape="flat"
             sound="navigation"
             tone="almond"
-            onClick={onSettings}
+            onClick={() => {
+              setShowNav(false);
+              onSettings();
+            }}
             aria-label="Console Settings"
           >
             CONSOLE SETTINGS
@@ -224,7 +316,7 @@ export function LcarsShell({
         </div>
       </nav>
       <LcarsBar variant="lower" className="body-band" />
-      <main className="sector-workspace">
+      <main ref={workspaceRef} className="sector-workspace">
         {children}
         <LcarsButton
           className="compact-context"
@@ -273,10 +365,15 @@ export function LcarsShell({
                 sound="navigation"
                 key={o.id}
                 data-ship-id={o.id}
+                aria-pressed={selectedShipIds.includes(o.id)}
                 className={'operation-chip ' + (o.current ? 'attention' : '')}
-                onClick={() => locate(o.id)}
+                data-cloak={o.cloak}
+                onClick={(e) => locate(o.id, e.ctrlKey)}
               >
-                <b>{o.name.split(' / ')[0]}</b>
+                <b>
+                  {o.name.split(' / ')[0]}
+                  {o.cloak === 'on' ? ' ◇ 隐形' : o.cloak === 'decloaking' ? ' ◇ 解除中' : ''}
+                </b>
                 <span>
                   {o.current ? ACTION_LABELS[o.current.action.type] : 'AVAILABLE'} ·{' '}
                   {o.queue.length} QUEUED / {o.suspended.length} SUSPENDED

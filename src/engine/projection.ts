@@ -1,8 +1,10 @@
 import type { SimulationEngine } from './engine';
-import type { Observation, Opportunity, Snapshot } from './types';
+import type { Observation, Opportunity, Snapshot, Stock } from './types';
 import { visibleIntel } from './sensors';
 import { frontierSectors, sectorId } from './world-generation';
 import { available } from './command-system';
+import { GOODS } from './types';
+import { markerRemovalReason } from './map-markers';
 export function opportunities(e: SimulationEngine): Opportunity[] {
   const w = e.state,
     result: Opportunity[] = [];
@@ -111,6 +113,27 @@ export function snapshot(this: SimulationEngine): Snapshot {
     jobs: w.jobs,
     wrecks: w.wrecks.filter((x) => x.discovered),
     resources: w.resources,
+    baseResources: {
+      credits: w.resources.credits,
+      stock: this.base.stock,
+      available: Object.fromEntries(GOODS.map((k) => [k, available(w, 'base', k)])) as Stock,
+      reserved: Object.fromEntries(
+        GOODS.map((k) => [k, this.base.stock[k] - available(w, 'base', k)]),
+      ) as Stock,
+    },
+    mapMarkers: {
+      dismissedIds: w.dismissedMarkerIds.filter(
+        (id) =>
+          bodies.some((b) => b.id === id) || w.wrecks.some((x) => x.id === id && x.discovered),
+      ),
+      removableIds: [
+        ...bodies.filter((b) => b.kind === 'derelict'),
+        ...w.wrecks.filter((x) => x.discovered),
+      ]
+        .filter((x) => !markerRemovalReason(w, x.id))
+        .map((x) => x.id)
+        .sort(),
+    },
     upgrades: w.upgrades,
     tension: w.tension,
     communications: w.communications,

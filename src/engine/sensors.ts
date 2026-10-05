@@ -102,8 +102,28 @@ export function updateSensors(e: SimulationEngine) {
         : 1;
     if (probability < 1 && e.random() > probability) continue;
     const source = detecting[0];
+    const previousSeen = w.intel.find((i) => i.id === enemy.id)?.lastSeen;
     const result = observe(w, enemy, source.active ? 2 : 1);
-    if (result.fresh) e.report('发现接触：' + result.record.id, result.record.id, 'high', 'threat');
+    let alert = w.contactAlerts.find((a) => a.contactId === enemy.id);
+    if (
+      !alert ||
+      (previousSeen !== undefined && w.time - previousSeen >= 10) ||
+      (result.record.hostile && !alert.hostileAlerted)
+    ) {
+      const message =
+        (result.record.hostile ? '已确认敌对接触' : '发现外部舰船接触') +
+        '：' +
+        (result.record.name ?? '未知舰船') +
+        '，请 Admiral 处置后手动继续';
+      e.report(message, result.record.id, 'urgent', 'threat');
+      e.critical('newContact', result.record.id, message);
+      if (!alert) {
+        alert = { contactId: enemy.id, lastAlertAt: w.time, hostileAlerted: false };
+        w.contactAlerts.push(alert);
+      }
+      alert.lastAlertAt = w.time;
+      alert.hostileAlerted ||= result.record.hostile;
+    }
     for (const ship of w.ships.filter(
       (s) => s.current?.action.type === 'SHADOW' && s.current.action.targetId === enemy.id,
     )) {

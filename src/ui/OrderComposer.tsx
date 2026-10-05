@@ -8,7 +8,12 @@ import { frontierSectors, sectorId } from '../engine/world-generation';
 import { capabilities, cargoUsed } from '../engine/capabilities';
 import { MODULES } from '../engine/definitions/progression';
 import { routeEstimate } from '../engine/navigation';
-export type ComposerRequest = { action: Action; shipId?: string; groupId?: string };
+export type ComposerRequest = {
+  action: Action;
+  shipId?: string;
+  shipIds?: string[];
+  groupId?: string;
+};
 export function defaultAction(
   type: Action['type'],
   w: Snapshot,
@@ -123,20 +128,24 @@ export function OrderComposer({
     [shipIds, setShipIds] = useState<string[]>(
       request.groupId
         ? [...(world.groups.find((g) => g.id === request.groupId)?.shipIds ?? [])]
-        : [
-            world.ships.find(
-              (s) =>
-                s.id ===
-                (request.shipId ??
-                  (request.action.type === 'EXPLORE' || request.action.type === 'SURVEY'
-                    ? 'verity'
-                    : request.action.type === 'HAUL'
-                      ? (world.ships.find((s) => s.classId === 'antares')?.id ?? '')
-                      : 'vigil')),
-            )?.id ??
-              world.ships[0]?.id ??
-              '',
-          ],
+        : request.shipId
+          ? [request.shipId]
+          : request.shipIds
+            ? request.shipIds.filter((id) => world.ships.some((s) => s.id === id))
+            : [
+                world.ships.find(
+                  (s) =>
+                    s.id ===
+                    (request.shipId ??
+                      (request.action.type === 'EXPLORE' || request.action.type === 'SURVEY'
+                        ? 'verity'
+                        : request.action.type === 'HAUL'
+                          ? (world.ships.find((s) => s.classId === 'antares')?.id ?? '')
+                          : 'vigil')),
+                )?.id ??
+                  world.ships[0]?.id ??
+                  '',
+              ],
     ),
     [mode, setMode] = useState<'REPLACE' | 'QUEUE' | 'INTERRUPT'>('REPLACE');
   const update = (patch: Partial<Action>) => setAction((a) => ({ ...a, ...patch }) as Action);
@@ -339,7 +348,7 @@ export function OrderComposer({
               </select>
             </LcarsField>
             <LcarsField>
-              AMOUNT
+              {request.groupId ? 'TOTAL AMOUNT / 编队总量' : 'AMOUNT PER VESSEL / 每舰数量'}
               <input
                 aria-label="货物数量"
                 type="number"
@@ -523,6 +532,7 @@ export function OrderComposer({
       </p>
       <div className="dialog-actions">
         <LcarsButton
+          disabled={shipIds.length === 0}
           onClick={async () => {
             const r = await command(
               request.groupId

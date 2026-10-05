@@ -101,7 +101,6 @@ export const standingSchema = z
     protectFreighter: z.boolean(),
     protectColony: z.boolean(),
     serviceWhenDocked: z.boolean(),
-
   })
   .strict();
 const members = z
@@ -116,6 +115,7 @@ const groupFields = {
   spacing: n.min(15).max(100),
 };
 export const commandSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('dismissMapMarker'), entityId: id }).strict(),
   z
     .object({
       type: z.literal('issueDirective'),

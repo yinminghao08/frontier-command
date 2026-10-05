@@ -12,6 +12,37 @@ export function ConsoleSettings({ close }: { close: () => void }) {
       className="console-settings"
     >
       <p className="panel-intro">LIBRARY COMPUTER ACCESS / RETRIEVAL SYSTEM</p>
+      <LcarsPanel title="DISPLAY / TEXT 显示与文字">
+        <LcarsField>
+          TEXT SIZE 文字大小 <output>{Math.round(preferences.textScale * 100)}%</output>
+          <input
+            aria-label="文字大小"
+            type="range"
+            data-sound="none"
+            min="100"
+            max="200"
+            step="5"
+            value={Math.round(preferences.textScale * 100)}
+            onChange={(e) => updatePreferences({ textScale: Number(e.target.value) / 100 })}
+          />
+        </LcarsField>
+        <LcarsField>
+          INTERFACE ZOOM 界面缩放 <output>{Math.round(preferences.interfaceZoom * 100)}%</output>
+          <input
+            aria-label="界面缩放"
+            type="range"
+            data-sound="none"
+            min="100"
+            max="200"
+            step="10"
+            value={Math.round(preferences.interfaceZoom * 100)}
+            onChange={(e) => updatePreferences({ interfaceZoom: Number(e.target.value) / 100 })}
+          />
+        </LcarsField>
+        <p>
+          Ctrl + 加减：界面缩放 · Ctrl + 0：复位界面缩放。文字大小独立保存，小窗口不会强制缩字。
+        </p>
+      </LcarsPanel>
       <LcarsPanel title="ANIMATIONS">
         <div className="settings-switch" role="group" aria-label="ANIMATIONS">
           {(['on', 'reduced', 'off'] as AnimationMode[]).map((mode) => (

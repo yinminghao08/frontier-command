@@ -143,6 +143,8 @@ export class SimulationEngine {
         : [];
     w.beams = w.beams.filter((b) => b.expires > w.time);
     if (w.tick % 10 === 0) updateSensors(this);
+    if (this.pending.some((r) => r.kind === 'newContact'))
+      return [...events, ...this.pendingEvents.splice(0), ...this.finishCritical()];
     advanceEconomy(this, fixedDelta);
     for (const s of [...w.ships]) {
       if (this.isCommandLost()) break;

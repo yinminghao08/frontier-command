@@ -28,7 +28,7 @@ describe('seeded sparse sectors and physical navigation', () => {
     expect(bodies.some((b) => b.kind === 'planet' && b.habitable)).toBe(true);
     expect(bodies.some((b) => b.kind === 'resource' && b.remaining > 0)).toBe(true);
   });
-  it('safe, direct and risky have real ETA/risk differences without a rectangular edge', () => {
+  it('safe is direct without observed danger while risky changes ETA/risk without a rectangular edge', () => {
     const e = quietEngine(),
       s = e.state.ships[0],
       to = e.state.locations.find((l) => l.id === 'mine')!,
@@ -36,7 +36,8 @@ describe('seeded sparse sectors and physical navigation', () => {
     const safe = routeEstimate(w, s, to, 'safe'),
       direct = routeEstimate(w, s, to, 'direct'),
       risky = routeEstimate(w, s, to, 'risky');
-    expect(safe.eta).toBeGreaterThan(direct.eta);
+    expect(safe.eta).toBe(direct.eta);
+    expect(planRoute(e.state,s,to,'safe')).toEqual([{x:to.x,y:to.y}]);
     expect(risky.eta).toBeLessThan(direct.eta);
     expect(risky.risk).not.toBe(safe.risk);
     const p = planRoute(e.state, s, { x: -100000, y: 200000 }, 'direct');

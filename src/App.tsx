@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { ContextGuidance } from './ui/ContextGuidance';
+import { ContactAlert } from './ui/ContactAlert';
+import { useState, useEffect, useRef } from 'react';
 import { useFrontier } from './ui/hooks/useFrontier';
 import { StrategicMap, type Selection } from './StrategicMap';
 import { Inspector } from './ui/Inspector';
@@ -17,6 +19,12 @@ export function App() {
   const [page, setPage] = useState<Page>('SECTOR'),
     [selection, setSelection] = useState<Selection | null>({ type: 'location', id: 'base' });
   const [focus, setFocus] = useState<{ point: Point; serial: number } | null>(null);
+  const [selectedShipIds, setSelectedShipIds] = useState<string[]>([]);
+  const [followShipId, setFollowShipId] = useState<string | null>(null);
+  const followedShip = useRef(followShipId);
+  followedShip.current = followShipId;
+  const selectedShips = useRef(selectedShipIds);
+  selectedShips.current = selectedShipIds;
   const [composer, setComposer] = useState<ComposerRequest | null>(null),
     [confirmReset, setConfirmReset] = useState(false),
     [settings, setSettings] = useState(false);
@@ -30,6 +38,32 @@ export function App() {
     window.addEventListener('keydown', cancel);
     return () => window.removeEventListener('keydown', cancel);
   }, []);
+  useEffect(() => {
+    if (!world) return;
+    setSelectedShipIds((ids) => {
+      const alive = ids.filter((id) => world.ships.some((s) => s.id === id));
+      return alive.length === ids.length ? ids : alive;
+    });
+  }, [world]);
+  useEffect(
+    () =>
+      window.frontier.onEvents((events) => {
+        if (
+          followedShip.current === selectedShips.current[0] &&
+          !events.some((e) => e.shipId === followedShip.current)
+        )
+          return;
+        const event =
+          events.find((e) => e.shipId === selectedShips.current[0]) ??
+          events.find((e) => selectedShips.current.includes(e.shipId)) ??
+          events[0];
+        if (event) {
+          setFollowShipId(event.shipId);
+          setFocus((f) => ({ point: event.destination, serial: (f?.serial ?? 0) + 1 }));
+        }
+      }),
+    [timeline.activeId],
+  );
   if (!world)
     return (
       <div className="loading">
@@ -39,70 +73,84 @@ export function App() {
         </LcarsFrame>
       </div>
     );
-  const select = (s: Selection, locate = false) => {
+  const select = (s: Selection, locate = false, additive = false) => {
+    if (s.type !== 'ship' || s.id !== followShipId) setFollowShipId(null);
     setSelection(s);
     if (s.type === 'ship' || s.type === 'group') {
+      if (s.type === 'ship')
+        setSelectedShipIds((ids) =>
+          additive
+            ? ids.includes(s.id)
+              ? ids.filter((id) => id !== s.id)
+              : [...ids, s.id]
+            : [s.id],
+        );
+      else setSelectedShipIds([...(world.groups.find((g) => g.id === s.id)?.shipIds ?? [])]);
       setCommandTarget(s);
       setDestination(null);
     }
     if (s.type === 'point') setDestination({ x: s.x, y: s.y });
     if (!locate) return;
     const p =
-      s.type === 'siteContact' ? world.siteContacts.find(x=>x.id===s.id) : s.type === 'group'
-        ? world.ships.find((x) => x.id === world.groups.find((g) => g.id === s.id)?.flagshipId)
-        : s.type === 'wormhole'
-          ? world.wormholes.find((x) => x.id === s.id)
-          : s.type === 'civilian'
-            ? world.civilians.find((x) => x.id === s.id)
-            : s.type === 'event'
-              ? world.locations.find(
-                  (x) => x.id === world.events.find((v) => v.id === s.id)?.subjectId,
-                )
-              : s.type === 'point'
-                ? s
-                : s.type === 'sector'
-                  ? sectorCenter(s)
-                  : s.type === 'ship'
-                    ? world.ships.find((x) => x.id === s.id)
-                    : s.type === 'location'
-                      ? world.locations.find((x) => x.id === s.id)
-                      : s.type === 'contact'
-                        ? world.contacts.find((x) => x.id === s.id)
-                        : s.type === 'system'
-                          ? world.systems.find((x) => x.id === s.id)
-                          : s.type === 'body'
-                            ? world.bodies.find((x) => x.id === s.id)
-                            : s.type === 'project'
-                              ? world.projects.find((x) => x.id === s.id)
-                              : s.type === 'wreck'
-                                ? world.wrecks.find((x) => x.id === s.id)
-                                : world.losses.find((x) => x.shipId === s.id)?.position;
+      s.type === 'siteContact'
+        ? world.siteContacts.find((x) => x.id === s.id)
+        : s.type === 'group'
+          ? world.ships.find((x) => x.id === world.groups.find((g) => g.id === s.id)?.flagshipId)
+          : s.type === 'wormhole'
+            ? world.wormholes.find((x) => x.id === s.id)
+            : s.type === 'civilian'
+              ? world.civilians.find((x) => x.id === s.id)
+              : s.type === 'event'
+                ? world.locations.find(
+                    (x) => x.id === world.events.find((v) => v.id === s.id)?.subjectId,
+                  )
+                : s.type === 'point'
+                  ? s
+                  : s.type === 'sector'
+                    ? sectorCenter(s)
+                    : s.type === 'ship'
+                      ? world.ships.find((x) => x.id === s.id)
+                      : s.type === 'location'
+                        ? world.locations.find((x) => x.id === s.id)
+                        : s.type === 'contact'
+                          ? world.contacts.find((x) => x.id === s.id)
+                          : s.type === 'system'
+                            ? world.systems.find((x) => x.id === s.id)
+                            : s.type === 'body'
+                              ? world.bodies.find((x) => x.id === s.id)
+                              : s.type === 'project'
+                                ? world.projects.find((x) => x.id === s.id)
+                                : s.type === 'wreck'
+                                  ? world.wrecks.find((x) => x.id === s.id)
+                                  : world.losses.find((x) => x.shipId === s.id)?.position;
     if (p) setFocus((f) => ({ point: { x: p.x, y: p.y }, serial: (f?.serial ?? 0) + 1 }));
   };
-  const locate = (id: string | null) => {
+  const locate = (id: string | null, additive = false) => {
     if (!id) return;
-    const type = world.siteContacts.some(x=>x.id===id) ? 'siteContact' : world.events.some((x) => x.id === id)
-      ? 'event'
-      : world.wormholes.some((x) => x.id === id)
-        ? 'wormhole'
-        : world.civilians.some((x) => x.id === id)
-          ? 'civilian'
-          : world.ships.some((x) => x.id === id)
-            ? 'ship'
-            : world.locations.some((x) => x.id === id)
-              ? 'location'
-              : world.systems.some((x) => x.id === id)
-                ? 'system'
-                : world.bodies.some((x) => x.id === id)
-                  ? 'body'
-                  : world.projects.some((x) => x.id === id)
-                    ? 'project'
-                    : world.wrecks.some((x) => x.id === id)
-                      ? 'wreck'
-                      : world.losses.some((x) => x.shipId === id)
-                        ? 'loss'
-                        : 'contact';
-    select({ type, id }, true);
+    const type = world.siteContacts.some((x) => x.id === id)
+      ? 'siteContact'
+      : world.events.some((x) => x.id === id)
+        ? 'event'
+        : world.wormholes.some((x) => x.id === id)
+          ? 'wormhole'
+          : world.civilians.some((x) => x.id === id)
+            ? 'civilian'
+            : world.ships.some((x) => x.id === id)
+              ? 'ship'
+              : world.locations.some((x) => x.id === id)
+                ? 'location'
+                : world.systems.some((x) => x.id === id)
+                  ? 'system'
+                  : world.bodies.some((x) => x.id === id)
+                    ? 'body'
+                    : world.projects.some((x) => x.id === id)
+                      ? 'project'
+                      : world.wrecks.some((x) => x.id === id)
+                        ? 'wreck'
+                        : world.losses.some((x) => x.shipId === id)
+                          ? 'loss'
+                          : 'contact';
+    select({ type, id }, true, additive);
   };
   const changedWorld = () => {
     setSelection({ type: 'location', id: 'base' });
@@ -112,6 +160,26 @@ export function App() {
     setFocus(null);
     setDestination(null);
     setCommandTarget(null);
+    setSelectedShipIds([]);
+    setFollowShipId(null);
+  };
+  const openComposer = (request: ComposerRequest) => {
+    if (request.shipId || request.groupId || request.shipIds) {
+      setComposer(request);
+      return;
+    }
+    const groupId =
+      commandTarget?.type === 'group' &&
+      ['MOVE', 'HAUL', 'PATROL', 'ESCORT', 'INTERCEPT', 'RETREAT', 'RETURN'].includes(
+        request.action.type,
+      )
+        ? commandTarget.id
+        : undefined;
+    setComposer({
+      ...request,
+      groupId,
+      shipIds: selectedShipIds.length ? [...selectedShipIds] : undefined,
+    });
   };
   const serial =
     selection?.type === 'point'
@@ -132,6 +200,7 @@ export function App() {
         command={command}
         locate={locate}
         contextSerial={serial}
+        selectedShipIds={selectedShipIds}
         onSettings={() => setSettings(true)}
         overlay={
           settings ? (
@@ -147,7 +216,7 @@ export function App() {
                   select(s, true);
                   setPage('SECTOR');
                 }}
-                create={setComposer}
+                create={openComposer}
                 command={command}
                 save={save}
                 newFrontier={() => setConfirmReset(true)}
@@ -156,19 +225,29 @@ export function App() {
           )
         }
         inspector={
-          <Inspector
-            world={world}
-            selection={selection}
-            select={select}
-            command={command}
-            create={setComposer}
-          />
+          <>
+            <ContextGuidance
+              world={world}
+              selection={selection}
+              selectedShipIds={selectedShipIds}
+              create={openComposer}
+              select={select}
+            />
+            <Inspector
+              world={world}
+              selection={selection}
+              selectedShipIds={selectedShipIds}
+              select={select}
+              command={command}
+              create={openComposer}
+            />
+          </>
         }
       >
-        {destination && commandTarget && (
+        {destination && selectedShipIds.length > 0 && (
           <div className="map-command-point">
             <b>
-              目的点 {destination.x}, {destination.y}
+              目的点 {destination.x}, {destination.y} · {selectedShipIds.length} 艘已选舰船
             </b>
             <select
               aria-label="地图移动模式"
@@ -183,7 +262,7 @@ export function App() {
               onClick={async () => {
                 const action = { type: 'MOVE' as const, point: destination };
                 const r = await command(
-                  commandTarget.type === 'group'
+                  commandTarget?.type === 'group'
                     ? {
                         type: 'issueGroupDirective',
                         groupId: commandTarget.id,
@@ -192,7 +271,7 @@ export function App() {
                       }
                     : {
                         type: 'issueDirective',
-                        shipIds: 'id' in commandTarget ? [commandTarget.id] : [],
+                        shipIds: selectedShipIds,
                         mode: moveMode,
                         action,
                       },
@@ -213,7 +292,11 @@ export function App() {
           selection={selection}
           destination={destination}
           commandTarget={commandTarget}
-          onSelect={select}
+          onSelect={(s, additive) => select(s, false, additive)}
+          selectedShipIds={selectedShipIds}
+          command={command}
+          followShipId={followShipId}
+          onManualCamera={() => setFollowShipId(null)}
           focus={focus}
         />
       </LcarsShell>
@@ -248,7 +331,7 @@ export function App() {
           onClose={() => setConfirmReset(false)}
         >
           <h2>开始新的边疆世界</h2>
-          <p>保留当前时间线，从 DAY 1 00:00 创建独立的 v8 新世界。</p>
+          <p>保留当前时间线，从 DAY 1 00:00 创建独立的 v9 新世界。</p>
           <div className="dialog-actions">
             <LcarsButton tone="secondary" onClick={() => setConfirmReset(false)}>
               取消
@@ -267,6 +350,15 @@ export function App() {
           </div>
         </LcarsDialog>
       )}
+      <ContactAlert
+        world={world}
+        branch={timeline.activeId}
+        command={command}
+        locate={(id) => {
+          setPage('SECTOR');
+          locate(id);
+        }}
+      />
       {notice && (
         <div className={'notification ' + (notice.error ? 'error' : '')} role="status">
           <span>{notice.text}</span>

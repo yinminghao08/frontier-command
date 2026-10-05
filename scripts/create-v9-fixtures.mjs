@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 const { SimulationEngine } = require('../dist-electron/src/engine/engine.js');
 const { createWorld } = require('../dist-electron/src/engine/data.js');
 const { parseSave } = require('../dist-electron/src/engine/saves.js');
-const output = resolve('tests/fixtures/v8');
+const output = resolve('tests/fixtures/v9');
 mkdirSync(output, { recursive: true });
 const save = (name, engine) =>
   writeFileSync(
@@ -61,4 +61,4 @@ const terminal = new SimulationEngine(continued.state);
 terminal.hit(terminal.base, 10000);
 terminal.finishCritical();
 save('command-lost', terminal);
-console.log('Generated four validated v8 fixtures in ' + output);
+console.log('Generated four validated v9 fixtures in ' + output);

@@ -1,13 +1,35 @@
 {
-  "version": 8,
+  "version": 9,
   "tick": 4000,
   "time": 400,
   "seed": 48084666,
   "initialSeed": 236807,
   "paused": true,
   "speed": 1,
-  "status": "active",
-  "pauseReasons": [],
+  "status": "commandLost",
+  "pauseReasons": [
+    {
+      "kind": "lowHull",
+      "entityId": "base",
+      "tick": 4000,
+      "time": 400,
+      "message": "DAWN STARBASE / 曙光基地 设施严重受损"
+    },
+    {
+      "kind": "facilityDestroyed",
+      "entityId": "base",
+      "tick": 4000,
+      "time": 400,
+      "message": "DAWN STARBASE / 曙光基地 已摧毁"
+    },
+    {
+      "kind": "commandLost",
+      "entityId": "base",
+      "tick": 4000,
+      "time": 400,
+      "message": "COMMAND LOST"
+    }
+  ],
   "commander": {
     "id": "commander",
     "name": "Dawn Frontier Command",
@@ -140,8 +162,8 @@
       "tracking": null
     },
     {
-      "x": -228.159547659856,
-      "y": -1.9503046892162401,
+      "x": -228.00000643834588,
+      "y": 0.012430617832268936,
       "id": "vigil",
       "name": "USS VIGIL / 守望号",
       "classId": "peregrine",
@@ -178,7 +200,7 @@
         "serviceWhenDocked": false
       },
       "path": [],
-      "heading": -2.707522404966016,
+      "heading": -3.1405567685851765,
       "cargo": {
         "materials": 0,
         "photon": 0,
@@ -250,8 +272,8 @@
       "tracking": null
     },
     {
-      "x": 283.1129091503481,
-      "y": -89.26202026898214,
+      "x": 282.9283658645121,
+      "y": -90.14289697752476,
       "id": "horizon",
       "name": "USS HORIZON / 地平线号",
       "classId": "galaxy",
@@ -274,8 +296,8 @@
         },
         "created": 0,
         "phase": "starting",
-        "work": 320.90000000000447,
-        "moved": 1799.8937849873482,
+        "work": 320.7000000000044,
+        "moved": 1798.9937849873481,
         "carried": 0,
         "delivered": 0,
         "reserved": {
@@ -322,7 +344,7 @@
           "y": -61.76241097940839
         }
       ],
-      "heading": 1.364283480292502,
+      "heading": 1.3642834802925021,
       "cargo": {
         "materials": 0,
         "photon": 0,
@@ -529,14 +551,14 @@
       "lastHostileTargetId": null,
       "counterTracking": {
         "position": {
-          "x": 467.35094339622583,
-          "y": -477.5283018867941
+          "x": 464.4981132075464,
+          "y": -472.9433962264167
         },
         "watchers": {},
         "evading": false,
         "waypoints": [],
-        "lastSeen": 204,
-        "checkedAt": 400,
+        "lastSeen": 204.1,
+        "checkedAt": 399.1,
         "serial": 1
       }
     },
@@ -609,14 +631,14 @@
       "lastHostileTargetId": null,
       "counterTracking": {
         "position": {
-          "x": 484.6915055050375,
-          "y": -503.5045287587168
+          "x": 481.99000647651474,
+          "y": -498.8288573631962
         },
         "watchers": {},
         "evading": false,
         "waypoints": [],
         "lastSeen": 0,
-        "checkedAt": 400,
+        "checkedAt": 399.1,
         "serial": 0
       }
     },
@@ -689,14 +711,14 @@
       "lastHostileTargetId": null,
       "counterTracking": {
         "position": {
-          "x": 484.6915055050375,
-          "y": -503.5045287587168
+          "x": 481.99000647651474,
+          "y": -498.8288573631962
         },
         "watchers": {},
         "evading": false,
         "waypoints": [],
         "lastSeen": 0,
-        "checkedAt": 400,
+        "checkedAt": 399.1,
         "serial": 0
       }
     },
@@ -778,14 +800,14 @@
       "lastHostileTargetId": null,
       "counterTracking": {
         "position": {
-          "x": 686.3711583364937,
-          "y": 114.10296850240219
+          "x": 687.5808314567236,
+          "y": 107.9201947767841
         },
         "watchers": {},
         "evading": false,
         "waypoints": [],
         "lastSeen": 0,
-        "checkedAt": 400,
+        "checkedAt": 399.1,
         "serial": 0
       }
     },
@@ -865,7 +887,7 @@
         "evading": false,
         "waypoints": [],
         "lastSeen": 0,
-        "checkedAt": 400,
+        "checkedAt": 399.1,
         "serial": 0
       }
     },
@@ -945,7 +967,7 @@
         "evading": false,
         "waypoints": [],
         "lastSeen": 0,
-        "checkedAt": 400,
+        "checkedAt": 399.1,
         "serial": 0
       }
     }
@@ -1219,7 +1241,7 @@
       "population": 0,
       "survey": 2,
       "habitable": false,
-      "remaining": 2327.9999999999927,
+      "remaining": 2336.399999999993,
       "richness": 1.2,
       "hazard": 0.25,
       "hidden": false,
@@ -1400,22 +1422,22 @@
       "owner": "starfleet",
       "siteId": null,
       "stock": {
-        "materials": 334,
-        "photon": 90,
-        "quantum": 20,
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
         "specialFinds": 0
       },
-      "hull": 5000,
+      "hull": 0,
       "maxHull": 5000,
-      "shield": 3000,
+      "shield": 0,
       "maxShield": 3000,
       "core": 300,
-      "attackedAt": -1000,
+      "attackedAt": 400,
       "lastAttackerId": null,
       "cooldown": 0,
-      "distress": false,
+      "distress": true,
       "discovered": true,
-      "production": 0,
+      "production": 4.799999999999999,
       "capacity": {
         "materials": 6000,
         "photon": 500,
@@ -1451,7 +1473,7 @@
       "cooldown": 0,
       "distress": false,
       "discovered": true,
-      "production": 0,
+      "production": 4.799999999999999,
       "capacity": {
         "materials": 300,
         "photon": 40,
@@ -1461,7 +1483,7 @@
       "storageFull": false,
       "extracted": 0,
       "colony": {
-        "population": 1004.0080086693268,
+        "population": 1004.0060006563215,
         "housing": 1500,
         "stability": 75,
         "morale": 75,
@@ -1485,7 +1507,7 @@
       "owner": "starfleet",
       "siteId": "helios-deposit",
       "stock": {
-        "materials": 512.9999999999994,
+        "materials": 504.59999999999945,
         "photon": 0,
         "quantum": 0,
         "specialFinds": 0
@@ -1500,7 +1522,7 @@
       "cooldown": 0,
       "distress": false,
       "discovered": true,
-      "production": 0,
+      "production": 4.799999999999999,
       "capacity": {
         "materials": 3000,
         "photon": 30,
@@ -1508,7 +1530,7 @@
         "specialFinds": 10
       },
       "storageFull": false,
-      "extracted": 671.999999999999,
+      "extracted": 663.599999999999,
       "colony": null
     },
     {
@@ -1536,7 +1558,7 @@
       "cooldown": 0,
       "distress": false,
       "discovered": true,
-      "production": 0,
+      "production": 4.799999999999999,
       "capacity": {
         "materials": 250,
         "photon": 60,
@@ -1625,8 +1647,8 @@
   "wrecks": [],
   "intel": [
     {
-      "x": 462.5119100704927,
-      "y": -131.17310381942147,
+      "x": 462.86148393544056,
+      "y": -131.01333497640803,
       "id": "orion-scout",
       "level": "TRACKED",
       "strength": 12,
@@ -1639,8 +1661,8 @@
       "hull": 95,
       "shield": 55,
       "velocity": {
-        "x": 0.5615003163137544,
-        "y": -5.973668671325868
+        "x": 0.556088733422655,
+        "y": -5.974174865247917
       },
       "resolved": false
     }
@@ -1676,9 +1698,17 @@
   },
   "siteIntel": [],
   "recoveredVeil": false,
+  "contactAlerts": [
+    {
+      "contactId": "orion-scout",
+      "lastAlertAt": 204,
+      "hostileAlerted": false
+    }
+  ],
+  "dismissedMarkerIds": [],
   "tension": 0,
   "resources": {
-    "credits": 1829.4935801709457
+    "credits": 1810.3371265219887
   },
   "upgrades": {
     "shipyard": 0,
@@ -1694,7 +1724,7 @@
       "name": "Commander 陈星",
       "originId": "colony",
       "career": "commander",
-      "experience": 40.00000000000061,
+      "experience": 39.980000000000615,
       "skills": {
         "battle": 20,
         "science": 30,
@@ -2081,15 +2111,15 @@
     {
       "id": 20,
       "time": 124,
-      "priority": "high",
-      "text": "发现接触：orion-scout",
+      "priority": "urgent",
+      "text": "发现外部舰船接触：未知舰船，请 Admiral 处置后手动继续",
       "read": false,
       "entityId": "orion-scout",
       "category": "threat"
     },
     {
       "id": 21,
-      "time": 157.4,
+      "time": 144.2,
       "priority": "normal",
       "text": "USS VIGIL / 守望号 安装 Expanded Cargo",
       "read": false,
@@ -2098,7 +2128,7 @@
     },
     {
       "id": 22,
-      "time": 157.4,
+      "time": 144.2,
       "priority": "normal",
       "text": "USS VIGIL / 守望号 / REFIT / 模块能力已改变下一轮活动",
       "read": false,
@@ -2107,7 +2137,7 @@
     },
     {
       "id": 23,
-      "time": 157.5,
+      "time": 144.3,
       "priority": "normal",
       "text": "USS VIGIL / 守望号 / DOCK / 停靠；货物保留",
       "read": false,
@@ -2116,7 +2146,7 @@
     },
     {
       "id": 24,
-      "time": 185.6,
+      "time": 185.7,
       "priority": "normal",
       "text": "USS MERIDIAN-1 实际交付 279 / 279 materials 至 DAWN STARBASE / 曙光基地",
       "read": false,
@@ -2125,11 +2155,38 @@
     },
     {
       "id": 25,
-      "time": 185.6,
+      "time": 185.7,
       "priority": "normal",
       "text": "USS MERIDIAN-1 / HAUL / 交付完成",
       "read": false,
       "entityId": "meridian",
+      "category": "report"
+    },
+    {
+      "id": 26,
+      "time": 204,
+      "priority": "urgent",
+      "text": "发现外部舰船接触：Orion Surveyor orion-scout，请 Admiral 处置后手动继续",
+      "read": false,
+      "entityId": "orion-scout",
+      "category": "threat"
+    },
+    {
+      "id": 27,
+      "time": 400,
+      "priority": "urgent",
+      "text": "DAWN STARBASE / 曙光基地 遭袭，请求增援",
+      "read": false,
+      "entityId": "base",
+      "category": "threat"
+    },
+    {
+      "id": 28,
+      "time": 400,
+      "priority": "normal",
+      "text": "DAWN STARBASE / 曙光基地 已摧毁",
+      "read": false,
+      "entityId": "base",
       "category": "report"
     }
   ],
@@ -2245,38 +2302,56 @@
     {
       "id": 19,
       "time": 124,
-      "level": "warning",
-      "text": "发现接触：orion-scout"
+      "level": "danger",
+      "text": "发现外部舰船接触：未知舰船，请 Admiral 处置后手动继续"
     },
     {
       "id": 20,
-      "time": 157.4,
+      "time": 144.2,
       "level": "info",
       "text": "USS VIGIL / 守望号 安装 Expanded Cargo"
     },
     {
       "id": 21,
-      "time": 157.4,
+      "time": 144.2,
       "level": "info",
       "text": "USS VIGIL / 守望号 / REFIT / 模块能力已改变下一轮活动"
     },
     {
       "id": 22,
-      "time": 157.5,
+      "time": 144.3,
       "level": "info",
       "text": "USS VIGIL / 守望号 / DOCK / 停靠；货物保留"
     },
     {
       "id": 23,
-      "time": 185.6,
+      "time": 185.7,
       "level": "info",
       "text": "USS MERIDIAN-1 实际交付 279 / 279 materials 至 DAWN STARBASE / 曙光基地"
     },
     {
       "id": 24,
-      "time": 185.6,
+      "time": 185.7,
       "level": "info",
       "text": "USS MERIDIAN-1 / HAUL / 交付完成"
+    },
+    {
+      "id": 25,
+      "time": 204,
+      "level": "danger",
+      "text": "发现外部舰船接触：Orion Surveyor orion-scout，请 Admiral 处置后手动继续"
+    },
+    {
+      "id": 26,
+      "time": 400,
+      "level": "danger",
+      "text": "DAWN STARBASE / 曙光基地 遭袭，请求增援"
+    },
+    {
+      "id": 27,
+      "time": 400,
+      "level": "info",
+      "text": "DAWN STARBASE / 曙光基地 已摧毁"
     }
   ],
   "history": [
@@ -2408,43 +2483,50 @@
     },
     {
       "id": 19,
-      "time": 157.4,
+      "time": 144.2,
       "kind": "growth",
       "text": "USS VIGIL / 守望号 安装 Expanded Cargo",
       "entityId": "vigil"
     },
     {
       "id": 20,
-      "time": 157.4,
+      "time": 144.2,
       "kind": "action",
       "text": "USS VIGIL / 守望号 / REFIT / 模块能力已改变下一轮活动",
       "entityId": "vigil"
     },
     {
       "id": 21,
-      "time": 157.5,
+      "time": 144.3,
       "kind": "action",
       "text": "USS VIGIL / 守望号 / DOCK / 停靠；货物保留",
       "entityId": "vigil"
     },
     {
       "id": 22,
-      "time": 185.6,
+      "time": 185.7,
       "kind": "cargo",
       "text": "USS MERIDIAN-1 实际交付 279 / 279 materials 至 DAWN STARBASE / 曙光基地",
       "entityId": "base"
     },
     {
       "id": 23,
-      "time": 185.6,
+      "time": 185.7,
       "kind": "action",
       "text": "USS MERIDIAN-1 / HAUL / 交付完成",
       "entityId": "meridian"
+    },
+    {
+      "id": 24,
+      "time": 400,
+      "kind": "facilityLost",
+      "text": "DAWN STARBASE / 曙光基地 已摧毁",
+      "entityId": "base"
     }
   ],
   "beams": [],
   "nextId": 12,
-  "nextLog": 25,
-  "nextComms": 26,
-  "nextHistory": 24
+  "nextLog": 28,
+  "nextComms": 29,
+  "nextHistory": 25
 }

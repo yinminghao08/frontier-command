@@ -1,3 +1,4 @@
+import { WorkProgress } from './components/WorkProgress';
 import { FleetManager } from './FleetManager';
 import { PersonnelView } from './PersonnelView';
 import { EventsView } from './EventsView';
@@ -86,8 +87,22 @@ export function ManagementDrawer({
         {UPGRADES[id].cost.credits}C / {UPGRADES[id].cost.materials}M /{' '}
         {UPGRADES[id].cost.specialFinds}F
       </p>
+      {world.jobs
+        .filter((j) => j.kind === 'upgrade' && j.key === id && !j.complete)
+        .map((j) => (
+          <WorkProgress
+            key={j.id}
+            label={j.name}
+            work={j.work}
+            duration={j.duration}
+            paused={world.paused}
+          />
+        ))}
       <LcarsButton
-        disabled={!!world.upgrades[id]}
+        disabled={
+          !!world.upgrades[id] ||
+          world.jobs.some((j) => j.kind === 'upgrade' && j.key === id && !j.complete)
+        }
         onClick={() => command({ type: 'upgrade', upgradeId: id })}
       >
         升级 {UPGRADES[id].label}
@@ -132,7 +147,10 @@ export function ManagementDrawer({
                 ADMIRAL / {world.ships.length} SHIPS · {world.systems.length} KNOWN SYSTEMS · BORDER
                 TENSION {Math.round(world.tension)}
               </p>
-              <p>基地资源来自真实前沿物流；殖民地以 Credits 预算为核心产出。后方贸易需要付费并实际交付。</p>
+              <p>
+                基地资源来自真实前沿物流；殖民地以 Credits
+                预算为核心产出。后方贸易需要付费并实际交付。
+              </p>
               {world.ships.map((s) => (
                 <LcarsButton
                   key={s.id}
@@ -159,7 +177,6 @@ export function ManagementDrawer({
                   {Object.entries(BUILD_COSTS).map(([id, c]) => (
                     <option key={id} value={id}>
                       {SHIP_CLASSES[id as ShipClassId].name} · {c.credits}C / {c.materials}M /{' '}
-
                     </option>
                   ))}
                 </select>
@@ -175,6 +192,17 @@ export function ManagementDrawer({
               <LcarsButton onClick={() => command({ type: 'buildShip', classId, name: shipName })}>
                 建造新舰
               </LcarsButton>
+              {world.jobs
+                .filter((j) => j.kind === 'ship' && !j.complete)
+                .map((j) => (
+                  <WorkProgress
+                    key={j.id}
+                    label={j.name}
+                    work={j.work}
+                    duration={j.duration}
+                    paused={world.paused}
+                  />
+                ))}
               <p>新舰空弹舱交付；在 Armory 装载真实弹药。最低舰级始终可建。</p>
             </>
           )}
@@ -213,6 +241,19 @@ export function ManagementDrawer({
                 </select>
               </LcarsField>
               <p>{MODULES[moduleId].description}</p>
+              {ship?.current?.action.type === 'REFIT' && (
+                <>
+                  <p>
+                    {ship.current.phase === 'refitting' ? '现场改装' : '前往基地或等待实物库存'}
+                  </p>
+                  <WorkProgress
+                    label="模块改装"
+                    work={ship.current.work}
+                    duration={10}
+                    paused={world.paused}
+                  />
+                </>
+              )}
               <p>
                 {MODULES[moduleId].cost.credits}C / {MODULES[moduleId].cost.materials}M /{' '}
                 {MODULES[moduleId].cost.specialFinds} Special Finds · SLOTS{' '}
@@ -318,15 +359,30 @@ export function ManagementDrawer({
               >
                 开始实物制造
               </LcarsButton>
+              {world.jobs
+                .filter((j) => j.kind === 'manufacture' && !j.complete)
+                .map((j) => (
+                  <WorkProgress
+                    key={j.id}
+                    label={j.name}
+                    work={j.work}
+                    duration={j.duration}
+                    paused={world.paused}
+                  />
+                ))}
             </>
           )}
           <LcarsTextBar>SHIPYARD / INDUSTRY QUEUE</LcarsTextBar>
           {world.jobs
             .filter((j) => !j.complete)
             .map((j) => (
-              <p key={j.id}>
-                {j.name} · {Math.floor(j.work)} / {j.duration}m
-              </p>
+              <WorkProgress
+                key={j.id}
+                label={j.name}
+                work={j.work}
+                duration={j.duration}
+                paused={world.paused}
+              />
             ))}
         </>
       )}
@@ -382,8 +438,7 @@ export function ManagementDrawer({
                 className="record-row"
                 onClick={() => select({ type: 'location', id: l.id })}
               >
-                {l.name} / {l.kind} · MATERIALS{' '}
-                {Math.floor(l.stock.materials)}
+                {l.name} / {l.kind} · MATERIALS {Math.floor(l.stock.materials)}
               </LcarsButton>
             ))}
           <LcarsTextBar>CONSTRUCTION PROJECTS</LcarsTextBar>

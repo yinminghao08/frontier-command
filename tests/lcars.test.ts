@@ -27,7 +27,9 @@ describe('console preferences remain separate from world saves', () => {
   it('uses sound at 25% and respects the initial system motion preference', () => {
     expect(parsePreferences(null)).toEqual(defaultPreferences());
     expect(parsePreferences(null, true)).toEqual({
-      version: 1,
+      version: 2,
+      textScale: 1,
+      interfaceZoom: 1,
       animations: 'reduced',
       sound: true,
       volume: 0.25,
@@ -40,9 +42,9 @@ describe('console preferences remain separate from world saves', () => {
           JSON.stringify({ version: 1, animations, sound: false, volume: 0.6 }),
           true,
         ),
-      ).toEqual({ version: 1, animations, sound: false, volume: 0.6 });
+      ).toEqual({ version: 2, textScale: 1, interfaceZoom: 1, animations, sound: false, volume: 0.6 });
     expect(parsePreferences('{')).toEqual(defaultPreferences());
-    expect(parsePreferences('{"version":2,"animations":"off"}')).toEqual(defaultPreferences());
+    expect(parsePreferences('{"version":3,"animations":"off"}')).toEqual(defaultPreferences());
     expect(parsePreferences('{"version":1,"animations":"flash","sound":"on","volume":9}')).toEqual({
       ...defaultPreferences(),
       volume: 1,

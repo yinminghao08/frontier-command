@@ -5,7 +5,7 @@ import {
   eventSchema,
   wormholeSchema,
   tradeSchema,
-} from './v8-schema';
+} from './v9-schema';
 import { z } from 'zod';
 import {
   actionSchema,
@@ -128,7 +128,7 @@ const communication = z
   .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(8),
+    version: z.literal(9),
     tick: integer,
     time: nn,
     seed: integer.max(4294967295),
@@ -345,6 +345,10 @@ export const worldSchema = z
       pointSchema.extend({ id, locationId: id, progress: nn.max(10), lastSeen: nn }).strict(),
     ),
     recoveredVeil: z.boolean(),
+    contactAlerts: z.array(
+      z.object({ contactId: id, lastAlertAt: nn, hostileAlerted: z.boolean() }).strict(),
+    ),
+    dismissedMarkerIds: z.array(id),
     tension: nn.max(100),
     resources: z.object({ credits: nn }).strict(),
     upgrades: z
@@ -408,6 +412,22 @@ export const worldSchema = z
   .strict()
   .superRefine((w, ctx) => {
     const bad = (message: string) => ctx.addIssue({ code: 'custom', message });
+    if (
+      new Set(w.contactAlerts.map((a) => a.contactId)).size !== w.contactAlerts.length ||
+      w.contactAlerts.some(
+        (a) => a.lastAlertAt > w.time || !w.intel.some((i) => i.id === a.contactId),
+      )
+    )
+      bad('Invalid contact alert ledger');
+    if (
+      new Set(w.dismissedMarkerIds).size !== w.dismissedMarkerIds.length ||
+      w.dismissedMarkerIds.some(
+        (id) =>
+          !w.wrecks.some((x) => x.id === id && x.discovered) &&
+          !w.bodies.some((b) => b.id === id && b.discovered && b.kind === 'derelict'),
+      )
+    )
+      bad('Invalid dismissed map markers');
     if (Math.abs(w.time - w.tick / 10) > 1e-8) bad('Clock mismatch');
     const collections = [
       w.ships,

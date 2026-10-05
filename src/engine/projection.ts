@@ -28,13 +28,6 @@ export function opportunities(e: SimulationEngine): Opportunity[] {
         targetId: l.id,
         text: l.name + ' · ' + Math.floor(l.stock.materials) + ' Materials 等待运输',
       });
-    if (l.id !== 'base' && !l.colony && l.stock.supplies < 15)
-      result.push({
-        id: 'supply:' + l.id,
-        kind: 'logistics',
-        targetId: l.id,
-        text: l.name + ' · Supplies 不足',
-      });
     if (l.distress && w.time - l.attackedAt <= 30)
       result.push({
         id: 'defend:' + l.id,
@@ -63,6 +56,14 @@ export function snapshot(this: SimulationEngine): Snapshot {
   const w = this.state,
     bodies = w.bodies.filter((b) => b.discovered),
     ids = new Set(bodies.map((b) => b.id));
+  const publicPoints = [
+    ...w.ships,
+    ...w.civilians,
+    ...visibleIntel(w),
+    ...w.locations.filter((l) => l.owner === 'starfleet' || l.discovered),
+  ];
+  const knownPoint = (p: { x: number; y: number }) =>
+    publicPoints.some((x) => Math.hypot(x.x - p.x, x.y - p.y) < 20);
   return structuredClone({
     version: w.version,
     tick: w.tick,
@@ -77,6 +78,9 @@ export function snapshot(this: SimulationEngine): Snapshot {
     losses: w.losses,
     ships: w.ships,
     contacts: visibleIntel(w),
+    siteContacts: w.siteIntel
+      .filter((i) => !w.locations.find((l) => l.id === i.locationId)?.discovered)
+      .map(({ id, x, y, progress, lastSeen }) => ({ id, x, y, progress, lastSeen })),
     sectors: w.sectors.filter((s) => s.discovered),
     systems: w.systems
       .filter((s) => s.discovered)
@@ -93,15 +97,14 @@ export function snapshot(this: SimulationEngine): Snapshot {
           ? l
           : {
               ...l,
-              stock: { materials: 0, supplies: 0, photon: 0, quantum: 0, specialFinds: 0 },
+              stock: { materials: 0, photon: 0, quantum: 0, specialFinds: 0 },
               core: 0,
               lastAttackerId: null,
               production: 0,
-              capacity: { materials: 0, supplies: 0, photon: 0, quantum: 0, specialFinds: 0 },
+              capacity: { materials: 0, photon: 0, quantum: 0, specialFinds: 0 },
               colony: null,
               extracted: 0,
               storageFull: false,
-              supplyState: 'operational' as const,
             },
       ),
     projects: w.projects,
@@ -113,7 +116,7 @@ export function snapshot(this: SimulationEngine): Snapshot {
     communications: w.communications,
     logs: w.logs,
     history: w.history,
-    beams: w.beams,
+    beams: w.beams.filter((b) => knownPoint(b.from) && knownPoint(b.to)),
     groups: w.groups,
     personnel: w.personnel,
     events: w.events

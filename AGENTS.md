@@ -59,7 +59,7 @@ Frontier Command 的核心创新是让 MMO 内容由世界状态自然生成，�
 
 ### Federation
 
-玩家管理 Dawn Frontier Command。Dawn Starbase 位于相对安全的后方，是舰队、工业、补给和战略管理中心，而不是前线木桩。
+玩家管理 Dawn Frontier Command。Dawn Starbase 位于相对安全的后方，是舰队、工业、弹药和战略管理中心，而不是前线木桩。
 
 设施应拥有符合其定位的自卫能力；普通袭击应给玩家留下合理响应时间。
 
@@ -103,7 +103,6 @@ Lv2 成长必须改变下一轮玩法，而不只是增加百分比。
 
 - Credits：预算
 - Materials：工业建设与维修
-- Supplies：殖民地/设施维持与物流
 - Photon / Quantum：实际弹药
 - Special Finds：少量特殊发现，用于独特能力或升级
 

@@ -17,8 +17,25 @@
     url('../../../assets/lcars-26/assets/Antonio-Bold.woff2') format('woff2'),
     url('../../../assets/lcars-26/assets/Antonio-Bold.woff') format('woff');
 }
+@font-face {
+  font-family: 'Alibaba PuHuiTi';
+  font-weight: 400;
+  font-display: swap;
+  /* Both optical faces come from the supplied Medium. Their ink bounds and
+     strokes match Antonio; separate static faces prevent synthetic bold. */
+  src: url('../../../../fonts/AlibabaPuHuiTi-LCARS-Regular.ttf') format('truetype');
+  unicode-range: U+2E80-9FFF, U+F900-FAFF, U+FE10-FE6F, U+FF00-FFEF;
+}
+@font-face {
+  font-family: 'Alibaba PuHuiTi';
+  font-weight: 700;
+  font-display: swap;
+  src: url('../../../../fonts/AlibabaPuHuiTi-LCARS-Bold.ttf') format('truetype');
+  unicode-range: U+2E80-9FFF, U+F900-FAFF, U+FE10-FE6F, U+FF00-FFEF;
+}
 :root {
   color-scheme: dark;
+  font-synthesis: none;
   --african-violet: #baa4e5;
   --almond: #d29b7f;
   --almond-creme: #fcc19f;
@@ -32,7 +49,7 @@
   --text: var(--african-violet);
   --muted: #b6a8c6;
   --lcars-unit: clamp(12px, 0.92vw, 26.4px);
-  --rail: calc(var(--lcars-unit) * 10.9091);
+  --rail: clamp(220px, 14vw, 360px);
   --bar: calc(var(--lcars-unit) * 1.2727);
   --outer: calc(var(--lcars-unit) * 7.2727);
   --inner: calc(var(--lcars-unit) * 2.7273);
@@ -43,8 +60,8 @@
   --header: clamp(166px, 21vh, 280px);
   --footer: clamp(78px, 9vh, 128px);
   --body-font: clamp(13px, 0.76vw, 21px);
-  --latin-font: Antonio, 'Microsoft YaHei', 'Segoe UI', sans-serif;
-  --body-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --latin-font: Antonio, 'Alibaba PuHuiTi', sans-serif;
+  --body-family: var(--latin-font);
   background: var(--ink);
   color: var(--text);
   font-family: var(--latin-font);

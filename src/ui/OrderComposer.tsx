@@ -73,7 +73,7 @@ export function defaultAction(
           facility?.kind === 'mine'
             ? 'base'
             : (w.projects.find((p) => p.id === id)?.id ?? facility?.id ?? 'colony'),
-        cargoKind: facility?.kind === 'mine' ? 'materials' : 'supplies',
+        cargoKind: 'materials',
         amount: 20,
         route: 'safe',
         repeat: false,
@@ -333,7 +333,7 @@ export function OrderComposer({
                 value={action.cargoKind}
                 onChange={(e) => update({ cargoKind: e.target.value as typeof action.cargoKind })}
               >
-                {['materials', 'supplies', 'photon', 'quantum', 'specialFinds'].map((k) => (
+                {['materials', 'photon', 'quantum', 'specialFinds'].map((k) => (
                   <option key={k}>{k}</option>
                 ))}
               </select>

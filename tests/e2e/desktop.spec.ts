@@ -13,7 +13,7 @@ import { quietEngine } from '../helpers';
 import { createWorld } from '../../src/engine/data';
 import type { Action, Snapshot } from '../../src/engine/types';
 let app: ElectronApplication | undefined;
-const temp = () => mkdtempSync(join(tmpdir(), 'frontier-e2e-v7-'));
+const temp = () => mkdtempSync(join(tmpdir(), 'frontier-e2e-v8-'));
 async function launch(directory: string) {
   app = await electron.launch({
     args: [resolve('.')],
@@ -88,7 +88,7 @@ test('real UI: discoveries, construction cargo, directives, refit, strategic upg
   await directive(page, 'meridian', 'HAUL', {
     指令目标: 'outpost',
     货运起点: 'base',
-    货物种类: 'supplies',
+    货物种类: 'materials',
     货物数量: '20',
     航线: 'direct',
   });
@@ -129,25 +129,31 @@ test('real UI: discoveries, construction cargo, directives, refit, strategic upg
   await page.getByLabel('显示名称').fill('USS NAMED');
   await page.getByRole('button', { name: '保存名称', exact: true }).click();
   expect((await state(page)).ships.find((s) => s.id === 'verity')!.name).toBe('USS NAMED');
+  await directive(page, 'meridian', 'DOCK', { 指令目标: 'base' });
+  await waitFor(page, (s) => s.ships.find((s) => s.id === 'meridian')!.status === 'docked');
   await nav(page, 'STARBASE');
-  await page.getByRole('tab', { name: 'ENGINEERING', exact: true }).click();
+  await page.getByRole('tab', { name: /^ENGINEERING / }).click();
   await page.getByLabel('基地舰船').selectOption('meridian');
   await page.getByLabel('基地模块').selectOption('expandedCargo');
   await page.getByRole('button', { name: '安装 / 调整模块', exact: true }).click();
-  await page
-    .getByRole('dialog', { name: 'Admiral 指令' })
-    .getByRole('button', { name: '下达 Admiral 指令', exact: true })
-    .click();
+  const refit = page.getByRole('dialog', { name: 'Admiral 指令' });
+  await expect(refit.getByLabel('指令类型', { exact: true })).toHaveValue('REFIT');
+  await expect(refit.getByLabel('分配 meridian', { exact: true })).toBeChecked();
+  await refit.getByRole('button', { name: '下达 Admiral 指令', exact: true }).click();
+  await expect(refit).not.toBeVisible();
+  expect(
+    (await state(page)).history.some((h) => h.entityId === 'meridian' && h.text.includes('REFIT')),
+  ).toBe(true);
   await waitFor(
     page,
     (s) => s.ships.find((s) => s.id === 'meridian')!.modules.includes('expandedCargo'),
     30000,
   );
   await nav(page, 'STARBASE');
-  await page.getByRole('tab', { name: 'LOGISTICS', exact: true }).click();
+  await page.getByRole('tab', { name: /^LOGISTICS / }).click();
   await page.getByRole('button', { name: '升级 Logistics', exact: true }).click();
   await waitFor(page, (s) => s.upgrades.logistics === 1);
-  await page.getByRole('tab', { name: 'SHIPYARD', exact: true }).click();
+  await page.getByRole('tab', { name: /^SHIPYARD / }).click();
   await page.getByLabel('新舰名称').fill('USS REBUILT');
   await page.getByRole('button', { name: '建造新舰', exact: true }).click();
   await waitFor(page, (s) => s.ships.some((s) => s.name === 'USS REBUILT'));
@@ -156,7 +162,7 @@ test('real UI: discoveries, construction cargo, directives, refit, strategic upg
   await nav(page, 'ARCHIVE');
   await page.getByRole('button', { name: '立即保存', exact: true }).click();
   const saved = await state(page);
-  await page.screenshot({ path: 'test-results/v7-playable.png', animations: 'disabled' });
+  await page.screenshot({ path: 'test-results/v8-playable.png', animations: 'disabled' });
   expect(errors).toEqual([]);
   await app!.close();
   app = undefined;
@@ -165,7 +171,7 @@ test('real UI: discoveries, construction cargo, directives, refit, strategic upg
   expect(restored.ships).toEqual(saved.ships);
   expect(restored.projects).toEqual(saved.projects);
   expect(restored.history).toEqual(saved.history);
-  expect(restored.version).toBe(7);
+  expect(restored.version).toBe(8);
   expect(restored.paused).toBe(true);
   expect('factions' in restored || 'seed' in restored || 'enemies' in restored).toBe(false);
 });
@@ -200,7 +206,7 @@ test('ordinary contacts and focus changes do not pause; illegal directives have 
   await d.getByLabel('航线', { exact: true }).selectOption('risky');
   await expect(d).toContainText('exposed corridor');
   await expect(d).toContainText('航段已测绘');
-  await page.screenshot({ path: 'test-results/v7-risky-route.png', animations: 'disabled' });
+  await page.screenshot({ path: 'test-results/v8-risky-route.png', animations: 'disabled' });
   await page.keyboard.press('Escape');
   await running(page);
   await waitFor(page, (s) => s.contacts.length > 0);
@@ -223,7 +229,7 @@ test('midnight snapshot and permanent ship loss survive restart', async () => {
   await waitFor(page, (s) => s.tick >= 14400);
   await page.getByRole('button', { name: '暂停', exact: true }).click();
   const daily = JSON.parse(
-    readFileSync(join(dir, 'frontiers-v7', 'frontier-000001', 'day-2.json'), 'utf8'),
+    readFileSync(join(dir, 'frontiers-v8', 'frontier-000001', 'day-2.json'), 'utf8'),
   );
   expect(daily.tick).toBe(14400);
   expect(daily.losses).toHaveLength(1);

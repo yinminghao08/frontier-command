@@ -51,7 +51,6 @@ export function actionProgress(
 
 export const GOODS_LABELS = {
   materials: '工业材料',
-  supplies: '补给',
   photon: '光子鱼雷',
   quantum: '量子鱼雷',
   specialFinds: '特殊发现',
@@ -77,7 +76,6 @@ export function describe(text: string) {
     starting: '开始',
     Drydock: '船坞',
     materials: '工业材料',
-    supplies: '补给',
     photon: '光子鱼雷',
     quantum: '量子鱼雷',
     specialFinds: '特殊发现',
@@ -110,7 +108,6 @@ export function describe(text: string) {
     Patrol: '巡逻',
     Shadow: '跟踪',
     Intercept: '拦截',
-    Supplies: '补给',
     Hull: '舰体',
     Engines: '推进系统',
     Weapons: '武器系统',

@@ -8,6 +8,8 @@ import type {
 import { useLcars } from '../lcars/LcarsProvider';
 import type { AudioCue } from '../lcars/audio-manager';
 import { usePanelFocus } from '../lcars/usePanelFocus';
+import { Children } from 'react';
+import { bilingualTitle } from './bilingual';
 export type LcarsTone = 'primary' | 'secondary' | 'danger' | 'orange' | 'almond';
 export function LcarsButton({
   tone = 'primary',
@@ -67,9 +69,13 @@ export function LcarsTextBar({
   children: ReactNode;
   className?: string;
 }) {
+  const parts = Children.toArray(children);
+  const content = parts.every((p) => typeof p === 'string' || typeof p === 'number')
+    ? bilingualTitle(parts.join(''))
+    : children;
   return (
     <div className={`lcars-text-bar ${className}`}>
-      <span title={typeof children === 'string' ? children : undefined}>{children}</span>
+      <span title={typeof content === 'string' ? content : undefined}>{content}</span>
     </div>
   );
 }

@@ -48,7 +48,7 @@ async function screenshot(page: Page, name: string) {
 }
 test('Classic geometry, eight Starbase modules, directives and Inspector at six sizes', async () => {
   test.setTimeout(120000);
-  const directory = mkdtempSync(join(tmpdir(), 'lcars-v7-geometry-'));
+  const directory = mkdtempSync(join(tmpdir(), 'lcars-v8-geometry-'));
   new SaveStore(directory).write(quietEngine().state);
   const page = await launch(directory),
     errors: string[] = [];
@@ -78,7 +78,7 @@ test('Classic geometry, eight Starbase modules, directives and Inspector at six 
       }),
     );
     expect(overflow).toEqual([]);
-    await screenshot(page, 'v7-' + width + 'x' + height);
+    await screenshot(page, 'v8-' + width + 'x' + height);
   }
   await size(page, 1920, 1080);
   for (const nav of ['OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
@@ -96,19 +96,19 @@ test('Classic geometry, eight Starbase modules, directives and Inspector at six 
         'SENSOR CONTROL',
         'DEFENSE GRID',
       ]) {
-        await page.getByRole('tab', { name: tab, exact: true }).click();
-        await screenshot(page, 'v7-starbase-' + tab.replaceAll(' ', '-'));
+        await page.getByRole('tab', { name: new RegExp('^' + tab + ' ') }).click();
+        await screenshot(page, 'v8-starbase-' + tab.replaceAll(' ', '-'));
       }
-    await screenshot(page, 'v7-' + nav.toLowerCase());
+    await screenshot(page, 'v8-' + nav.toLowerCase());
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
   }
   await page.locator('.operation-chip').filter({ hasText: 'VERITY' }).click();
   await expect(page.locator('.inspector')).toContainText('Admiral 拥有最终指挥权');
-  await screenshot(page, 'v7-ship');
+  await screenshot(page, 'v8-ship');
   await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Admiral 指令' })).toBeVisible();
-  await screenshot(page, 'v7-directive');
+  await screenshot(page, 'v8-directive');
   await page.keyboard.press('Escape');
   expect(errors).toEqual([]);
 });

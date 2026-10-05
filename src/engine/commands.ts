@@ -6,7 +6,7 @@ export const pointSchema = z.object({ x: n, y: n }).strict();
 export const stockSchema = z
   .object({
     materials: n.min(0),
-    supplies: n.min(0),
+
     photon: n.int().min(0),
     quantum: n.int().min(0),
     specialFinds: n.int().min(0),
@@ -21,7 +21,7 @@ export const moduleSchema = z.enum([
   'expandedCargo',
 ]);
 export const upgradeSchema = z.enum(['shipyard', 'armory', 'sensors', 'logistics', 'defense']);
-export const goodsSchema = z.enum(['materials', 'supplies', 'photon', 'quantum', 'specialFinds']);
+export const goodsSchema = z.enum(['materials', 'photon', 'quantum', 'specialFinds']);
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('MOVE'), point: pointSchema }).strict(),
   z
@@ -100,8 +100,8 @@ export const standingSchema = z
     protectCivilian: z.boolean(),
     protectFreighter: z.boolean(),
     protectColony: z.boolean(),
-    autoResupply: z.boolean(),
-    idle: z.enum(['return', 'hold']),
+    serviceWhenDocked: z.boolean(),
+
   })
   .strict();
 const members = z
@@ -130,6 +130,7 @@ export const commandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('cancelDirective'), shipId: id }).strict(),
   z.object({ type: z.literal('standingOrders'), shipId: id, orders: standingSchema }).strict(),
+  z.object({ type: z.literal('setCloak'), shipId: id, enabled: z.boolean() }).strict(),
   z.object({ type: z.literal('createGroup'), ...groupFields }).strict(),
   z.object({ type: z.literal('updateGroup'), groupId: id, ...groupFields }).strict(),
   z.object({ type: z.literal('deleteGroup'), groupId: id }).strict(),
@@ -214,7 +215,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('manufacture'),
-      cargoKind: z.enum(['supplies', 'photon', 'quantum']),
+      cargoKind: z.enum(['photon', 'quantum']),
       amount: count,
     })
     .strict(),

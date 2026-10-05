@@ -9,6 +9,7 @@ import { regenerate } from './combat';
 import { dist, move } from './navigation';
 import { RULES } from './definitions/rules';
 import { makeEnemy } from './data';
+import { advanceEvasion, canDetectShip } from './tracking';
 function gather(e: SimulationEngine, s: Enemy) {
   const w = e.state,
     range = capabilities(s).sensors,
@@ -17,7 +18,9 @@ function gather(e: SimulationEngine, s: Enemy) {
         x.path.length > 0 &&
         x.current?.action.type === 'HAUL' &&
         x.current.action.route === 'risky';
-      return dist(x, s) < range * (exposed ? 1.5 : 1);
+      return (
+        canDetectShip(s, x, w.time) || (exposed && x.cloak !== 'on' && dist(x, s) < range * 1.5)
+      );
     });
   const reports: ThreatReport[] = [
     ...visible.map((x) => ({
@@ -45,7 +48,6 @@ function gather(e: SimulationEngine, s: Enemy) {
         kind: 'facility' as const,
         value:
           l.stock.materials * 5 +
-          l.stock.supplies * 3 +
           (l.colony ? l.colony.population * (0.5 + l.colony.industry / 100) * 0.1 : 0),
         defense:
           l.hull +
@@ -172,6 +174,7 @@ export function decideThreat(e: SimulationEngine, s: Enemy) {
 export function advanceEnemy(e: SimulationEngine, s: Enemy, dt: number) {
   const w = e.state;
   regenerate(s, w.time, dt);
+  if (advanceEvasion(e, s, dt)) return;
   decideThreat(e, s);
   const home = w.locations.find((l) => l.id === s.homeId && l.hull > 0);
   if (s.intent === 'retreat' || s.intent === 'docked') {
@@ -235,7 +238,12 @@ export function advanceEnemy(e: SimulationEngine, s: Enemy, dt: number) {
     report &&
     ([...w.ships, ...w.civilians].find((x) => x.id === report.id) ||
       w.locations.find((l) => l.id === report.id && l.owner === 'starfleet'));
-  if (target && dist(s, target) < capabilities(s).sensors && ['raid', 'probe'].includes(s.intent)) {
+  const targetVisible =
+    !!target &&
+    ('classId' in target
+      ? canDetectShip(s, target, w.time)
+      : dist(s, target) < capabilities(s).sensors);
+  if (target && targetVisible && ['raid', 'probe'].includes(s.intent)) {
     s.destination = { x: target.x, y: target.y };
     if (s.factionId === 'orion' || w.factions.romulan.stance === 'escalate') e.fire(s, target);
     if (
@@ -259,22 +267,17 @@ export function advanceEnemy(e: SimulationEngine, s: Enemy, dt: number) {
         s.loot += n;
       }
       if (s.loot > 0) {
-        e.record(
-          'cargoLoss',
-          s.name + ' 抢走 ' + s.loot + ' 实物货物，开始返回 Hideout',
-          target.id,
-        );
+        e.record('cargoLoss', s.name + ' 抢走 ' + s.loot + ' 实物货物', target.id);
         s.intent = 'retreat';
         s.targetId = null;
       }
     }
   }
-  if (s.destination && (!target || dist(s, target) > 65)) move(s, s.destination, dt);
+  if (s.destination && (!target || !targetVisible || dist(s, target) > 65))
+    move(s, s.destination, dt);
   // A ship can defend itself without acquiring Federation-wide omniscience.
   if (s.lastAttackerId && w.time - s.attackedAt < 12) {
-    const attacker = w.ships.find(
-      (x) => x.id === s.lastAttackerId && dist(x, s) < capabilities(s).sensors,
-    );
+    const attacker = w.ships.find((x) => x.id === s.lastAttackerId && canDetectShip(s, x, w.time));
     if (attacker) e.fire(s, attacker);
   }
 }
@@ -297,12 +300,6 @@ export function advanceFactions(e: SimulationEngine, dt: number) {
             : w.tension >= 15
               ? 'patrol'
               : 'observe';
-    if (previous !== rom.stance)
-      e.record(
-        'border',
-        'Border Command ' + rom.stance + '：依据已收到情报与 tension ' + Math.round(w.tension),
-        'romulan-base',
-      );
     if (['probe', 'reinforce'].includes(rom.stance)) {
       const intruder = rom.reports.find((r) => r.x >= 780 && w.ships.some((s) => s.id === r.id));
       if (intruder)
@@ -314,7 +311,7 @@ export function advanceFactions(e: SimulationEngine, dt: number) {
         );
     }
     if (rom.stance === 'escalate' && previous !== 'escalate') {
-      e.record('border', 'Romulan Border Command 宣布军事升级', 'romulan-base');
+      e.record('border', '收到 Romulan 军事升级声明', null);
       const assets = w.enemies.filter((s) => s.factionId === 'romulan' && s.role === 'warbird');
       const subject = rom.reports.filter((r) => r.x >= 650).sort((a, b) => b.seenAt - a.seenAt)[0];
       if (subject && assets.length)
@@ -325,7 +322,7 @@ export function advanceFactions(e: SimulationEngine, dt: number) {
           'Border Command 基于真实边境报告派出现役军舰',
           assets.map((s) => s.id),
         );
-      e.critical('escalation', 'romulan-base', 'Romulan 军事升级');
+      e.critical('escalation', subject?.id ?? w.commander.id, '收到 Romulan 军事升级声明');
     }
   }
   w.factions.orion.pressure = Math.max(
@@ -343,18 +340,12 @@ export function advanceFactions(e: SimulationEngine, dt: number) {
   if (!home) return;
   // Replacements require returned loot, an industrial basket and actual construction time.
   const raiders = w.enemies.filter((s) => s.factionId === 'orion' && s.role === 'raider').length;
-  if (
-    raiders < 2 &&
-    home.stock.materials >= 20 &&
-    home.stock.supplies >= 10 &&
-    faction.credits >= 60
-  ) {
+  if (raiders < 2 && home.stock.materials >= 20 && faction.credits >= 100) {
     faction.production += dt;
     if (faction.production >= 30) {
       faction.production = 0;
       home.stock.materials -= 20;
-      home.stock.supplies -= 10;
-      faction.credits -= 60;
+      faction.credits -= 100;
       const s = makeEnemy('orion-built-' + w.nextId++, 'raider', 'orion', home, home.id);
       s.photon = 0;
       for (let i = 0; i < 5 && home.stock.photon > 0; i++) {
@@ -367,11 +358,11 @@ export function advanceFactions(e: SimulationEngine, dt: number) {
   if (
     home.stock.photon < 4 &&
     home.stock.materials >= 1 &&
-    home.stock.supplies >= 1 &&
+    faction.credits >= 4 &&
     w.tick % 50 === 0
   ) {
     home.stock.materials--;
-    home.stock.supplies--;
+    faction.credits -= 4;
     home.stock.photon++;
   }
 }

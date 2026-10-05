@@ -56,6 +56,24 @@ export function Inspector({
   const launch = (type: Action['type'], shipId?: string) =>
     create({ action: defaultAction(type, world, selection), shipId });
   if (!selection) return <p>选择舰船、设施、恒星系或 UNKNOWN SPACE，下达 Admiral 意图。</p>;
+  if (selection.type === 'siteContact') {
+    const site = world.siteContacts.find((s) => s.id === selection.id);
+    return site ? (
+      <>
+        <LcarsTextBar>UNCONFIRMED SITE 未确认设施</LcarsTextBar>
+        <p>来自现场传感器观测；尚未确认设施身份，不能作为打击目标。</p>
+        <LcarsMeter label="持续侦察" value={site.progress} max={10} />
+        <p>派舰保持传感器覆盖，连续侦察 10 游戏分钟后确认。</p>
+        <LcarsButton
+          onClick={() => create({ action: { type: 'MOVE', point: { x: site.x, y: site.y } } })}
+        >
+          前往侦察
+        </LcarsButton>
+      </>
+    ) : (
+      <p>地点情报已更新，请从星图选择已确认设施。</p>
+    );
+  }
   if (selection.type === 'point' || selection.type === 'sector')
     return (
       <>
@@ -156,6 +174,29 @@ export function Inspector({
       <>
         <LcarsTextBar>{s.name}</LcarsTextBar>
         <p>{c.name} · Admiral 拥有最终指挥权</p>
+        {c.cloak && (
+          <>
+            <LcarsButton
+              aria-label="切换隐形"
+              aria-pressed={s.cloak === 'on'}
+              onClick={() => command({ type: 'setCloak', shipId: s.id, enabled: s.cloak !== 'on' })}
+            >
+              {s.cloak === 'on' ? '关闭隐形' : '开启隐形'}
+            </LcarsButton>
+            <p>
+              隐形状态：
+              {s.cloak === 'on' ? '持续隐形' : s.cloak === 'decloaking' ? '解除隐形中' : '可被探测'}{' '}
+              · 开始跟踪时自动开启，开火解除隐形。
+            </p>
+          </>
+        )}
+        {s.tracking && (
+          <p>
+            跟踪：{s.tracking.live ? '持续观测' : '搜索最后观测位置'} ·{' '}
+            {s.cloak === 'on' ? '低信号被动尾随' : '存在被发现风险'}
+          </p>
+        )}
+        {s.emergencyRetreat && <p>正在紧急脱离战斗，脱离后原地待命。</p>}
         <LcarsMeter label="舰体" value={s.hull} max={c.hull} />
         <LcarsMeter label="护盾" value={s.shield} max={c.shield} />
         <LcarsMeter label="核心" value={s.core} max={c.core} />
@@ -288,8 +329,8 @@ export function Inspector({
           />
         </LcarsField>
         <p>
-          {FACILITIES[buildKind].cost.credits} 预算 · {FACILITIES[buildKind].cost.materials} 材料 ·{' '}
-          {FACILITIES[buildKind].cost.supplies} 补给 / 必须运到现场
+          {FACILITIES[buildKind].cost.credits} 预算 · {FACILITIES[buildKind].cost.materials} 材料 /
+          必须运到现场
         </p>
         <LcarsButton
           onClick={() =>
@@ -317,8 +358,7 @@ export function Inspector({
         <LcarsTextBar>{p.name}</LcarsTextBar>
         <p>{p.complete ? '已完成' : '等待实物物资'}</p>
         <p>
-          材料 {Math.floor(p.stock.materials)} / {p.cost.materials} · 补给{' '}
-          {Math.floor(p.stock.supplies)} / {p.cost.supplies}
+          材料 {Math.floor(p.stock.materials)} / {p.cost.materials}
         </p>
         <LcarsMeter label="建设进度" value={p.work} max={p.duration} />
         <LcarsField>
@@ -344,7 +384,6 @@ export function Inspector({
             let first = true;
             for (const [kind, needed] of [
               ['materials', Math.max(0, Math.ceil(p.cost.materials - p.stock.materials))],
-              ['supplies', Math.max(0, Math.ceil(p.cost.supplies + 12 - p.stock.supplies))],
             ] as const) {
               for (let left = needed; left > 0; left -= capacity) {
                 const r = await command({
@@ -393,13 +432,25 @@ export function Inspector({
         <p>相位炮射程 {FACILITIES[l.kind].range} · 自卫火控在线</p>
         {l.owner === 'starfleet' ? (
           <>
+            {world.ships.some((s) => Math.hypot(s.x - l.x, s.y - l.y) < 90) && (
+              <div className="inline-actions">
+                {world.ships
+                  .filter((s) => Math.hypot(s.x - l.x, s.y - l.y) < 90)
+                  .map((s) => (
+                    <LcarsButton key={s.id} onClick={() => select({ type: 'ship', id: s.id })}>
+                      {s.name}
+                    </LcarsButton>
+                  ))}
+              </div>
+            )}
+            {l.colony && (
+              <p>
+                核心产出：Credits 预算收益 · 每 5 游戏分钟结算，随人口、工业、稳定、事件和 Commander
+                改变。
+              </p>
+            )}
             <LcarsTextBar>
-              实际仓储 /{' '}
-              {l.supplyState === 'depleted'
-                ? '缺补给：功能降至 25%'
-                : l.storageFull
-                  ? '仓满：产线等待运输'
-                  : '运行中'}
+              实际仓储 / {l.storageFull ? '仓满：产线等待运输' : '运行中'}
             </LcarsTextBar>
             {Object.entries(l.stock).map(([k, v]) => (
               <p key={k}>
@@ -432,7 +483,10 @@ export function Inspector({
                   工业 {l.colony.industry} · 科研 {l.colony.science} · 污染{' '}
                   {Math.round(l.colony.contamination)}
                 </p>
-                <p>每五分钟基准产出：每千人 18 预算 + 6 补给。受发展、社会状态和事件修正。</p>
+                <p>
+                  核心产出 Credits 预算：每千人每五分钟基准 18 Credits，受发展、社会状态、Commander
+                  和事件修正。
+                </p>
                 <div className="inline-actions">
                   {(['housing', 'industry', 'science', 'security'] as const).map((kind) => (
                     <LcarsButton

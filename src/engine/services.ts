@@ -1,4 +1,3 @@
-import { MAINTENANCE } from './definitions/frontier';
 import { deposit, space } from './inventory';
 import { advanceSociety, appointCommander, personnelBonus } from './society';
 import type { SimulationEngine } from './engine';
@@ -13,30 +12,16 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
   const w = e.state,
     base = e.base;
   for (const l of w.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0)) {
-    l.core = Math.min(300, l.core + 5 * dt * (l.supplyState === 'depleted' ? 0.25 : 1));
+    l.core = Math.min(300, l.core + 5 * dt);
     l.cooldown = Math.max(0, l.cooldown - dt);
     if (w.time - l.attackedAt > 10)
       l.shield = Math.min(
         l.maxShield,
-        l.shield + (l.kind === 'base' ? 12 : 3) * dt * (l.supplyState === 'depleted' ? 0.25 : 1),
+        l.shield + (l.kind === 'base' ? 12 : 3) * dt,
       );
     l.production += dt;
     if (l.production >= 5 - 1e-8) {
       l.production = Math.max(0, l.production - 5);
-      const upkeep = MAINTENANCE[l.kind],
-        previous = l.supplyState;
-      l.supplyState = available(w, l.id, 'supplies') + 1e-8 >= upkeep ? 'operational' : 'depleted';
-      if (upkeep && l.supplyState === 'operational')
-        l.stock.supplies = Math.max(0, l.stock.supplies - upkeep);
-      if (previous !== l.supplyState)
-        e.record(
-          'supply',
-          l.name +
-            (l.supplyState === 'depleted'
-              ? '断供：生产停止，传感器与恢复降至25%'
-              : '补给到场，功能恢复'),
-          l.id,
-        );
       if (l.colony) {
         const c = l.colony,
           population = c.population / 1000,
@@ -50,11 +35,9 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
           industry *
           eventFactor *
           (1 + personnelBonus(e, l.id, 'commander'));
-        deposit(l, 'supplies', 6 * population * industry * eventFactor);
       }
       if (
         l.kind === 'mine' &&
-        l.supplyState === 'operational' &&
         !w.events.some(
           (v) =>
             v.kind === 'accident' &&
@@ -70,12 +53,7 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
           if (site.remaining === 0) e.record('depletion', l.name + '矿藏已枯竭', l.id);
         }
       }
-      const full =
-        l.kind === 'mine'
-          ? space(l, 'materials') < 1e-8
-          : l.kind === 'colony'
-            ? space(l, 'supplies') < 1e-8
-            : false;
+      const full = l.kind === 'mine' && space(l, 'materials') < 1e-8;
       if (full !== l.storageFull) {
         l.storageFull = full;
         e.report(
@@ -85,12 +63,8 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
           'request',
         );
       }
-      if (l.id !== 'base' && !l.colony && l.stock.supplies < 3 && !l.distress) {
-        l.distress = true;
-        e.report(l.name + '维护补给紧缺，请安排真实货运', l.id, 'high', 'request');
-      }
     }
-    if (l.stock.supplies >= 8 && w.time - l.attackedAt > 30) l.distress = false;
+    if (w.time - l.attackedAt > 30) l.distress = false;
     const def = FACILITIES[l.kind],
       target = w.enemies
         .filter((x) => x.hull > 0 && dist(x, l) < def.range)
@@ -124,21 +98,15 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
     }
   }
   for (const p of w.projects.filter((p) => !p.complete)) {
-    if (
-      available(w, p.id, 'materials') + 1e-8 < p.cost.materials ||
-      available(w, p.id, 'supplies') + 1e-8 < p.cost.supplies
-    )
-      continue;
+    if (available(w, p.id, 'materials') + 1e-8 < p.cost.materials) continue;
     p.work += dt;
     if (p.work + 1e-8 >= p.duration) {
       p.stock.materials = Math.max(0, p.stock.materials - p.cost.materials);
-      p.stock.supplies = Math.max(0, p.stock.supplies - p.cost.supplies);
       const l = makeLocation('facility-' + w.nextId++, p.name, p.kind, p, 'starfleet', p.siteId);
       l.stock = structuredClone(p.stock);
-      l.stock.supplies += 0;
       w.locations.push(l);
       appointCommander(e, l);
-      p.stock = { materials: 0, supplies: 0, photon: 0, quantum: 0, specialFinds: 0 };
+      p.stock = { materials: 0, photon: 0, quantum: 0, specialFinds: 0 };
       p.complete = true;
       if (l.x >= 780 && Math.abs(l.y) < 650) w.tension = Math.min(100, w.tension + 12);
       e.record('construction', p.name + ' 建成：独立库存、产出、传感器与自卫上线', l.id);

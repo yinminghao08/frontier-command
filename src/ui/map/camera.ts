@@ -66,18 +66,52 @@ export interface MapLabel extends Point {
   text: string;
   priority: number;
   color: string;
+  width?: number;
+  height?: number;
 }
-export function placeLabels(labels: MapLabel[], width: number, height: number, scale = 1) {
-  const placed: (MapLabel & { width: number })[] = [];
+export interface LabelObstacle {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+export function placeLabels(
+  labels: MapLabel[],
+  width: number,
+  height: number,
+  scale = 1,
+  obstacles: LabelObstacle[] = [],
+) {
+  const placed: (MapLabel & { width: number; height: number; anchor: Point })[] = [];
+  const occupied: LabelObstacle[] = [...obstacles];
+  const intersects = (a: LabelObstacle, b: LabelObstacle) =>
+    a.x < b.x + b.width + 4 &&
+    a.x + a.width + 4 > b.x &&
+    a.y < b.y + b.height + 4 &&
+    a.y + a.height + 4 > b.y;
   for (const l of [...labels].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))) {
-    const w = Math.min(240, l.text.length * 6.8 + 8) * scale;
+    const w =
+      l.width ??
+      [...l.text].reduce((n, ch) => n + (/[\u2e80-\uffff]/.test(ch) ? 14 : 6.8), 8) * scale;
+    const h = l.height ?? 18 * scale;
     for (const [dx, dy] of [
-      [0, 22 * scale],
-      [0, -23 * scale],
-      [w / 2 + 18 * scale, 4 * scale],
-      [-w / 2 - 18 * scale, 4 * scale],
+      [0, 38 * scale],
+      [0, -25 * scale],
+      [w / 2 + 24 * scale, 5 * scale],
+      [-w / 2 - 24 * scale, 5 * scale],
+      [w / 2 + 24 * scale, 32 * scale],
+      [-w / 2 - 24 * scale, 32 * scale],
+      [w / 2 + 24 * scale, -25 * scale],
+      [-w / 2 - 24 * scale, -25 * scale],
+      ...(l.priority >= 100
+        ? [
+            [width / 2 - l.x, 24 * scale - l.y],
+            [width / 2 - l.x, height - 10 * scale - l.y],
+          ]
+        : []),
     ]) {
-      const p = { ...l, x: l.x + dx, y: l.y + dy, width: w };
+      const p = { ...l, x: l.x + dx, y: l.y + dy, width: w, height: h, anchor: { x: l.x, y: l.y } };
+      const box = { x: p.x - w / 2, y: p.y - h, width: w, height: h + 4 };
       if (
         p.x - w / 2 < 4 ||
         p.x + w / 2 > width - 4 ||
@@ -85,14 +119,9 @@ export function placeLabels(labels: MapLabel[], width: number, height: number, s
         p.y > height - 6 * scale
       )
         continue;
-      if (
-        placed.some(
-          (x) =>
-            Math.abs(x.x - p.x) < (x.width + w) / 2 + 5 * scale && Math.abs(x.y - p.y) < 20 * scale,
-        )
-      )
-        continue;
+      if (occupied.some((b) => intersects(box, b))) continue;
       placed.push(p);
+      occupied.push(box);
       break;
     }
   }

@@ -19,6 +19,8 @@ import { RULES } from './definitions/rules';
 import { MODULES, cost } from './definitions/progression';
 import { sectorCenter, materialize } from './world-generation';
 import { regionAt } from './definitions/locations';
+import { SHIP_CLASSES } from './definitions/ships';
+import { TRACKING_RULES } from './tracking';
 function borderCrossing(e: SimulationEngine, s: Ship, previous: Point) {
   const from = regionAt(previous.x, previous.y),
     to = regionAt(s.x, s.y);
@@ -41,9 +43,7 @@ export function go(
   route: 'safe' | 'direct' | 'risky' = 'direct',
   range = 6,
 ) {
-  const allowed = (p: Point) =>
-    autonomousAllowed(s, p) ||
-    (d.action.type === 'RETURN' && !autonomousAllowed(s, s) && p.x < s.x);
+  const allowed = (p: Point) => autonomousAllowed(s, p);
   if (
     d.source === 'standing' &&
     (!allowed(p) ||
@@ -53,7 +53,7 @@ export function go(
     e.complete(s, '自主行动超出追击范围或边境权限', true);
     return false;
   }
-  if (dist(s, p) <= range + 1) {
+  if (dist(s, p) <= range + 1e-8) {
     s.path = [];
     return true;
   }
@@ -76,7 +76,7 @@ export function go(
   d.moved += dist(previous, s);
   d.note = '航行 / ' + route;
   if (route === 'risky') e.hit(s, 0.75 * dt * capabilities(s).hazardFactor);
-  return dist(s, p) <= range + 1;
+  return dist(s, p) <= range + 1e-8;
 }
 function survey(
   e: SimulationEngine,
@@ -137,6 +137,13 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
   const w = e.state;
   regenerate(s, w.time, dt);
   advanceStanding(e, s);
+  if (s.emergencyRetreat) {
+    if (move(s, s.emergencyRetreat.point, dt)) {
+      s.emergencyRetreat = null;
+      s.status = 'idle';
+    }
+    return;
+  }
   const d = s.current;
   if (!d) {
     autonomousFire(e, s);
@@ -368,12 +375,60 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         } else e.complete(s, n < d.carried ? '货损：仅交付现存货物' : '交付完成');
       }
     }
+  } else if (a.type === 'SHADOW') {
+    const intel = w.intel.find((i) => i.id === a.targetId);
+    if (!intel || intel.resolved) {
+      e.complete(s, '跟踪目标已失效', true);
+      return;
+    }
+    if (d.phase === 'starting') {
+      if (SHIP_CLASSES[s.classId].cloak) s.cloak = 'on';
+      d.phase = 'following';
+    }
+    if (!s.tracking || s.tracking.targetId !== a.targetId)
+      s.tracking = {
+        targetId: a.targetId,
+        position: { x: intel.x, y: intel.y },
+        lastSeen: intel.lastSeen,
+        live: false,
+      };
+    const tracking = s.tracking!;
+    const sensed = tracking.live && w.time - tracking.lastSeen < 2;
+    if (sensed) d.search = 0;
+    else {
+      d.search += dt;
+      if (d.search > RULES.searchMinutes) {
+        e.complete(s, '跟踪失联：仅确认最后观测位置', true);
+        return;
+      }
+    }
+    go(
+      e,
+      s,
+      d,
+      tracking.position,
+      dt,
+      'direct',
+      sensed ? Math.max(60, c.sensors * TRACKING_RULES.standOff) : 20,
+    );
+    if (s.current !== d) return;
+    d.note = sensed
+      ? s.cloak === 'on'
+        ? '隐形被动尾随 / 低信号'
+        : '普通尾随 / 存在暴露风险'
+      : '搜索最后观测位置';
+    const site = w.locations.find(
+      (l) => l.owner !== 'starfleet' && l.discovered && dist(l, tracking.position) < 40,
+    );
+    if (sensed && site && Math.hypot(intel.velocity.x, intel.velocity.y) < 1) {
+      e.record('tracking', '尾随与现场侦察确认目的地 ' + site.name, site.id);
+      e.complete(s, '真实目的地已确认，可下达后续打击');
+    }
   } else if (
     a.type === 'ATTACK' ||
     a.type === 'DISABLE' ||
     a.type === 'DRIVE_OFF' ||
-    a.type === 'INTERCEPT' ||
-    a.type === 'SHADOW'
+    a.type === 'INTERCEPT'
   ) {
     const intel = w.intel.find((i) => i.id === a.targetId),
       facility = w.locations.find(
@@ -401,22 +456,12 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       a.type === 'INTERCEPT' && intel
         ? { x: p.x + intel.velocity.x * 4, y: p.y + intel.velocity.y * 4 }
         : p;
-    const range = a.type === 'SHADOW' ? Math.min(120, Math.max(65, c.sensors * 0.5)) : 65;
+    const range = 65;
     go(e, s, d, predicted, dt, 'direct', range);
     if (s.current !== d) return;
     const enemy = sensed ? w.enemies.find((x) => x.id === a.targetId) : undefined,
       target = facility ?? enemy;
-    if (a.type === 'SHADOW') {
-      d.note = 'Shadow / 持续跟踪真实接触';
-      if (enemy && enemy.intent === 'docked') {
-        const home = w.locations.find((l) => l.id === enemy.homeId);
-        if (home && dist(s, home) < c.sensors) {
-          home.discovered = true;
-          e.record('discovery', 'Shadow 追踪确认 ' + home.name, home.id);
-          e.complete(s, '返航航迹确认 Hideout');
-        }
-      }
-    } else if (a.type === 'INTERCEPT') {
+    if (a.type === 'INTERCEPT') {
       d.note = 'Intercept / 根据观测速度迎击';
       if (sensed && dist(s, p) < 90) e.complete(s, '已截获接触；可攻击、驱离或继续 Shadow');
     } else if (target && dist(s, target) <= c.sensors) {

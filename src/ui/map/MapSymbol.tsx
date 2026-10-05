@@ -1,3 +1,4 @@
+import { MAP_PALETTE } from './palette';
 import type { ReactNode } from 'react';
 export const SYMBOLS = {
   ship: (
@@ -110,7 +111,7 @@ export function MapSymbol({ kind, color }: { kind: SymbolKind; color: string }) 
     <g
       data-symbol={kind}
       stroke={color}
-      fill="#000"
+      fill={MAP_PALETTE.decoration.ink}
       strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"

@@ -3,6 +3,7 @@ import type { Enemy, WorldState } from './types';
 import { capabilities } from './capabilities';
 import { dist } from './navigation';
 import { RULES } from './definitions/rules';
+import { canDetectShip, updateSiteIntel, TRACKING_RULES } from './tracking';
 export const visibleIntel = (w: WorldState) =>
   w.intel.filter((i) => !i.resolved && w.time - i.lastSeen <= RULES.intelTTL);
 export function observe(w: WorldState, s: Enemy, strength: number) {
@@ -73,27 +74,49 @@ export function updateSensors(e: SimulationEngine) {
                 ? 340
                 : 160
               : 80,
-        // Supply decay affects sensor reach, not the information authority boundary.
         active: !!w.upgrades.sensors,
       })),
   ];
-  for (const enemy of w.enemies) {
-    const source = sources.find(
-      (s) =>
-        dist(s, enemy) <
-        s.range *
-          (s.active ? 1.15 : 1) *
-          ('supplyState' in s && s.supplyState === 'depleted' ? 0.25 : 1),
+  for (const ship of w.ships) {
+    if (ship.current?.action.type !== 'SHADOW') {
+      ship.tracking = null;
+      continue;
+    }
+    if (ship.tracking) ship.tracking.live = false;
+  }
+  for (const enemy of [...w.enemies].sort((a, b) => a.id.localeCompare(b.id))) {
+    const detecting = sources.filter((source) =>
+      'classId' in source
+        ? canDetectShip(source, enemy, w.time)
+        : dist(source, enemy) <
+          source.range * (enemy.cloak === 'on' ? TRACKING_RULES.ordinaryCloakSignature : 1),
     );
-    if (!source || (enemy.cloak === 'on' && e.random() > (source.active ? 0.6 : 0.2))) continue;
+    if (!detecting.length) continue;
+    const probability =
+      enemy.cloak === 'on'
+        ? detecting.some((s) => 'classId' in s && s.classId === 'veil')
+          ? TRACKING_RULES.veilDetectionChance
+          : detecting.some((s) => s.active)
+            ? TRACKING_RULES.activeDetectionChance
+            : TRACKING_RULES.passiveDetectionChance
+        : 1;
+    if (probability < 1 && e.random() > probability) continue;
+    const source = detecting[0];
     const result = observe(w, enemy, source.active ? 2 : 1);
     if (result.fresh) e.report('发现接触：' + result.record.id, result.record.id, 'high', 'threat');
-  }
-  for (const l of w.locations.filter((l) => l.owner !== 'starfleet' && !l.discovered && l.hull > 0))
-    if (w.ships.some((s) => dist(s, l) < Math.min(capabilities(s).sensors, 150))) {
-      l.discovered = true;
-      e.record('discovery', '发现 ' + l.name, l.id);
+    for (const ship of w.ships.filter(
+      (s) => s.current?.action.type === 'SHADOW' && s.current.action.targetId === enemy.id,
+    )) {
+      if (!canDetectShip(ship, enemy, w.time)) continue;
+      ship.tracking = {
+        targetId: enemy.id,
+        position: { x: enemy.x, y: enemy.y },
+        lastSeen: w.time,
+        live: true,
+      };
     }
+  }
+  updateSiteIntel(e);
   for (const wreck of w.wrecks)
     if (!wreck.discovered && sources.some((s) => dist(s, wreck) < s.range)) {
       wreck.discovered = true;

@@ -4,6 +4,8 @@ import { RULES } from './definitions/rules';
 import { available } from './inventory';
 import { capabilities, cargoUsed } from './capabilities';
 import { personnelBonus } from './society';
+import { VEIL_SITE } from './world-generation';
+import { makeShip } from './data';
 export const EVENT_LABELS: Record<WorldEventKind, string> = {
   wormhole: 'Wormhole 调查',
   plague: '殖民地疫情',
@@ -97,7 +99,14 @@ export function advanceEvents(e: SimulationEngine, dt: number) {
         b.kind === 'derelict' &&
         !w.events.some((v) => v.subjectId === b.id && v.kind === 'derelict')
       )
-        createEvent(e, 'derelict', b.id, b.name + '存在真实可打捞库存');
+        createEvent(
+          e,
+          'derelict',
+          b.id,
+          b.id === VEIL_SITE
+            ? b.name + '无人舰桥已确认，可现场接管'
+            : b.name + '存在真实可打捞库存',
+        );
       if (
         b.population > 0 &&
         b.hazard > 0.2 &&
@@ -156,6 +165,7 @@ export function advanceEvents(e: SimulationEngine, dt: number) {
       finishEvent(e, v, '已实际撤离争议空间');
     }
     if (
+      v.subjectId !== VEIL_SITE &&
       w.time > v.deadline &&
       v.stage === 'reported' &&
       ['refugees', 'diplomatic', 'derelict'].includes(v.kind)
@@ -269,11 +279,11 @@ export function assistEvent(
   if (v.kind === 'plague') {
     if (!facility?.colony) return;
     const n = dt * 0.2;
-    if (available(e.state, facility.id, 'supplies') < n) {
-      d.note = '等待现场医疗补给';
+    if (e.state.resources.credits < n * 4) {
+      d.note = '等待医疗预算';
       return;
     }
-    facility.stock.supplies -= n;
+    e.state.resources.credits -= n * 4;
     facility.colony.contamination = Math.max(0, facility.colony.contamination - dt * power);
   }
   if (v.kind === 'distress' && damaged) {
@@ -292,6 +302,25 @@ export function assistEvent(
   v.work += dt * power;
   d.note = '现场响应：' + EVENT_LABELS[v.kind] + ' ' + Math.floor(v.work) + '/20';
   if (v.work < 20) return;
+  if (v.kind === 'derelict' && v.subjectId === VEIL_SITE && !e.state.recoveredVeil) {
+    const veil = makeShip('veil', 'USS VEIL / 幽影号', 'veil', 'starfleet', target);
+    veil.standing.roe = 'HOLD FIRE';
+    veil.status = 'idle';
+    veil.cloak = 'off';
+    e.state.recoveredVeil = true;
+    e.state.ships.push(veil);
+    e.state.operators.push({
+      id: 'ops-veil',
+      name: '幽影号值班指挥组',
+      kind: 'rules',
+      availability: 'available',
+    });
+    e.state.assignments.push({ operatorId: 'ops-veil', shipId: veil.id, since: e.state.tick });
+    if ('specialClaimed' in target) target.specialClaimed = true;
+    finishEvent(e, v, 'USS VEIL 已接管，永久舰籍建立；可执行隐形侦察与跟踪');
+    e.complete(s, '特殊侦察舰接管完成');
+    return;
+  }
   if (
     v.kind === 'distress' &&
     damaged &&

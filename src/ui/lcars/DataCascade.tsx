@@ -13,7 +13,7 @@ export function DataCascade({ world }: { world: Snapshot }) {
     world.communications.length,
     ...world.locations
       .slice(0, 6)
-      .flatMap((l) => [Math.floor(l.stock.supplies), Math.floor(l.hull)]),
+      .flatMap((l) => [Math.floor(l.stock.materials), Math.floor(l.hull)]),
   ];
   return (
     <div className="data-cascade-wrapper" aria-hidden="true">

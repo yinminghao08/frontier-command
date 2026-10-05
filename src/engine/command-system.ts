@@ -9,20 +9,21 @@ import { emptyStock } from './data';
 import { capabilities, cargoUsed } from './capabilities';
 import { BUILD_COSTS, FACILITIES, UPGRADES, cost } from './definitions/progression';
 import { RULES } from './definitions/rules';
+import { SHIP_CLASSES } from './definitions/ships';
 export const ok = (reason = '命令已接受'): CommandResult => ({ ok: true, reason });
 export const no = (reason: string): CommandResult => ({ ok: false, reason });
 export { inventory, available } from './inventory';
 export function canPay(e: SimulationEngine, c: Cost) {
   return (
     e.state.resources.credits + 1e-8 >= c.credits &&
-    (['materials', 'supplies', 'specialFinds'] as const).every(
+    (['materials', 'specialFinds'] as const).every(
       (k) => available(e.state, 'base', k) + 1e-8 >= c[k],
     )
   );
 }
 export function pay(e: SimulationEngine, c: Cost) {
   e.state.resources.credits = Math.max(0, e.state.resources.credits - c.credits);
-  for (const k of ['materials', 'supplies', 'specialFinds'] as const)
+  for (const k of ['materials', 'specialFinds'] as const)
     e.base.stock[k] = Math.max(0, e.base.stock[k] - c[k]);
 }
 export function validateAction(e: SimulationEngine, s: Ship, a: Action): CommandResult {
@@ -72,12 +73,17 @@ export function validateAction(e: SimulationEngine, s: Ship, a: Action): Command
     if (a.repeat && !w.upgrades.logistics) return no('持续货运需要 Logistics 升级');
     return ok();
   }
+  if (a.type === 'SHADOW')
+    return w.intel.some(
+      (i) => i.id === a.targetId && !i.resolved && w.time - i.lastSeen <= RULES.intelTTL,
+    )
+      ? ok()
+      : no('需要已观测的舰船接触');
   if (
     a.type === 'ATTACK' ||
     a.type === 'DISABLE' ||
     a.type === 'DRIVE_OFF' ||
-    a.type === 'INTERCEPT' ||
-    a.type === 'SHADOW'
+    a.type === 'INTERCEPT'
   ) {
     if (a.subsystem && (a.type !== 'DISABLE' || !s.modules.includes('precisionTargeting')))
       return no('定向禁用需要 Precision Targeting');
@@ -154,6 +160,12 @@ export function validate(
   if (frontierResult) return frontierResult;
   if (c.type === 'cancelDirective' || c.type === 'standingOrders')
     return w.ships.some((s) => s.id === c.shipId) ? ok() : no('舰船不存在');
+  if (c.type === 'setCloak') {
+    const s = w.ships.find((s) => s.id === c.shipId);
+    return s && SHIP_CLASSES[s.classId].cloak && (!c.enabled || s.core >= 5)
+      ? ok()
+      : no('舰船没有隐形能力或 Core 不足');
+  }
   if (c.type === 'renameEntity')
     return w.ships.some((s) => s.id === c.entityId) ||
       w.locations.some((l) => l.id === c.entityId && l.owner === 'starfleet') ||
@@ -210,11 +222,8 @@ export function validate(
     return w.communications.some((m) => m.id === c.communicationId) ? ok() : no('通信不存在');
   return ok();
 }
-export const manufactureCost = (k: 'supplies' | 'photon' | 'quantum', amount: number) =>
-  cost(
-    amount * (k === 'quantum' ? 8 : 2),
-    amount * (k === 'supplies' ? 0.3 : k === 'photon' ? 1 : 2),
-  );
+export const manufactureCost = (k: 'photon' | 'quantum', amount: number) =>
+  cost(amount * (k === 'quantum' ? 8 : 2), amount * (k === 'photon' ? 1 : 2));
 /** Revalidate what remains, rather than charging or loading an interrupted action twice. */
 export function validateContinuation(e: SimulationEngine, s: Ship, d: Directive): CommandResult {
   const a = d.action;
@@ -284,6 +293,8 @@ export function dispatchCommand(
           s.suspended = [];
         }
         s.current = d;
+        s.tracking = null;
+        s.emergencyRetreat = null;
         s.path = [];
         s.status = 'active';
       }
@@ -298,6 +309,8 @@ export function dispatchCommand(
     s.current = null;
     s.queue = [];
     s.suspended = [];
+    s.tracking = null;
+    s.emergencyRetreat = null;
     s.path = [];
     s.status = 'idle';
     this.record('directive', s.name + ' 取消指令；货物保留', s.id);
@@ -306,6 +319,15 @@ export function dispatchCommand(
   if (c.type === 'standingOrders') {
     w.ships.find((s) => s.id === c.shipId)!.standing = structuredClone(c.orders);
     return ok('自主政策已更新');
+  }
+  if (c.type === 'setCloak') {
+    const s = w.ships.find((s) => s.id === c.shipId)!;
+    s.cloak = c.enabled ? 'on' : 'off';
+    s.cloakUntil = 0;
+    if (s.current?.action.type === 'SHADOW' && s.current.phase === 'starting')
+      s.current.phase = 'following';
+    this.record('cloak', s.name + (c.enabled ? ' 开启隐形' : ' 关闭隐形'), s.id);
+    return ok();
   }
   if (c.type === 'renameEntity') {
     const entity =
@@ -338,8 +360,8 @@ export function dispatchCommand(
     };
     w.resources.credits -= project.cost.credits;
     w.projects.push(project);
-    this.record('construction', c.name + ' 开工：等待实际材料与补给运抵', project.id);
-    return ok('现场项目已建立，请运输材料和补给');
+    this.record('construction', c.name + ' 开工：等待实际材料运抵', project.id);
+    return ok('现场项目已建立，请运输材料');
   }
   if (c.type === 'buildShip') {
     pay(this, BUILD_COSTS[c.classId as keyof typeof BUILD_COSTS]);

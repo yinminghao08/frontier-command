@@ -2,7 +2,7 @@ import type { SimulationSpeed } from './clock';
 import type { ShipClassId } from './definitions/ships';
 export type Point = { x: number; y: number };
 export type FactionId = 'starfleet' | 'orion' | 'romulan';
-export const GOODS = ['materials', 'supplies', 'photon', 'quantum', 'specialFinds'] as const;
+export const GOODS = ['materials', 'photon', 'quantum', 'specialFinds'] as const;
 export type CargoKind = (typeof GOODS)[number];
 export type Stock = Record<CargoKind, number>;
 export type Ammunition = { photon: number; quantum: number };
@@ -67,7 +67,7 @@ export interface Location extends Point {
   discovered: boolean;
   production: number;
   capacity: Stock;
-  supplyState: 'operational' | 'depleted';
+
   storageFull: boolean;
   extracted: number;
   colony: ColonyState | null;
@@ -129,8 +129,7 @@ export interface StandingOrders {
   protectCivilian: boolean;
   protectFreighter: boolean;
   protectColony: boolean;
-  autoResupply: boolean;
-  idle: 'return' | 'hold';
+  serviceWhenDocked: boolean;
 }
 export interface Wormhole extends Point {
   id: string;
@@ -273,6 +272,8 @@ export interface Ship extends Point {
   scanUntil: number;
   cloak: 'off' | 'on' | 'decloaking';
   cloakUntil: number;
+  emergencyRetreat: { point: Point; started: number } | null;
+  tracking: { targetId: string; position: Point; lastSeen: number; live: boolean } | null;
 }
 export interface Enemy extends Ship {
   homeId: string;
@@ -286,6 +287,18 @@ export interface Enemy extends Ship {
   localReports: ThreatReport[];
   lastHostileAt: number;
   lastHostileTargetId: string | null;
+  counterTracking: {
+    position: Point;
+    watchers: Record<
+      string,
+      { exposure: number; identified: boolean; lastSeen: number; position: Point; bearing: number }
+    >;
+    evading: boolean;
+    waypoints: Point[];
+    lastSeen: number;
+    checkedAt: number;
+    serial: number;
+  };
 }
 export type IntelLevel = 'CONTACT' | 'CLASSIFIED' | 'IDENTIFIED' | 'TRACKED';
 export interface IntelRecord extends Point {
@@ -324,7 +337,7 @@ export interface FactionState {
 export interface Cost {
   credits: number;
   materials: number;
-  supplies: number;
+
   specialFinds: number;
 }
 export interface Construction extends Point {
@@ -425,8 +438,15 @@ export interface Wreck extends Point {
   stock: Stock;
   discovered: boolean;
 }
+/** Authoritative reconnaissance evidence; hidden location identifiers never cross IPC. */
+export interface SiteIntel extends Point {
+  id: string;
+  locationId: string;
+  progress: number;
+  lastSeen: number;
+}
 export interface WorldState {
-  version: 7;
+  version: 8;
   tick: number;
   time: number;
   seed: number;
@@ -449,6 +469,8 @@ export interface WorldState {
   jobs: IndustryJob[];
   wrecks: Wreck[];
   intel: IntelRecord[];
+  siteIntel: SiteIntel[];
+  recoveredVeil: boolean;
   factions: { orion: FactionState; romulan: FactionState };
   tension: number;
   resources: { credits: number };
@@ -476,7 +498,7 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 7;
+  version: 8;
   tick: number;
   time: number;
   paused: boolean;
@@ -489,6 +511,7 @@ interface SnapshotData {
   losses: LossRecord[];
   ships: Ship[];
   contacts: IntelRecord[];
+  siteContacts: { id: string; x: number; y: number; progress: number; lastSeen: number }[];
   sectors: Sector[];
   systems: StarSystem[];
   bodies: Body[];
@@ -521,6 +544,7 @@ export type Command =
     }
   | { type: 'cancelDirective'; shipId: string }
   | { type: 'standingOrders'; shipId: string; orders: StandingOrders }
+  | { type: 'setCloak'; shipId: string; enabled: boolean }
   | { type: 'createGroup'; name: string; shipIds: string[]; flagshipId: string; spacing: number }
   | {
       type: 'updateGroup';
@@ -567,7 +591,7 @@ export type Command =
   | { type: 'startConstruction'; siteId: string; kind: Exclude<FacilityKind, 'base'>; name: string }
   | { type: 'buildShip'; classId: ShipClassId; name: string }
   | { type: 'upgrade'; upgradeId: UpgradeId }
-  | { type: 'manufacture'; cargoKind: 'supplies' | 'photon' | 'quantum'; amount: number }
+  | { type: 'manufacture'; cargoKind: 'photon' | 'quantum'; amount: number }
   | { type: 'sellStock'; cargoKind: CargoKind; amount: number }
   | { type: 'repairFacility'; locationId: string }
   | { type: 'acknowledge'; communicationId: number }

@@ -108,6 +108,7 @@ export class SimulationEngine {
   complete(s: Ship, text: string, failed = false) {
     const old = s.current;
     s.current = null;
+    s.tracking = null;
     s.path = [];
     s.status = 'idle';
     if (old)

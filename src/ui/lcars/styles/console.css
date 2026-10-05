@@ -177,7 +177,7 @@
   display: inline-block;
   color: var(--orange);
   font-family: var(--latin-font);
-  font-size: 1.1em;
+  font-size: inherit;
   margin-right: 0.65em;
 }
 .comms-item.urgent .comms-content > span {
@@ -501,7 +501,7 @@
 }
 @media (max-width: 1100px) {
   :root {
-    --rail: 132px;
+    --rail: 220px;
     --inner: 32px;
     --outer: 88px;
     --bar: 16px;
@@ -598,9 +598,7 @@
     min-height: 34px;
     padding-block: 0.25em;
   }
-  .section-nav > .lcars-button span {
-    display: none;
-  }
+
   .nav-bottom {
     padding: 0.35em;
   }
@@ -612,5 +610,32 @@
   }
   .nav-cap > span {
     display: none;
+  }
+}
+
+/* English and Chinese share one baseline and one size at every window scale. */
+.section-nav > .lcars-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3em;
+  white-space: nowrap;
+  font-size: clamp(17px, 1.1vw, 28px);
+  padding-inline: 0.7em;
+}
+.section-nav > .lcars-button small {
+  margin-right: auto;
+  font-size: 0.55em;
+}
+.section-nav > .lcars-button b,
+.section-nav > .lcars-button span {
+  display: inline;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: 1.2;
+}
+@media (max-width: 1100px) {
+  .section-nav > .lcars-button {
+    font-size: 19px;
   }
 }

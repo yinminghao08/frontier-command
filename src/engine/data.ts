@@ -16,7 +16,7 @@ import { DEFAULT_STANDING, STORAGE } from './definitions/frontier';
 export { BASE } from './definitions/locations';
 export const emptyStock = (): Stock => ({
   materials: 0,
-  supplies: 0,
+
   photon: 0,
   quantum: 0,
   specialFinds: 0,
@@ -59,6 +59,8 @@ export function makeShip(
     scanUntil: 0,
     cloak: d.cloak ? 'on' : 'off',
     cloakUntil: 0,
+    emergencyRetreat: null,
+    tracking: null,
   };
 }
 export function makeEnemy(
@@ -90,6 +92,15 @@ export function makeEnemy(
     localReports: [],
     lastHostileAt: -1000,
     lastHostileTargetId: null,
+    counterTracking: {
+      position: { x: p.x, y: p.y },
+      watchers: {},
+      evading: false,
+      waypoints: [],
+      lastSeen: 0,
+      checkedAt: 0,
+      serial: 0,
+    },
   };
 }
 export function makeLocation(
@@ -123,7 +134,7 @@ export function makeLocation(
     discovered: owner === 'starfleet',
     production: 0,
     capacity: structuredClone(STORAGE[kind]),
-    supplyState: 'operational',
+
     storageFull: false,
     extracted: 0,
     colony:
@@ -150,7 +161,7 @@ export function createWorld(seed = 236807): WorldState {
     makeShip(s.id, s.name, s.classId, 'starfleet', { x: BASE.x + (i - 1.5) * 28, y: BASE.y + 45 }),
   );
   const w: WorldState = {
-    version: 7,
+    version: 8,
     tick: 0,
     time: 0,
     seed: seed >>> 0,
@@ -178,6 +189,8 @@ export function createWorld(seed = 236807): WorldState {
     jobs: [],
     wrecks: [],
     intel: [],
+    siteIntel: [],
+    recoveredVeil: false,
     factions: {
       orion: {
         reports: [],
@@ -205,9 +218,9 @@ export function createWorld(seed = 236807): WorldState {
     wormholes: [],
     civilians: [],
     trade: {
-      stock: { materials: 400, supplies: 300, photon: 60, quantum: 10, specialFinds: 0 },
+      stock: { materials: 400, photon: 60, quantum: 10, specialFinds: 0 },
       credits: 2000,
-      capacity: { materials: 1000, supplies: 1000, photon: 300, quantum: 100, specialFinds: 50 },
+      capacity: { materials: 1000, photon: 300, quantum: 100, specialFinds: 50 },
       depot: { x: -640, y: -140 },
       orders: [],
     },
@@ -221,16 +234,13 @@ export function createWorld(seed = 236807): WorldState {
     nextHistory: 1,
   };
   const base = w.locations[0];
-  base.stock = { materials: 70, supplies: 120, photon: 90, quantum: 20, specialFinds: 0 };
-  w.locations.find((l) => l.id === 'colony')!.stock.supplies = 60;
+  base.stock = { materials: 70, photon: 90, quantum: 20, specialFinds: 0 };
   w.locations.find((l) => l.id === 'colony')!.colony!.population = 1000;
   w.locations.find((l) => l.id === 'colony')!.colony!.housing = 1500;
   w.locations.find((l) => l.id === 'mine')!.stock = {
     ...emptyStock(),
     materials: 120,
-    supplies: 40,
   };
-  w.locations.find((l) => l.id === 'outpost')!.stock.supplies = 40;
   for (const coord of [
     { q: -1, r: 0 },
     { q: 0, r: 0 },
@@ -247,50 +257,12 @@ export function createWorld(seed = 236807): WorldState {
       }
     }
   }
-  const addInitialBody = (
-    sector: string,
-    kind: 'planet' | 'resource',
-    id: string,
-    x: number,
-    y: number,
-  ) => {
-    const sys = w.systems.find((s) => s.sectorId === sector)!;
-    const body = {
-      id,
-      name: kind === 'planet' ? 'New Horizon M-class' : 'Helios 金属矿床',
-      systemId: sys.id,
-      kind,
-      category: kind === 'planet' ? 'M-class 宜居世界' : '金属矿床',
-      population: 0,
-      x,
-      y,
-      survey: 2,
-      habitable: kind === 'planet',
-      remaining: kind === 'resource' ? 3000 : 0,
-      richness: 1.2,
-      hazard: 0.25,
-      hidden: false,
-      specialClaimed: false,
-      discovered: true,
-    };
-    w.bodies.push(body);
-    sys.bodyIds.push(id);
-    return body;
-  };
-  w.locations.find((l) => l.id === 'mine')!.siteId = addInitialBody(
-    'sector:1:0',
-    'resource',
-    'helios-deposit',
-    240,
-    -80,
-  ).id;
-  w.locations.find((l) => l.id === 'colony')!.siteId = addInitialBody(
-    'sector:0:0',
-    'planet',
-    'new-horizon-world',
-    130,
-    140,
-  ).id;
+  w.locations.find((l) => l.id === 'mine')!.siteId = 'helios-deposit';
+  w.locations.find((l) => l.id === 'colony')!.siteId = 'new-horizon-world';
+  for (const id of ['helios-deposit', 'new-horizon-world'])
+    w.bodies.find((b) => b.id === id)!.survey = 2;
+  for (const h of w.wormholes)
+    h.discovered = w.sectors.some((s) => s.id === h.sectorId && s.discovered);
   w.personnel.push({
     id: 'commander-colony',
     name: 'Commander 陈星',
@@ -324,7 +296,7 @@ export function createWorld(seed = 236807): WorldState {
     { x: 500, y: -530 },
     'orion',
   );
-  orion.stock = { ...emptyStock(), materials: 15, supplies: 30, photon: 12 };
+  orion.stock = { ...emptyStock(), materials: 15, photon: 12 };
   w.locations.push(orion);
   const romulan = makeLocation(
     'romulan-base',
@@ -333,7 +305,7 @@ export function createWorld(seed = 236807): WorldState {
     { x: 1180, y: 150 },
     'romulan',
   );
-  romulan.stock = { ...emptyStock(), materials: 40, supplies: 100, photon: 60 };
+  romulan.stock = { ...emptyStock(), materials: 40, photon: 60 };
   w.locations.push(romulan);
   w.enemies = [
     makeEnemy('orion-scout', 'raider', 'orion', { x: 400, y: -250 }, orion.id, 'scout'),
@@ -347,7 +319,7 @@ export function createWorld(seed = 236807): WorldState {
     id: w.nextComms++,
     time: 0,
     priority: 'high',
-    text: 'ADMIRAL：六舰待命。向 UNKNOWN SPACE 测绘，矿场已有材料等待运回；新曙殖民地生产补给，矿场需要运输维护物资。',
+    text: 'ADMIRAL：六舰待命。向 UNKNOWN SPACE 测绘，矿场已有材料等待运回；新曙殖民地提供 Credits 收益，矿场满仓时需要运输材料。',
     read: false,
     entityId: 'mine',
     category: 'request',

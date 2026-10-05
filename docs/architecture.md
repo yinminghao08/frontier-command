@@ -55,7 +55,6 @@ Core resources have explicit meaning:
 
 - `Credits`: strategic budget
 - `Materials`: construction, repair and industry
-- `Supplies`: facility sustainment, medical action and logistics; colonies produce supplies
 - `Photon` / `Quantum`: physical ammunition
 - `Special Finds`: rare capability unlocks
 
@@ -115,7 +114,7 @@ Strategic Map uses semantic zoom and renders only known information. UI animatio
 
 Prefer domain data over scattered constants, strict TypeScript over `any`, and root-cause refactors over compatibility patches around rejected architecture.
 
-## v7 Implementation
+## v8 Implementation
 
 The fixed step is 0.1 game-minute, scheduled every 100 ms by the Electron host. A 1x game minute is therefore approximately one real second. Speeds 4/16 repeat the same steps and stop the batch at a major pause. Sensors observe each game minute; faction decisions use simulation-time deadlines.
 
@@ -133,7 +132,7 @@ Orion reports record local observations, value, escort defense, freshness and po
 
 Public Snapshot/Observation types are recursively readonly and detached by structuredClone. Snapshot uses an explicit field whitelist; enemy intent, assets, stocks, reports, seed and unrevealed geography stay private. Contacts retain the frozen last observed position during loss of signal. AgentControllerPort exposes only getObservation and submitAction for its assigned vessel; an active Admiral directive rejects an autonomous submission.
 
-v7 saves use timeline-v7.json and frontiers-v7, independently of all earlier roots. Schema checks clocks, references, stable-ID uniqueness, physical capacities, module slots, reservations, historical counters and industry recipes. Runtime target loss remains a valid historical reference until the directive can handle it. Midnight writes occur in the host's after-step callback before the next accelerated step. The host switches engines only after a restored/new branch has been persisted.
+v8 saves use timeline-v8.json and frontiers-v8, independently of all earlier roots. Schema checks clocks, references, stable-ID uniqueness, physical capacities, module slots, reservations, historical counters and industry recipes. Runtime target loss remains a valid historical reference until the directive can handle it. Midnight writes occur in the host's after-step callback before the next accelerated step. The host switches engines only after a restored/new branch has been persisted.
 
 ## Frontier domains
 
@@ -150,3 +149,17 @@ Wormholes are paired coordinate objects with independent local seed, stable/unst
 Enemy local observations stay on the observer until within home communication range. Received intelligence retains original observation time and determines deployment and pressure. Romulan reserves originate at Border Command; observe/patrol/probe/reinforce/escalate/withdraw use received evidence and persistent political tension. Observed hostile fire, not hidden intent, permits autonomous targeting.
 
 Renderer has separate command-object and destination state. Map points do not overwrite the selected ship/group command object. SVG symbol registration is exhaustive over map entity kinds. Shared title bars use non-shrinking caps, bounded tail geometry and truncating text across DPI scales.
+
+## v8 reconnaissance and map
+
+`tracking.ts` shares physical cloak visibility across sensors, combat acquisition and enemy intelligence. Counter-tracking accumulates evidence only from detected ships moving with the observer, with stable bearing or a following position. Evidence, decoy waypoints and enemy destination stay on the authoritative Enemy. Evasion runs before every return/dock/decision branch and ends after 15 minutes without detected following evidence. Romulan sensing/exposure factors and cloak signatures are centralized.
+
+SHADOW stores the owned ship's own last observed position and signal time. Shared contact knowledge can initiate a search but does not update a following ship that lacks physical sensor contact. Loss searches that frozen position for 20 minutes before holding. Cloak is initialized once per newly started SHADOW; a validated manual toggle persists for its current execution. Firing decloaks and energy drain is less than Veil core regeneration.
+
+Unknown facilities have independent `SiteIntel`: observed coordinates, consecutive observation progress and lastSeen. The public `siteContacts` projection omits locationId, owner, name, inventories and destination. After ten consecutive game-minute observations an actual facility is confirmed. Docked/homeId alone never changes visibility. Public communications/history describe received declarations and observed events; weapon effects with hidden endpoints are filtered.
+
+FRONTIER 0/0 has a fixed paired Wormhole to 0/12. Coordinate generation creates the unique Veil derelict, without generic recyclable wreck inventory. SURVEY and ASSIST_EVENT claim its one persistent fleet identity; a save flag and loss archive enforce uniqueness. That recovery event has no expiry.
+
+Goods are Materials, Photon, Quantum and Special Finds; Credits are the budget. There is no upkeep scheduler or operating shortage state. Mine material storage is 3000. Colony income retains population/development/personnel/event factors. Dormant owned ships hold position, low ammunition reports only, and optional repair/rearm requires physical docking. Emergency combat disengagement has a local point and is cleared by Admiral work.
+
+Map generation uses finite rejection sampling and deterministic fallback, with at most two systems and six secondary bodies per system. Authored sites and friendly facilities reserve layout space. Sector/System views suppress secondary bodies until system selection; local view expands them. Strategic co-located sites/facilities and docked fleets share markers. Label measurement uses loaded Antonio/Alibaba fonts, marker obstacles, multiple candidate positions and stable priority. `src/ui/map/palette.ts` owns faction/type meaning; alert decoration is independent.

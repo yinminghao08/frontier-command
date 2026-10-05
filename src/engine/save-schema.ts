@@ -5,7 +5,7 @@ import {
   eventSchema,
   wormholeSchema,
   tradeSchema,
-} from './v7-schema';
+} from './v8-schema';
 import { z } from 'zod';
 import {
   actionSchema,
@@ -26,13 +26,21 @@ const n = z.number().finite(),
 const classId = z.custom<ShipClassId>(
   (x) => typeof x === 'string' && Object.hasOwn(SHIP_CLASSES, x),
 );
-const cost = z.object({ credits: nn, materials: nn, supplies: nn, specialFinds: integer }).strict();
+const cost = z.object({ credits: nn, materials: nn, specialFinds: integer }).strict();
 const directive = z
   .object({
     id,
     action: actionSchema,
     created: nn,
-    phase: z.enum(['starting', 'unloading', 'loading', 'delivering', 'refitting', 'rearming']),
+    phase: z.enum([
+      'starting',
+      'following',
+      'unloading',
+      'loading',
+      'delivering',
+      'refitting',
+      'rearming',
+    ]),
     work: nn,
     moved: nn,
     carried: nn,
@@ -78,6 +86,11 @@ const ship = pointSchema
     scanUntil: nn,
     cloak: z.enum(['off', 'on', 'decloaking']),
     cloakUntil: nn,
+    emergencyRetreat: z.object({ point: pointSchema, started: nn }).strict().nullable(),
+    tracking: z
+      .object({ targetId: id, position: pointSchema, lastSeen: nn, live: z.boolean() })
+      .strict()
+      .nullable(),
   })
   .strict();
 const facilityKind = z.enum(['base', 'colony', 'mine', 'outpost', 'platform']);
@@ -115,7 +128,7 @@ const communication = z
   .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(7),
+    version: z.literal(8),
     tick: integer,
     time: nn,
     seed: integer.max(4294967295),
@@ -176,6 +189,27 @@ export const worldSchema = z
           localReports: faction.shape.reports,
           lastHostileAt: n,
           lastHostileTargetId: id.nullable(),
+          counterTracking: z
+            .object({
+              position: pointSchema,
+              watchers: z.record(
+                z
+                  .object({
+                    exposure: nn.max(100),
+                    identified: z.boolean(),
+                    lastSeen: nn,
+                    position: pointSchema,
+                    bearing: n,
+                  })
+                  .strict(),
+              ),
+              evading: z.boolean(),
+              waypoints: z.array(pointSchema),
+              lastSeen: nn,
+              checkedAt: nn,
+              serial: integer,
+            })
+            .strict(),
         })
         .strict(),
     ),
@@ -239,13 +273,13 @@ export const worldSchema = z
           maxShield: nn,
           core: nn,
           attackedAt: n,
-          lastAttackerId: id.nullable().default(null),
+          lastAttackerId: id.nullable(),
           cooldown: nn,
           distress: z.boolean(),
           discovered: z.boolean(),
           production: nn,
           capacity: stockSchema,
-          supplyState: z.enum(['operational', 'depleted']),
+
           storageFull: z.boolean(),
           extracted: nn,
           colony: colonySchema.nullable(),
@@ -307,6 +341,10 @@ export const worldSchema = z
         .strict(),
     ),
     factions: z.object({ orion: faction, romulan: faction }).strict(),
+    siteIntel: z.array(
+      pointSchema.extend({ id, locationId: id, progress: nn.max(10), lastSeen: nn }).strict(),
+    ),
+    recoveredVeil: z.boolean(),
     tension: nn.max(100),
     resources: z.object({ credits: nn }).strict(),
     upgrades: z
@@ -388,6 +426,7 @@ export const worldSchema = z
       w.wormholes,
       w.civilians,
       w.trade.orders,
+      w.siteIntel,
     ];
     const globalIds = collections.flatMap((c) => c.map((x) => x.id));
     if (new Set(globalIds).size !== globalIds.length) bad('Duplicate stable entity identifiers');
@@ -404,6 +443,54 @@ export const worldSchema = z
       bad('Invalid permanent loss archive');
     if (w.ships.some((s) => s.factionId !== 'starfleet' || s.hull <= 0))
       bad('Invalid active fleet');
+    const veilRecords = [
+      ...w.ships.filter((s) => s.id === 'veil'),
+      ...w.losses.filter((s) => s.shipId === 'veil'),
+    ];
+    if (
+      w.ships.some((s) => s.classId === 'veil' && s.id !== 'veil') ||
+      w.losses.some((s) => s.classId === 'veil' && s.shipId !== 'veil') ||
+      veilRecords.length !== Number(w.recoveredVeil) ||
+      veilRecords.some((s) => s.classId !== 'veil')
+    )
+      bad('Invalid unique reconnaissance vessel');
+    if (w.recoveredVeil && !w.bodies.some((b) => b.id === 'veil-derelict' && b.specialClaimed))
+      bad('Invalid reconnaissance recovery site');
+    const passage = w.wormholes.find((h) => h.id === 'wormhole:0:0');
+    if (
+      !passage ||
+      passage.sectorId !== 'sector:0:0' ||
+      passage.x !== 90 ||
+      passage.y !== -80 ||
+      passage.exitSector.q !== 0 ||
+      passage.exitSector.r !== 12 ||
+      passage.exit.x !== 90 ||
+      passage.exit.y !== 4720
+    )
+      bad('Missing fixed Dawn passage');
+    if (w.ships.some((s) => s.emergencyRetreat && s.emergencyRetreat.started > w.time))
+      bad('Invalid emergency retreat');
+    if (
+      new Set(w.siteIntel.map((i) => i.locationId)).size !== w.siteIntel.length ||
+      w.siteIntel.some(
+        (i) =>
+          i.lastSeen > w.time ||
+          !w.locations.some(
+            (l) => l.id === i.locationId && l.owner !== 'starfleet' && l.x === i.x && l.y === i.y,
+          ),
+      )
+    )
+      bad('Invalid site reconnaissance');
+    if (
+      w.enemies.some(
+        (s) =>
+          s.counterTracking.checkedAt > w.time ||
+          s.counterTracking.lastSeen > w.time ||
+          (!s.counterTracking.evading && s.counterTracking.waypoints.length > 0) ||
+          Object.values(s.counterTracking.watchers).some((o) => o.lastSeen > w.time),
+      )
+    )
+      bad('Invalid counter tracking');
     if (
       new Set(w.assignments.map((a) => a.shipId)).size !== w.assignments.length ||
       new Set(w.assignments.map((a) => a.operatorId)).size !== w.assignments.length
@@ -470,7 +557,7 @@ export const worldSchema = z
         a.type === 'REARM' &&
         (d.reserved.photon > a.load.photon ||
           d.reserved.quantum > a.load.quantum ||
-          d.reserved.materials + d.reserved.supplies + d.reserved.specialFinds > 0)
+          d.reserved.materials + d.reserved.specialFinds > 0)
       )
         bad('Invalid magazine reservation');
     }
@@ -490,6 +577,12 @@ export const worldSchema = z
         bad('Ship capacity exceeded');
       if (s.modules.length > c.moduleSlots || new Set(s.modules).size !== s.modules.length)
         bad('Invalid module slots');
+      if (
+        (!SHIP_CLASSES[s.classId].cloak && s.cloak !== 'off') ||
+        (s.tracking && (s.tracking.lastSeen > w.time || !refs.has(s.tracking.targetId))) ||
+        (s.emergencyRetreat && s.emergencyRetreat.started > w.time)
+      )
+        bad('Invalid vessel observation or cloak');
     }
     for (const enemy of w.enemies)
       if (
@@ -565,7 +658,7 @@ export const worldSchema = z
         bad('Invalid shipyard recipe');
       if (j.kind === 'upgrade' && !Object.hasOwn(w.upgrades, j.key))
         bad('Invalid strategic upgrade');
-      if (j.kind === 'manufacture' && !['supplies', 'photon', 'quantum'].includes(j.key))
+      if (j.kind === 'manufacture' && !['photon', 'quantum'].includes(j.key))
         bad('Invalid manufacturing recipe');
     }
     for (const [entries, next] of [
@@ -582,7 +675,7 @@ export const worldSchema = z
     const numbered = [...globalIds, ...directives.map((d) => d.id)].map((id) =>
       Number(
         id.match(
-          /^(?:ship|job|facility|project|directive|orion-built|group|personnel|event|trade)-(\d+)$/,
+          /^(?:ship|job|facility|project|directive|orion-built|group|personnel|event|trade|site-intel)-(\d+)$/,
         )?.[1] ?? 0,
       ),
     );

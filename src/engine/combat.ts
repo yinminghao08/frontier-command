@@ -7,10 +7,15 @@ import { GOODS } from './types';
 import { emptyStock } from './data';
 import { SHIP_CLASSES, WEAPONS } from './definitions/ships';
 import { dist } from './navigation';
+import { RULES } from './definitions/rules';
 export function regenerate(s: Ship, time: number, dt: number) {
   const d = capabilities(s);
   for (const k of Object.keys(s.cooldowns)) s.cooldowns[k] = Math.max(0, s.cooldowns[k] - dt);
   s.core = Math.min(d.core, s.core + d.coreRegen * dt);
+  if (s.cloak === 'on') {
+    s.core = Math.max(0, s.core - RULES.cloakDrain * dt);
+    if (s.core === 0) s.cloak = 'off';
+  }
   if (time - s.attackedAt > 8) s.shield = Math.min(d.shield, s.shield + d.shieldRegen * dt);
   if (s.cloak === 'decloaking' && time >= s.cloakUntil) s.cloak = 'off';
 }

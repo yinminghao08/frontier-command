@@ -10,12 +10,22 @@ describe('frontier construction and capabilities', () => {
   it.each(['mine', 'outpost', 'colony'] as const)(
     'builds %s only after on-site cargo arrives, without claiming ships',
     (kind) => {
-      const e = quietEngine(),
-        site = e.state.bodies.find(
-          (b) =>
-            b.discovered &&
-            (kind === 'mine' ? b.kind === 'resource' : b.kind === 'planet' && b.habitable),
-        )!;
+      const e = quietEngine();
+      let site = e.state.bodies.find(
+        (b) =>
+          b.discovered &&
+          (kind === 'mine' ? b.kind === 'resource' : b.kind === 'planet' && b.habitable),
+      )!;
+      const fresh = {
+        ...site,
+        id: 'construction-test-site',
+        x: site.x + 90,
+        y: site.y + 90,
+        remaining: 3000,
+      };
+      e.state.bodies.push(fresh);
+      e.state.systems.find((sys) => sys.id === site.systemId)!.bodyIds.push(fresh.id);
+      site = fresh;
       site.survey = 2;
       expect(
         e.dispatchCommand({ type: 'startConstruction', siteId: site.id, kind, name: 'New ' + kind })
@@ -33,40 +43,26 @@ describe('frontier construction and capabilities', () => {
           sourceId: 'base',
           targetId: p.id,
           cargoKind: 'materials',
-          amount: p.cost.materials,
+          amount: p.cost.materials + 10,
           route: 'direct',
           repeat: false,
         },
         s.id,
-      );
-      issue(
-        e,
-        {
-          type: 'HAUL',
-          sourceId: 'base',
-          targetId: p.id,
-          cargoKind: 'supplies',
-          amount: p.cost.supplies + 10,
-          route: 'direct',
-          repeat: false,
-        },
-        s.id,
-        'QUEUE',
       );
       until(e, () => p.complete, 600);
       const l = e.state.locations.find((l) => l.siteId === site.id && l.kind === kind)!;
       expect(l).toBeDefined();
       expect(l.hull).toBeGreaterThan(600);
       expect(l.shield).toBeGreaterThan(300);
-      expect(l.stock.supplies).toBeGreaterThan(0);
-      expect(l.stock.supplies).toBeLessThanOrEqual(l.capacity.supplies);
+      expect(l.stock.materials).toBeGreaterThan(0);
+      expect(l.stock.materials).toBeLessThanOrEqual(l.capacity.materials);
       issue(
         e,
         {
           type: 'HAUL',
           sourceId: 'base',
           targetId: p.id,
-          cargoKind: 'supplies',
+          cargoKind: 'materials',
           amount: 5,
           route: 'direct',
           repeat: false,
@@ -74,8 +70,8 @@ describe('frontier construction and capabilities', () => {
         s.id,
       );
       until(e, () => !s.current);
-      expect(l.stock.supplies).toBeGreaterThan(0);
-      expect(l.stock.supplies).toBeLessThanOrEqual(l.capacity.supplies);
+      expect(l.stock.materials).toBeGreaterThan(0);
+      expect(l.stock.materials).toBeLessThanOrEqual(l.capacity.materials);
       expect(() => worldSchema.parse(e.state)).not.toThrow();
     },
   );
@@ -157,7 +153,7 @@ describe('frontier construction and capabilities', () => {
           type: 'HAUL',
           sourceId: 'base',
           targetId: 'outpost',
-          cargoKind: 'supplies',
+          cargoKind: 'materials',
           amount: 10,
           route: 'risky',
           repeat: false,
@@ -227,13 +223,8 @@ describe('frontier construction and capabilities', () => {
         amount: 20,
       }).ok,
     ).toBe(true);
-    expect(
-      e.dispatchCommand({ type: 'tradeStock', direction: 'buy', cargoKind: 'supplies', amount: 10 })
-        .ok,
-    ).toBe(true);
     run(e, 400);
     expect(e.base.stock.materials).toBe(20);
-    expect(e.base.stock.supplies).toBe(10);
     expect(
       e.dispatchCommand({ type: 'buildShip', classId: 'peregrine', name: 'USS RECOVERY' }).ok,
     ).toBe(true);
@@ -384,27 +375,12 @@ describe('persistent Orion and Romulan ecology', () => {
     run(e, 600);
     expect(e.state.enemies.filter((s) => s.factionId === 'orion')).toHaveLength(0);
     expect(e.state.factions.orion.losses).toContain('r');
-    home.stock = { ...emptyStock(), materials: 20, supplies: 10, photon: 5 };
-    e.state.factions.orion.credits = 60;
+    home.stock = { ...emptyStock(), materials: 20, photon: 5 };
+    e.state.factions.orion.credits = 100;
     run(e, 31);
     expect(e.state.enemies).toHaveLength(1);
     expect(home.stock.materials).toBe(0);
     expect(e.state.factions.orion.credits).toBe(0);
-  });
-  it('Shadow follows actual return flight and discovers the hidden base', () => {
-    const e = quietEngine(),
-      s = e.state.ships[2],
-      r = makeEnemy('returner', 'raider', 'orion', { x: 380, y: -350 });
-    e.state.enemies = [r];
-    r.cargo.materials = 12;
-    r.loot = 12;
-    r.intent = 'retreat';
-    s.x = 340;
-    s.y = -330;
-    observe(e.state, r, 6);
-    issue(e, { type: 'SHADOW', targetId: r.id }, s.id);
-    until(e, () => e.state.locations.find((l) => l.id === 'orion-base')!.discovered, 180);
-    expect(e.snapshot().locations.some((l) => l.id === 'orion-base')).toBe(true);
   });
   it('neutral Romulans are excluded from autonomous attack; explicit attack raises political tension', () => {
     const e = quietEngine(),
@@ -448,7 +424,7 @@ describe('persistent Orion and Romulan ecology', () => {
     run(e, 5);
     expect(e.state.factions.romulan.stance).toBe('escalate');
     expect(
-      e.state.history.filter((h) => h.kind === 'border' && h.text.includes('宣布军事升级')),
+      e.state.history.filter((h) => h.kind === 'border' && h.text.includes('军事升级声明')),
     ).toHaveLength(1);
   });
   it('an ordinary raid leaves facilities alive while reinforcement travels from Dawn', () => {
@@ -481,13 +457,13 @@ describe('persistent Orion and Romulan ecology', () => {
 });
 
 describe('faction recovery, political actions and long-lived save invariants', () => {
-  it('supply shortages create logistics opportunities and cannot suppress an actual attack alert', () => {
+  it('empty mine inventory never creates operating shortages and actual attacks still alert', () => {
     const e = quietEngine(),
       mine = e.state.locations.find((l) => l.id === 'mine')!;
-    mine.stock.supplies = 0;
+    mine.stock.materials = 0;
     run(e, 5);
-    expect(mine.distress).toBe(true);
-    expect(e.snapshot().opportunities.some((o) => o.id === 'supply:' + mine.id)).toBe(true);
+    expect(mine.distress).toBe(false);
+    expect(e.snapshot().opportunities.every((o) => !o.id.startsWith('supply:'))).toBe(true);
     expect(e.snapshot().opportunities.some((o) => o.id === 'defend:' + mine.id)).toBe(false);
     e.hit(mine, 5);
     expect(

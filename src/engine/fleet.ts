@@ -54,7 +54,10 @@ export function autonomousAllowed(s: Ship, p: { x: number; y: number }) {
   );
 }
 export function advanceStanding(e: SimulationEngine, s: Ship) {
-  if (hasAdmiralWork(s)) return;
+  if (hasAdmiralWork(s)) {
+    s.emergencyRetreat = null;
+    return;
+  }
   const c = capabilities(s),
     o = s.standing,
     low =
@@ -73,17 +76,29 @@ export function advanceStanding(e: SimulationEngine, s: Ship) {
     s.path = [];
     s.status = 'active';
   };
-  if (
-    (low || (o.autoResupply && ammo)) &&
-    dist(s, e.base) > 30 &&
-    s.current?.action.type !== 'RETURN'
-  ) {
-    s.current = null;
-    start({ type: 'RETURN' });
-    return;
+  if (ammo && !(s.cooldowns.ammoReport > 0)) {
+    e.report(
+      s.name + ' 弹药不足，原地或继续既有指令；请由 Admiral 安排装弹',
+      s.id,
+      'normal',
+      'request',
+    );
+    s.cooldowns.ammoReport = 60;
   }
+  if (low && e.state.time - s.attackedAt < 12 && !s.emergencyRetreat) {
+    const threat = e.state.intel.find((i) => i.id === s.lastAttackerId && i.live);
+    const heading = threat ? Math.atan2(s.y - threat.y, s.x - threat.x) : s.heading + Math.PI;
+    s.current = null;
+    s.path = [];
+    s.emergencyRetreat = {
+      point: { x: s.x + Math.cos(heading) * 210, y: s.y + Math.sin(heading) * 210 },
+      started: e.state.time,
+    };
+    e.record('retreat', s.name + ' 紧急脱离交战，脱离后原地待命', s.id);
+  }
+  if (s.emergencyRetreat) return;
   if (s.current) return;
-  if (o.autoResupply && dist(s, e.base) < 30) {
+  if (o.serviceWhenDocked && s.status === 'docked' && dist(s, e.base) <= 12 + 1e-8) {
     if (s.hull < c.hull && available(e.state, 'base', 'materials') > 0) {
       start({ type: 'REPAIR', targetId: 'base' });
       return;
@@ -137,6 +152,9 @@ export function advanceStanding(e: SimulationEngine, s: Ship) {
       return;
     }
   }
-  if (o.idle === 'return' && dist(s, e.base) > 30) start({ type: 'RETURN' });
-  else if (dist(s, e.base) <= 30) s.status = 'docked';
+  s.status = e.state.locations.some(
+    (l) => l.owner === 'starfleet' && l.hull > 0 && dist(s, l) <= 12 + 1e-8,
+  )
+    ? 'docked'
+    : 'idle';
 }

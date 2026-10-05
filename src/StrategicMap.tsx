@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { useLcars } from './ui/lcars/LcarsProvider';
 import { MapSymbol, type SymbolKind } from './ui/map/MapSymbol';
 import { LcarsButton } from './ui/components/Lcars';
+import { MAP_PALETTE, MAP_LEGEND, bodyColor, facilityColor } from './ui/map/palette';
 import type { Point, Snapshot } from './engine/types';
 import { SECTOR_SIZE, regionAt } from './engine/definitions/locations';
 import { sectorCenter } from './engine/world-generation';
@@ -33,7 +34,8 @@ export type Selection =
         | 'group'
         | 'event'
         | 'wormhole'
-        | 'civilian';
+        | 'civilian'
+        | 'siteContact';
       id: string;
     }
   | { type: 'point'; x: number; y: number }
@@ -59,6 +61,20 @@ export function StrategicMap({
   const viewport = useRef<HTMLDivElement>(null),
     svg = useRef<SVGSVGElement>(null),
     initialized = useRef(false);
+  const [fontVersion, setFontVersion] = useState(0);
+  const measurement = useRef<CanvasRenderingContext2D | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void document.fonts.ready.then(() => {
+      if (alive) {
+        measurement.current = document.createElement('canvas').getContext('2d');
+        setFontVersion((v) => v + 1);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const known = () => [...world.locations, ...world.systems];
   const [camera, setCamera] = useState(() => fitCamera(1, 1, boundsOf(known()))),
     current = useRef(camera),
@@ -189,17 +205,22 @@ export function StrategicMap({
       p: s,
       selection: { type: 'system', id: s.id } as Selection,
       kind: 'system' as const,
-      color: 'var(--african-violet)',
+      color: MAP_PALETTE.system,
     })),
     ...world.bodies
-      .filter((b) => visible(b) && (level === 'LOCAL' || active(b.id) || active(b.systemId)))
+      .filter(
+        (b) =>
+          visible(b) &&
+          (level === 'LOCAL' || active(b.id) || active(b.systemId)) &&
+          (!world.locations.some((l) => l.siteId === b.id) || active(b.id)),
+      )
       .map((b) => ({
         id: b.id,
         name: b.name,
         p: b,
         selection: { type: 'body', id: b.id } as Selection,
         kind: b.kind,
-        color: b.kind === 'resource' ? 'var(--almond-creme)' : 'var(--african-violet)',
+        color: bodyColor(b),
       })),
     ...world.locations.filter(visible).map((l) => ({
       id: l.id,
@@ -207,7 +228,7 @@ export function StrategicMap({
       p: l,
       selection: { type: 'location', id: l.id } as Selection,
       kind: l.kind,
-      color: l.owner === 'starfleet' ? 'var(--bluey)' : 'var(--red)',
+      color: facilityColor(l.id, l.owner, l.kind),
     })),
     ...world.projects
       .filter((p) => !p.complete && visible(p))
@@ -217,31 +238,51 @@ export function StrategicMap({
         p,
         selection: { type: 'project', id: p.id } as Selection,
         kind: 'project' as const,
-        color: 'var(--orange)',
+        color: MAP_PALETTE.project,
       })),
-    ...world.wrecks.filter(visible).map((p) => ({
-      id: p.id,
-      name: p.name,
-      p,
-      selection: { type: 'wreck', id: p.id } as Selection,
-      kind: 'wreck' as const,
-      color: 'var(--almond-creme)',
-    })),
-    ...world.ships.filter(visible).map((s) => ({
-      id: s.id,
-      name: s.name,
-      p: s,
-      selection: { type: 'ship', id: s.id } as Selection,
-      kind: s.classId === 'antares' ? ('freighter' as const) : ('ship' as const),
-      color: 'var(--bluey)',
-    })),
+    ...world.wrecks
+      .filter(
+        (w) =>
+          visible(w) &&
+          (level === 'LOCAL' ||
+            !world.bodies.some(
+              (b) => b.kind === 'derelict' && Math.hypot(b.x - w.x, b.y - w.y) < 1,
+            )),
+      )
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        p,
+        selection: { type: 'wreck', id: p.id } as Selection,
+        kind: 'wreck' as const,
+        color: MAP_PALETTE.wreck,
+      })),
+    ...world.ships
+      .filter(
+        (s) =>
+          visible(s) &&
+          (level === 'LOCAL' ||
+            active(s.id) ||
+            s.current ||
+            !world.locations.some(
+              (l) => l.owner === 'starfleet' && Math.hypot(l.x - s.x, l.y - s.y) < 90,
+            )),
+      )
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        p: s,
+        selection: { type: 'ship', id: s.id } as Selection,
+        kind: s.classId === 'antares' ? ('freighter' as const) : ('ship' as const),
+        color: MAP_PALETTE.factions.starfleet,
+      })),
     ...world.wormholes.filter(visible).map((w) => ({
       id: w.id,
       name: w.name,
       p: w,
       selection: { type: 'wormhole', id: w.id } as Selection,
       kind: 'wormhole' as const,
-      color: 'var(--african-violet)',
+      color: MAP_PALETTE.wormhole,
     })),
     ...world.civilians.filter(visible).map((s) => ({
       id: s.id,
@@ -249,7 +290,7 @@ export function StrategicMap({
       p: s,
       selection: { type: 'civilian', id: s.id } as Selection,
       kind: 'freighter' as const,
-      color: 'var(--butterscotch)',
+      color: MAP_PALETTE.civilian,
     })),
     ...world.contacts
       .filter((c) => visible(c) && (c.live || layers.Intelligence))
@@ -259,26 +300,93 @@ export function StrategicMap({
         p: c,
         selection: { type: 'contact', id: c.id } as Selection,
         kind: c.classId ? ('ship' as const) : ('contact' as const),
-        color: c.hostile ? 'var(--red)' : 'var(--african-violet)',
+        color: c.factionId ? MAP_PALETTE.factions[c.factionId] : MAP_PALETTE.unknown,
+      })),
+    ...world.siteContacts
+      .filter(visible)
+      .map((c) => ({
+        id: c.id,
+        name: 'UNCONFIRMED SITE / 未确认设施',
+        p: c,
+        selection: { type: 'siteContact', id: c.id } as Selection,
+        kind: 'contact' as const,
+        color: MAP_PALETTE.unknown,
       })),
   ];
   const markerScale = Math.min(1.5, Math.max(1, camera.width / 1500));
-  const labels: MapLabel[] = markers.map((m) => ({
-    ...pos(m.p),
-    id: m.id,
-    text: m.name.split(' / ')[0],
-    priority: active(m.id)
-      ? 100
-      : m.kind === 'ship'
-        ? 80
-        : m.kind === 'base'
-          ? 90
-          : m.kind === 'system'
-            ? 35
-            : 25,
-    color: m.color,
-  }));
-  const placed = placeLabels(labels, camera.width, camera.height, markerScale);
+  const displayPositions = new Map<string, Point>();
+  const occupiedMarkers: Point[] = [];
+  for (const m of [...markers].sort(
+    (a, b) =>
+      Number(active(b.id)) - Number(active(a.id)) ||
+      Number(b.id === 'base') - Number(a.id === 'base') ||
+      a.id.localeCompare(b.id),
+  )) {
+    const point = pos(m.p);
+    let shown = point;
+    for (let ring = 0; ring < 8; ring++) {
+      const angle = (ring * Math.PI) / 4,
+        candidate =
+          ring === 0
+            ? point
+            : {
+                x: point.x + Math.cos(angle) * 42 * markerScale,
+                y: point.y + Math.sin(angle) * 42 * markerScale,
+              };
+      if (
+        !occupiedMarkers.some(
+          (p) => Math.hypot(p.x - candidate.x, p.y - candidate.y) < 34 * markerScale,
+        )
+      ) {
+        shown = candidate;
+        break;
+      }
+    }
+    displayPositions.set(m.id, shown);
+    occupiedMarkers.push(shown);
+  }
+  const measure = (text: string) => {
+    const context = measurement.current;
+    if (context) {
+      context.font = `400 ${14 * markerScale}px Antonio, "Alibaba PuHuiTi", sans-serif`;
+      return context.measureText(text).width + 8 * markerScale;
+    }
+    return [...text].reduce(
+      (n, ch) => n + (/[\u2e80-\uffff]/.test(ch) ? 14 : 6.8) * markerScale,
+      8,
+    );
+  };
+  const labels: MapLabel[] = markers.map((m) => {
+    let text = m.name.split(' / ')[0];
+    const maximum = Math.min(420, camera.width * 0.55);
+    if (measure(text) > maximum) {
+      while (text.length > 1 && measure(text + '…') > maximum) text = text.slice(0, -1);
+      text += '…';
+    }
+    return {
+      ...displayPositions.get(m.id)!,
+      id: m.id,
+      text,
+      width: measure(text),
+      height: 18 * markerScale,
+      priority: active(m.id)
+        ? 110
+        : world.contacts.some((c) => c.id === m.id && c.hostile)
+          ? 105
+          : m.id === 'base'
+            ? 100
+            : m.selection.type === 'ship'
+              ? 85
+              : m.selection.type === 'location'
+                ? 70
+                : m.kind === 'wormhole'
+                  ? 65
+                  : m.kind === 'system'
+                    ? 35
+                    : 25,
+      color: m.color,
+    };
+  });
   const left = unproject({ x: 0, y: 0 }, camera),
     right = unproject({ x: camera.width, y: camera.height }, camera),
     cells = [];
@@ -289,10 +397,23 @@ export function StrategicMap({
   for (let q = minQ; q <= maxQ; q++)
     for (let r = minR; r <= maxR; r++)
       cells.push({ q, r, known: world.sectors.some((s) => s.q === q && s.r === r) });
+  const obstacles = occupiedMarkers.map((p) => ({
+    x: p.x - 18 * markerScale,
+    y: p.y - 18 * markerScale,
+    width: 36 * markerScale,
+    height: 36 * markerScale,
+  }));
+  for (const c of cells) {
+    const point = pos({ x: sectorCenter(c).x, y: sectorCenter(c).y - 200 });
+    if (SECTOR_SIZE * camera.k > 110)
+      obstacles.push({ x: point.x - 110, y: point.y + 12, width: 220, height: 22 * markerScale });
+  }
+  const placed = placeLabels(labels, camera.width, camera.height, markerScale, obstacles);
   return (
     <section
       className="map-container"
       aria-label="Strategic Map workspace"
+      data-font-version={fontVersion}
       style={
         {
           '--map-label-size': 14 * markerScale + 'px',
@@ -302,7 +423,7 @@ export function StrategicMap({
     >
       <div className="map-toolbar">
         <span>
-          STRATEGIC MAP <b>{level}</b>
+          STRATEGIC MAP 战略星图 <b>{level}</b>
         </span>
         <div className="layers">
           {Object.entries(layers).map(([name, on]) => (
@@ -359,7 +480,7 @@ export function StrategicMap({
             onSelect({ type: 'point', x: Math.round(p.x), y: Math.round(p.y) });
           }}
         >
-          <rect width={camera.width} height={camera.height} fill="#000" />
+          <rect width={camera.width} height={camera.height} fill={MAP_PALETTE.decoration.ink} />
           {cells.map((c) => {
             const center = sectorCenter(c),
               p = pos({ x: center.x - 200, y: center.y - 200 }),
@@ -379,9 +500,11 @@ export function StrategicMap({
                   y={p.y}
                   width={size}
                   height={size}
-                  fill={c.known ? 'var(--bluey)' : 'var(--african-violet)'}
+                  fill={
+                    c.known ? MAP_PALETTE.decoration.charted : MAP_PALETTE.decoration.unknownSpace
+                  }
                   fillOpacity={c.known ? 0.045 : 0.015}
-                  stroke="var(--african-violet)"
+                  stroke={MAP_PALETTE.decoration.grid}
                   strokeOpacity=".15"
                 />
                 {size > 110 && (
@@ -389,7 +512,7 @@ export function StrategicMap({
                     x={p.x + size / 2}
                     y={p.y + 30}
                     textAnchor="middle"
-                    fill="var(--african-violet)"
+                    fill={MAP_PALETTE.decoration.grid}
                     opacity=".6"
                     className="region-label"
                   >
@@ -412,7 +535,9 @@ export function StrategicMap({
                     })
                     .join(' ')}
                   fill="none"
-                  stroke={active(s.id) ? 'var(--almond-creme)' : 'var(--african-violet)'}
+                  stroke={
+                    active(s.id) ? MAP_PALETTE.decoration.selection : MAP_PALETTE.decoration.route
+                  }
                   strokeWidth="2"
                   strokeDasharray="7 5"
                   pointerEvents="none"
@@ -427,9 +552,9 @@ export function StrategicMap({
                   cx={p.x}
                   cy={p.y}
                   r={capabilities(s).sensors * camera.k}
-                  fill="var(--bluey)"
+                  fill={MAP_PALETTE.decoration.sensor}
                   fillOpacity=".025"
-                  stroke="var(--bluey)"
+                  stroke={MAP_PALETTE.decoration.sensor}
                   strokeOpacity=".2"
                   strokeDasharray="3 6"
                   pointerEvents="none"
@@ -437,7 +562,7 @@ export function StrategicMap({
               );
             })}
           {markers.map((m) => {
-            const p = pos(m.p);
+            const p = displayPositions.get(m.id)!;
             return (
               <g
                 key={m.id}
@@ -451,11 +576,32 @@ export function StrategicMap({
                     className="selection-reticle"
                     r="20"
                     fill="none"
-                    stroke="var(--almond-creme)"
+                    stroke={MAP_PALETTE.decoration.selection}
                     strokeWidth="2"
                   />
                 )}
+                {world.contacts.some((c) => c.id === m.id && c.hostile) && (
+                  <circle
+                    className="hostile-marker"
+                    r="19"
+                    fill="none"
+                    stroke={MAP_PALETTE.decoration.danger}
+                    strokeDasharray="3 3"
+                  />
+                )}
                 <MapSymbol kind={m.kind} color={m.color} />
+                {m.selection.type === 'location' &&
+                  level !== 'LOCAL' &&
+                  world.ships.filter((s) => !s.current && Math.hypot(s.x - m.p.x, s.y - m.p.y) < 90)
+                    .length > 1 && (
+                    <text x="15" y="-14" fill={m.color} className="fleet-count">
+                      {
+                        world.ships.filter(
+                          (s) => !s.current && Math.hypot(s.x - m.p.x, s.y - m.p.y) < 90,
+                        ).length
+                      }
+                    </text>
+                  )}
               </g>
             );
           })}
@@ -479,16 +625,22 @@ export function StrategicMap({
                       y1={pos(origin).y}
                       x2={p.x}
                       y2={p.y}
-                      stroke="var(--orange)"
+                      stroke={MAP_PALETTE.decoration.destination}
                       strokeDasharray="6 4"
                     />
                   )}
                   <path
                     d={`M${p.x - 10} ${p.y}H${p.x + 10}M${p.x} ${p.y - 10}V${p.y + 10}`}
-                    stroke="var(--orange)"
+                    stroke={MAP_PALETTE.decoration.destination}
                     strokeWidth="2"
                   />
-                  <circle cx={p.x} cy={p.y} r="14" fill="none" stroke="var(--orange)" />
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r="14"
+                    fill="none"
+                    stroke={MAP_PALETTE.decoration.destination}
+                  />
                 </g>
               );
             })()}
@@ -502,15 +654,52 @@ export function StrategicMap({
                 y1={a.y}
                 x2={z.x}
                 y2={z.y}
-                stroke={b.enemy ? 'var(--red)' : 'var(--almond-creme)'}
+                stroke={
+                  b.enemy ? MAP_PALETTE.decoration.danger : MAP_PALETTE.decoration.friendlyBeam
+                }
                 strokeWidth={b.weapon.includes('Torpedo') ? 4 : 2}
                 pointerEvents="none"
               />
             );
           })}
+          {markers
+            .filter(
+              (m) =>
+                Math.hypot(
+                  displayPositions.get(m.id)!.x - pos(m.p).x,
+                  displayPositions.get(m.id)!.y - pos(m.p).y,
+                ) > 2,
+            )
+            .map((m) => (
+              <line
+                key={'marker-line-' + m.id}
+                x1={pos(m.p).x}
+                y1={pos(m.p).y}
+                x2={displayPositions.get(m.id)!.x}
+                y2={displayPositions.get(m.id)!.y}
+                stroke={m.color}
+                opacity=".45"
+                pointerEvents="none"
+              />
+            ))}
+          {placed
+            .filter((l) => Math.hypot(l.x - l.anchor.x, l.y - l.anchor.y) > 45 * markerScale)
+            .map((l) => (
+              <line
+                key={'label-line-' + l.id}
+                x1={l.anchor.x}
+                y1={l.anchor.y}
+                x2={l.x}
+                y2={l.y - 8 * markerScale}
+                stroke={l.color}
+                opacity=".35"
+                pointerEvents="none"
+              />
+            ))}
           {placed.map((l) => (
             <text
               key={l.id}
+              data-label-id={l.id}
               x={l.x}
               y={l.y}
               textAnchor="middle"
@@ -523,6 +712,23 @@ export function StrategicMap({
           ))}
         </svg>
       </div>
+      <details className="map-legend">
+        <summary>LEGEND 图例</summary>
+        <div>
+          {MAP_LEGEND.map(([name, color]) => (
+            <span key={name}>
+              <i style={{ background: color }} />
+              {name}
+            </span>
+          ))}
+          {Object.entries(MAP_PALETTE.planets).map(([name, color]) => (
+            <span key={name}>
+              <i style={{ background: color }} />
+              {name}
+            </span>
+          ))}
+        </div>
+      </details>
       <div className="map-status">
         <span>DAWN FRONTIER · DRAG / SEMANTIC ZOOM / SELECT</span>
         <div className="camera-controls">

@@ -48,7 +48,7 @@ export function App() {
     if (s.type === 'point') setDestination({ x: s.x, y: s.y });
     if (!locate) return;
     const p =
-      s.type === 'group'
+      s.type === 'siteContact' ? world.siteContacts.find(x=>x.id===s.id) : s.type === 'group'
         ? world.ships.find((x) => x.id === world.groups.find((g) => g.id === s.id)?.flagshipId)
         : s.type === 'wormhole'
           ? world.wormholes.find((x) => x.id === s.id)
@@ -81,7 +81,7 @@ export function App() {
   };
   const locate = (id: string | null) => {
     if (!id) return;
-    const type = world.events.some((x) => x.id === id)
+    const type = world.siteContacts.some(x=>x.id===id) ? 'siteContact' : world.events.some((x) => x.id === id)
       ? 'event'
       : world.wormholes.some((x) => x.id === id)
         ? 'wormhole'
@@ -248,7 +248,7 @@ export function App() {
           onClose={() => setConfirmReset(false)}
         >
           <h2>开始新的边疆世界</h2>
-          <p>保留当前时间线，从 DAY 1 00:00 创建独立的 v7 新世界。</p>
+          <p>保留当前时间线，从 DAY 1 00:00 创建独立的 v8 新世界。</p>
           <div className="dialog-actions">
             <LcarsButton tone="secondary" onClick={() => setConfirmReset(false)}>
               取消

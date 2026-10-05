@@ -8,7 +8,7 @@ describe('Admiral directives and four physical activities', () => {
   it('REPLACE discards queue and suspended directives, preserving loaded cargo and damage', () => {
     const e = quietEngine(),
       s = e.state.ships[0];
-    s.cargo.supplies = 8;
+    s.cargo.materials = 8;
     s.hull = 50;
     issue(e, { type: 'MOVE', point: { x: 500, y: 0 } }, s.id);
     issue(e, { type: 'DOCK', targetId: 'base' }, s.id, 'QUEUE');
@@ -18,7 +18,7 @@ describe('Admiral directives and four physical activities', () => {
     issue(e, { type: 'RETREAT', targetId: 'base' }, s.id);
     expect(s.queue).toEqual([]);
     expect(s.suspended).toEqual([]);
-    expect(s.cargo.supplies).toBe(8);
+    expect(s.cargo.materials).toBe(8);
     expect(s.hull).toBe(50);
   });
   it('QUEUE is FIFO; INTERRUPT resumes its actual progress before the queue', () => {
@@ -60,7 +60,7 @@ describe('Admiral directives and four physical activities', () => {
           sourceId: 'base',
           targetId: 'colony',
           amount: -5,
-          cargoKind: 'supplies',
+          cargoKind: 'materials',
           route: 'safe',
           repeat: false,
         },
@@ -82,7 +82,7 @@ describe('Admiral directives and four physical activities', () => {
         type: 'HAUL',
         sourceId: 'base',
         targetId: 'colony',
-        cargoKind: 'supplies',
+        cargoKind: 'materials',
         amount: 20,
         route: 'direct',
         repeat: false,
@@ -90,11 +90,11 @@ describe('Admiral directives and four physical activities', () => {
       s.id,
     );
     run(e, 0.1);
-    expect(s.current!.reserved.supplies).toBe(20);
-    const stock = e.base.stock.supplies;
-    expect(available(e.state, 'base', 'supplies')).toBeCloseTo(stock - 20);
+    expect(s.current!.reserved.materials).toBe(20);
+    const stock = e.base.stock.materials;
+    expect(available(e.state, 'base', 'materials')).toBeCloseTo(stock - 20);
     issue(e, { type: 'MOVE', point: { x: 0, y: 0 } }, s.id);
-    expect(available(e.state, 'base', 'supplies')).toBeCloseTo(stock);
+    expect(available(e.state, 'base', 'materials')).toBeCloseTo(stock);
   });
   it('interrupting a loaded freighter preserves its manifest and continues delivery exactly once', () => {
     const e = quietEngine(),
@@ -146,7 +146,7 @@ describe('Admiral directives and four physical activities', () => {
             type: 'HAUL',
             sourceId: 'base',
             targetId: 'colony',
-            cargoKind: 'supplies',
+            cargoKind: 'materials',
             amount: Math.min(8, capabilities(s).cargo),
             route: 'safe',
             repeat: false,

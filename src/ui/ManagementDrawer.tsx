@@ -11,6 +11,7 @@ import { capabilities } from '../engine/capabilities';
 import type { TimelineStatus } from '../engine/timeline';
 import type { Page, CommandSender } from './types';
 import type { Selection } from '../StrategicMap';
+import { bilingualTitle } from './components/bilingual';
 import { LcarsDrawer, LcarsButton, LcarsField, LcarsTextBar } from './components/Lcars';
 import type { ComposerRequest } from './OrderComposer';
 import { defaultAction } from './OrderComposer';
@@ -51,7 +52,7 @@ export function ManagementDrawer({
     [shipName, setShipName] = useState('USS FRONTIER'),
     [selectedShip, setSelectedShip] = useState('verity'),
     [moduleId, setModuleId] = useState<ModuleId>('expandedCargo'),
-    [goods, setGoods] = useState<'supplies' | 'photon' | 'quantum'>('supplies'),
+    [goods, setGoods] = useState<'photon' | 'quantum'>('photon'),
     [amount, setAmount] = useState(10),
     [saleKind, setSaleKind] = useState<CargoKind>('materials');
   const base = world.locations.find((l) => l.id === 'base')!,
@@ -113,17 +114,17 @@ export function ManagementDrawer({
               <LcarsButton
                 role="tab"
                 aria-selected={tab === t}
-                key={t}
+                key={bilingualTitle(t)}
                 sound="navigation"
                 onClick={() => setTab(t)}
               >
-                {t}
+                {bilingualTitle(t)}
               </LcarsButton>
             ))}
           </div>
           <LcarsTextBar>
             CREDITS {Math.floor(world.resources.credits)} / MATERIALS{' '}
-            {Math.floor(base.stock.materials)} / SUPPLIES {Math.floor(base.stock.supplies)}
+            {Math.floor(base.stock.materials)}
           </LcarsTextBar>
           {tab === 'COMMAND' && (
             <>
@@ -131,7 +132,7 @@ export function ManagementDrawer({
                 ADMIRAL / {world.ships.length} SHIPS · {world.systems.length} KNOWN SYSTEMS · BORDER
                 TENSION {Math.round(world.tension)}
               </p>
-              <p>基地资源来自真实前沿物流；殖民地生产预算和补给。后方贸易需要付费并实际交付。</p>
+              <p>基地资源来自真实前沿物流；殖民地以 Credits 预算为核心产出。后方贸易需要付费并实际交付。</p>
               {world.ships.map((s) => (
                 <LcarsButton
                   key={s.id}
@@ -158,7 +159,7 @@ export function ManagementDrawer({
                   {Object.entries(BUILD_COSTS).map(([id, c]) => (
                     <option key={id} value={id}>
                       {SHIP_CLASSES[id as ShipClassId].name} · {c.credits}C / {c.materials}M /{' '}
-                      {c.supplies}S
+
                     </option>
                   ))}
                 </select>
@@ -298,7 +299,6 @@ export function ManagementDrawer({
                   value={goods}
                   onChange={(e) => setGoods(e.target.value as typeof goods)}
                 >
-                  <option value="supplies">Supplies / Materials 0.3 + Credits 2</option>
                   <option value="photon">Photon / Materials 1 + Credits 2</option>
                   <option value="quantum">Quantum / Materials 2 + Credits 8</option>
                 </select>
@@ -382,7 +382,7 @@ export function ManagementDrawer({
                 className="record-row"
                 onClick={() => select({ type: 'location', id: l.id })}
               >
-                {l.name} / {l.kind} · SUPPLIES {Math.floor(l.stock.supplies)} · MATERIALS{' '}
+                {l.name} / {l.kind} · MATERIALS{' '}
                 {Math.floor(l.stock.materials)}
               </LcarsButton>
             ))}
@@ -396,8 +396,7 @@ export function ManagementDrawer({
               onClick={() => select({ type: 'project', id: p.id })}
             >
               {p.name} · {p.complete ? 'COMPLETE' : Math.floor(p.work) + '/' + p.duration + 'm'} · M{' '}
-              {Math.floor(p.stock.materials)}/{p.cost.materials} / S {Math.floor(p.stock.supplies)}/
-              {p.cost.supplies}
+              {Math.floor(p.stock.materials)}/{p.cost.materials}
             </LcarsButton>
           ))}
           <p>在星图选择已调查资源点／系统／宜居星球建立新设施。</p>

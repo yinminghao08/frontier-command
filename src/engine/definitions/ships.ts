@@ -88,6 +88,11 @@ export interface ShipClassDefinition {
   cloak: boolean;
 }
 export const SHIP_CLASSES = freezeDefinitions({
+  veil: {
+    name: 'Veil Recon Scout', hull: 70, shield: 45, shieldRegen: 0.6,
+    core: 100, coreRegen: 3, warp: 8, cargo: 10, sensors: 420, science: 110,
+    weapons: ['phaser'], photon: 0, quantum: 0, cloak: true,
+  },
   antares: {
     name: 'Antares Transport',
     hull: 110,
@@ -219,6 +224,7 @@ export const SHIP_CLASSES = freezeDefinitions({
 } satisfies Record<string, ShipClassDefinition>);
 export type ShipClassId = keyof typeof SHIP_CLASSES;
 export const MODULE_SLOTS = freezeDefinitions({
+  veil: 2,
   antares: 2,
   peregrine: 2,
   constitution: 3,

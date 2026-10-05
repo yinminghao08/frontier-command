@@ -166,6 +166,8 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
           s.suspended = [];
         }
         s.current = d;
+        s.tracking = null;
+        s.emergencyRetreat = null;
         s.path = [];
         s.status = 'active';
       }

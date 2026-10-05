@@ -48,7 +48,7 @@ They possess defenses appropriate to their role and should normally survive long
 
 Their continued existence creates strategic value:
 
-- colonies produce Supplies and Credits from population and development
+- colonies produce Credits from population and development
 - mines create materials and valuable transport routes
 - relays extend logistics and sensors
 - outposts improve warning and frontier presence
@@ -70,7 +70,7 @@ Patrol, escort, intercept, shadow, attack, disable, drive off and retreat. Comba
 Unknown systems, planets, anomalies and resource sites are genuinely discovered. Remote and close survey trade safety for information and reward.
 
 ### Mining / Extraction
-Persistent resource sites produce physical materials. Mine facilities extract finite deposits into limited local storage. Supplies, exposure, accidents and physical transport determine output. Vessels cannot replace the mine production chain.
+Persistent resource sites produce physical materials. Mine facilities extract finite deposits into limited local storage. Exposure, accidents and physical transport determine output. Vessels cannot replace the mine production chain.
 
 ### Transport / Logistics
 Real goods move between real inventories. Route choice trades travel time against known and unknown risk.
@@ -91,7 +91,7 @@ ROE governs what a captain may do without new orders; it does not prevent the Ad
 
 The frontier's pirate/criminal faction is the **Orion Syndicate**.
 
-It has persistent hideouts, ships, supplies, ammunition, cargo and intelligence.
+It has persistent hideouts, ships, materials, ammunition, cargo and intelligence.
 
 Orion activity is economic:
 
@@ -128,7 +128,6 @@ Growth should change what the player can do in the next activity, not merely add
 
 - **Credits**: strategic budget
 - **Materials**: construction, shipbuilding and repair
-- **Supplies**: medical actions, construction and facility maintenance; colonies produce them daily
 - **Photon / Quantum Torpedoes**: physical ammunition
 - **Special Finds**: rare discoveries enabling unique capabilities
 
@@ -146,22 +145,30 @@ The world must remain interesting and causally coherent even before LLM Agents a
 
 This build retains the existing LCARS console language and star-date presentation. It is a non-canon sandbox rather than an assertion about historical Star Trek events.
 
-Dawn sits at world (-240, 0), behind the frontier. Initial Federation assets are New Horizon colony, Helios mine and Beacon outpost. Each has an independent shield, hull, reactor and phaser; Dawn has heavy self-defense. Defense Grid adds platforms and strengthens Federation facility fire. New outposts add defended sensor/supply route nodes, mines consume finite deposits, and colonies produce physical supplies and budget; medical and construction actions consume inventory.
+Dawn sits at world (-240, 0), behind the frontier. Initial Federation assets are New Horizon colony, Helios mine and Beacon outpost. Each has an independent shield, hull, reactor and phaser; Dawn has heavy self-defense. Defense Grid adds platforms and strengthens Federation facility fire. New outposts add defended sensor/logistics route nodes, mines consume finite deposits, and colonies produce Credits; medical actions consume budget and construction consumes physical Materials.
 
 Unknown sectors form a sparse 400-unit grid in several directions. Each seed generates persistent systems, planets, normal anomalies and deposits, plus hidden anomalies unlocked by Deep Scan. Remote survey gives charted outlines; close survey confirms usable deposits, habitability and hazards. A normal anomaly's special sample can be collected once into cargo, then physically unloaded for an upgrade.
 
 Safe logistics detours through defended nodes and around observed dangers. Direct travel preserves uncertainty about uncharted space. Risky corridors trade a faster warp passage for physical turbulence and a stronger detectable signature while underway. Admiral route forecasts show the uncharted fraction from known geography, rather than suggesting certainty about hidden threats.
 
-The initial Orion hideout supports one scout and two raiders, finite stock and magazines. The scout inspects known frontier traffic and follows valuable locally observed cargo; it does not know all Federation assets. Raider opportunities depend on fresh reports, freight/stock value, distance and escort strength. Theft harms the actual source inventory, and the resulting cargo must survive the return journey. A quarter of returned goods is consumed by black-market export; the remainder supports maintenance and industry. Destroying assets or the hideout changes its ability to act. Shadow can follow a returning raider to the source of this pressure.
+The initial Orion hideout supports one scout and two raiders, finite stock and magazines. The scout inspects known frontier traffic and follows valuable locally observed cargo; it does not know all Federation assets. Raider opportunities depend on fresh reports, freight/stock value, distance and escort strength. Theft harms the actual source inventory, and the resulting cargo must survive the return journey. A quarter of returned goods is consumed by black-market export; the remainder supports repairs and industry. Destroying assets or the hideout changes its ability to act. Shadow can follow a returning raider to the source of this pressure.
 
 The initial Romulan scout reports to Border Command, which deploys a patrol warbird and a preexisting reserve. A neutral identity stays outside autonomous hostile selection. Crossing the Neutral Zone adds tension, entering Romulan space adds more, and withdrawal reduces it; deliberate fire on an unconfirmed Romulan creates a larger political change. Construction near the border also matters. Fresh intelligence and tension permit observe, patrol, probe or military escalation; escalation is a major communication and pause.
 
 Fleet roles are performance profiles. A Peregrine can survey or haul small batches; an Antares can deliberately attack with its phaser. Expanded Cargo changes batch size; Long Range Sensors changes contact/exploration reach; Deep Scan reveals otherwise absent opportunities; Precision Targeting changes the available disabling targets; Reinforced Shields supports exposed travel. Losses remain permanent, while actual Shipyard construction, colony income and finite paid merchant deliveries allow recovery.
 
-There are no Science, Intel or Allocation currencies, mission payouts for moving the same goods, or menus that manufacture an enemy target. The OPERATIONS view reads discoverable sectors, shortages, valuable inventory, construction demand and observed threats. Hail, warnings, withdrawal demands and persistent diplomatic incidents use rules. LLM personality decisions and formal online multiplayer remain future work.
+There are no Science, Intel or Allocation currencies, mission payouts for moving the same goods, or menus that manufacture an enemy target. The OPERATIONS view reads discoverable sectors, transport demand, valuable inventory, construction demand and observed threats. Hail, warnings, withdrawal demands and persistent diplomatic incidents use rules. LLM personality decisions and formal online multiplayer remain future work.
 
-## v7 society and events
+## v8 society and events
 
-New Horizon begins with 1000 residents and its own Commander. New colonies begin with 250. Population, housing, stability, morale, security, industry and science persist. Daily production supplies other facilities; housing, industry, science and security development require local Materials and budget. Cadet training and appointments affect rules while leaving Admiral authority unchanged.
+New Horizon begins with 1000 residents and its own Commander. New colonies begin with 250. Population, housing, stability, morale, security, industry and science persist. Daily income provides the command budget; housing, industry, science and security development require local Materials and budget. Cadet training and appointments affect rules while leaving Admiral authority unchanged.
 
 Wormholes create actual paired routes. Plague reduces population, morale and production, while quarantine trades income for containment. Mining accidents halt a real facility until on-site action repairs it. Distress originates from actual damage. Refugee transport preserves source population, carrier occupancy and destination changes. Investigating ruins or derelicts yields finite discoveries, cargo or contamination follow-ups. Every event keeps its evidence and consequences after the communication scrolls away.
+
+## v8 stealth frontier
+
+A fixed Dawn Passage in FRONTIER 0/0 leads to deterministic sector 0/12 and its unique abandoned Veil reconnaissance vessel. Survey and on-site event assistance establish the permanent ship registry. It has minimal combat power and high passive sensors; cloak costs less than its core regeneration. Recovery can be delayed without losing the vessel, while destruction after recovery remains permanent.
+
+Orion and Romulan ships can recognize sustained physically observed followers, then take decoy routes and detours until the detected tail disappears. Romulan counter-cloak detection is stronger. Veil's low signature permits secret following. Unknown destination facilities remain unidentified signals until ten minutes of continuous local observation; an enemy's internal home or docked state never grants a discovery.
+
+Dawn's mine capacity is 3000 Materials; Colony produces Credits. Facilities have no recurring maintenance fee. Owned ships default to holding position; emergency disengagement ends locally, and return to base requires an Admiral directive. The map palette distinguishes Federation cyan, Dawn amber, Romulan green, Orion yellow-green and fixed body-type colors.

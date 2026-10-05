@@ -25,8 +25,8 @@ export function StandingPanel({
     ['retreatHull', '舰体撤退阈值 %'],
     ['retreatShield', '护盾撤退阈值 %'],
     ['retreatCore', '核心撤退阈值 %'],
-    ['photonThreshold', '光子鱼雷返航阈值 %'],
-    ['quantumThreshold', '量子鱼雷返航阈值 %'],
+    ['photonThreshold', '光子鱼雷报告阈值 %'],
+    ['quantumThreshold', '量子鱼雷报告阈值 %'],
     ['maxPursuit', '自主追击最大距离'],
   ];
   const toggles: [
@@ -39,7 +39,7 @@ export function StandingPanel({
       | 'protectCivilian'
       | 'protectFreighter'
       | 'protectColony'
-      | 'autoResupply'
+      | 'serviceWhenDocked'
     >,
     string,
   ][] = [
@@ -50,7 +50,7 @@ export function StandingPanel({
     ['protectCivilian', '保护民用舰船'],
     ['protectFreighter', '保护运输舰'],
     ['protectColony', '保护殖民地'],
-    ['autoResupply', '自动实物维修与补弹'],
+    ['serviceWhenDocked', '已停靠时维修与装弹'],
   ];
   return (
     <>
@@ -93,16 +93,6 @@ export function StandingPanel({
           {label}
         </LcarsField>
       ))}
-      <LcarsField>
-        空闲行为
-        <select
-          value={ship.standing.idle}
-          onChange={(e) => set({ idle: e.target.value as StandingOrders['idle'] })}
-        >
-          <option value="return">返回 Dawn Starbase</option>
-          <option value="hold">原地待命</option>
-        </select>
-      </LcarsField>
       <p className="muted">Admiral 的当前、排队和挂起指令优先；常备命令只管理自主行为。</p>
     </>
   );

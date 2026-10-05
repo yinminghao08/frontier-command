@@ -19,17 +19,17 @@ import { parseSave } from '../src/engine/saves';
 import { quietEngine, run, issue } from './helpers';
 const dirs: string[] = [];
 const dir = () => {
-  const p = mkdtempSync(join(tmpdir(), 'frontier-v7-test-'));
+  const p = mkdtempSync(join(tmpdir(), 'frontier-v8-test-'));
   dirs.push(p);
   return p;
 };
 afterEach(() => {
   for (const p of dirs.splice(0)) rmSync(p, { recursive: true, force: true });
 });
-describe('v7 timeline persistence', () => {
-  it('loads isolated v7 fixtures and resumes the same physical world deterministically', () => {
+describe('v8 timeline persistence', () => {
+  it('loads isolated v8 fixtures and resumes the same physical world deterministically', () => {
     const load = (name: string) =>
-      parseSave(JSON.parse(readFileSync(join('tests', 'fixtures', 'v7', name + '.json'), 'utf8')));
+      parseSave(JSON.parse(readFileSync(join('tests', 'fixtures', 'v8', name + '.json'), 'utf8')));
     const initial = load('initial');
     expect(initial.paused).toBe(true);
     expect(initial.speed).toBe(1);
@@ -57,7 +57,7 @@ describe('v7 timeline persistence', () => {
         type: 'HAUL',
         sourceId: 'base',
         targetId: 'outpost',
-        cargoKind: 'supplies',
+        cargoKind: 'materials',
         amount: 20,
         route: 'direct',
         repeat: false,
@@ -75,7 +75,7 @@ describe('v7 timeline persistence', () => {
     run(resumed, 200);
     expect(resumed.state).toEqual(e.state);
   });
-  it('leaves legacy files unchanged and starts an independent v7 branch', () => {
+  it('leaves legacy files unchanged and starts an independent v8 branch', () => {
     const p = dir();
     writeFileSync(join(p, 'world-v4.json'), 'legacy');
     mkdirSync(join(p, 'frontiers-v5', 'frontier-000001'), { recursive: true });
@@ -105,7 +105,7 @@ describe('v7 timeline persistence', () => {
     expect(
       readdirSync(join(store.root, 'frontier-000001')).some((n) => n.includes('corrupt')),
     ).toBe(true);
-    writeFileSync(store.path, JSON.stringify({ ...w, version: 8 }));
+    writeFileSync(store.path, JSON.stringify({ ...w, version: 9 }));
     expect(store.read().blocked).toBe(true);
     expect(() => store.write(w)).toThrow();
   });
@@ -191,7 +191,7 @@ describe('v7 timeline persistence', () => {
         w.ships[0].modules = ['expandedCargo', 'longRangeSensors', 'deepScan'];
       },
       (w) => {
-        w.locations[0].stock.supplies = -2;
+        w.locations[0].stock.materials = -2;
       },
     ];
     for (const mutate of mutations) {

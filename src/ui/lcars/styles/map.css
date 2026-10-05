@@ -54,7 +54,7 @@
   stroke: var(--ink);
   stroke-width: 4px;
   paint-order: stroke;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 .region-label {
   font-size: var(--map-region-size, 17px);
@@ -146,4 +146,42 @@
 }
 .map-command-point select {
   width: auto;
+}
+
+.map-container {
+  position: relative;
+}
+.map-legend {
+  position: absolute;
+  left: 1em;
+  bottom: 3.5em;
+  z-index: 5;
+  background: var(--ink);
+  padding: 0.3em 0.6em;
+  border-left: 0.45em solid var(--african-violet);
+  max-width: calc(100% - 2em);
+}
+.map-legend summary {
+  cursor: pointer;
+  color: var(--almond-creme);
+}
+.map-legend > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em 1em;
+  max-width: 620px;
+  padding: 0.7em 0;
+}
+.map-legend span {
+  display: inline-flex;
+  gap: 0.5em;
+  align-items: center;
+}
+.map-legend i {
+  width: 1em;
+  height: 1em;
+  border-radius: 50%;
+}
+.fleet-count {
+  font-size: 14px;
 }

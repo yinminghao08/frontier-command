@@ -1,3 +1,12 @@
+import { currentMovementSpeed } from '../engine/navigation';
+import {
+  displayName,
+  displayEntityName,
+  SHIP_LABELS,
+  chineseText,
+  worldText,
+} from './localization';
+import { BASE_REFIT } from '../engine/definitions/progression';
 import { StandingPanel } from './StandingPanel';
 import { EventsView } from './EventsView';
 import { useState, useEffect } from 'react';
@@ -58,6 +67,8 @@ export function Inspector({
   useEffect(() => {
     if (selectedShipIds[0]) setFreighter(selectedShipIds[0]);
   }, [selectedShipIds]);
+  const name = (entity: { readonly id: string; readonly name: string }) =>
+    displayEntityName(world, entity);
   const launch = (type: Action['type'], shipId?: string) =>
     create({
       action: defaultAction(type, world, selection),
@@ -68,14 +79,14 @@ export function Inspector({
   const returnActions = (
     <div className="inline-actions">
       <LcarsButton onClick={() => create({ action: { type: 'RETURN' } })}>
-        返回 Dawn / 保留货物
+        返回 曙光 / 保留货物
       </LcarsButton>
       <LcarsButton onClick={() => create({ action: { type: 'UNLOAD', targetId: 'base' } })}>
-        返回 Dawn 并卸货
+        返回 曙光 并卸货
       </LcarsButton>
     </div>
   );
-  if (!selection) return <p>选择舰船、设施、恒星系或 UNKNOWN SPACE，下达 Admiral 意图。</p>;
+  if (!selection) return <p>选择舰船、设施、恒星系或 未知空间，下达 舰队司令 意图。</p>;
   if (selection.type === 'siteContact') {
     const site = world.siteContacts.find((s) => s.id === selection.id);
     return site ? (
@@ -111,7 +122,7 @@ export function Inspector({
     const g = world.groups.find((g) => g.id === selection.id);
     return g ? (
       <>
-        <LcarsTextBar>{g.name}</LcarsTextBar>
+        <LcarsTextBar literal>{name(g)}</LcarsTextBar>
         <p>
           编队 · {g.shipIds.length} 艘 · 间距 {g.spacing}
         </p>
@@ -120,7 +131,7 @@ export function Inspector({
           return (
             s && (
               <p key={id}>
-                {s.name} · {s.current ? ACTION_LABELS[s.current.action.type] : '待命'}
+                {name(s)} · {s.current ? ACTION_LABELS[s.current.action.type] : '待命'}
                 {s.current?.groupOrderId
                   ? ` · 分配 ${Math.floor(Object.values(s.current.reserved).reduce((a, b) => a + b, 0) || s.current.carried)} 货物`
                   : ''}
@@ -151,17 +162,17 @@ export function Inspector({
     return (
       w && (
         <>
-          <LcarsTextBar>{w.name}</LcarsTextBar>
+          <LcarsTextBar literal>{name(w)}</LcarsTextBar>
           <p>
-            Wormhole · {w.stable ? '稳定' : '不稳定'} · 稳定度 {Math.round(w.stability * 100)}%
+            虫洞 · {w.stable ? '稳定' : '不稳定'} · 稳定度 {Math.round(w.stability * 100)}%
           </p>
           <p>{w.surveyed ? '已调查：可以通行' : '出口未知，建议先派舰调查。'}</p>
-          <LcarsButton onClick={() => launch('TRANSIT')}>穿越 Wormhole</LcarsButton>
+          <LcarsButton onClick={() => launch('TRANSIT')}>穿越 虫洞</LcarsButton>
           {world.events
             .filter((v) => v.subjectId === w.id)
             .map((v) => (
               <LcarsButton key={v.id} onClick={() => select({ type: 'event', id: v.id })}>
-                调查 Wormhole
+                调查 虫洞
               </LcarsButton>
             ))}
         </>
@@ -173,7 +184,7 @@ export function Inspector({
     return (
       s && (
         <>
-          <LcarsTextBar>{s.name}</LcarsTextBar>
+          <LcarsTextBar literal>{name(s)}</LcarsTextBar>
           <p>
             后方商船 ·{' '}
             {{ idle: '等待订单', loading: '装载', delivery: '交付', return: '返航' }[s.phase]}
@@ -192,8 +203,8 @@ export function Inspector({
     const c = capabilities(s);
     return (
       <>
-        <LcarsTextBar>{s.name}</LcarsTextBar>
-        <p>{c.name} · Admiral 拥有最终指挥权</p>
+        <LcarsTextBar literal>{name(s)}</LcarsTextBar>
+        <p>{SHIP_LABELS[s.classId]} · 舰队司令拥有最终指挥权</p>
         {c.cloak && (
           <>
             <LcarsButton
@@ -221,9 +232,13 @@ export function Inspector({
           </p>
         )}
         {s.emergencyRetreat && <p>正在紧急脱离战斗，脱离后原地待命。</p>}
-        <LcarsMeter label="舰体" value={s.hull} max={c.hull} />
+        <LcarsMeter label="血量" value={s.hull} max={c.hull} />
         <LcarsMeter label="护盾" value={s.shield} max={c.shield} />
         <LcarsMeter label="核心" value={s.core} max={c.core} />
+        <p>
+          基础速度 {SHIP_LABELS[s.classId]}：{(c.warp / Math.max(0.15, s.engines / 100)).toFixed(1)}{' '}
+          · 当前速度 {currentMovementSpeed(world, s).toFixed(1)}
+        </p>
         <p>
           推进系统 {Math.round(s.engines)} / 武器系统 {Math.round(s.weapons)} · 光子鱼雷 {s.photon}{' '}
           / 量子鱼雷 {s.quantum}
@@ -283,7 +298,7 @@ export function Inspector({
           ))}
         </div>
         <StandingPanel ship={s} command={command} />
-        <Rename key={s.id} id={s.id} name={s.name} command={command} />
+        <Rename key={s.id} id={s.id} name={name(s)} command={command} />
       </>
     );
   }
@@ -296,13 +311,14 @@ export function Inspector({
       const event = world.events.find((v) => v.subjectId === b.id && v.kind === 'derelict');
       return (
         <>
-          <LcarsTextBar>{b.name}</LcarsTextBar>
+          <LcarsTextBar literal>{name(b)}</LcarsTextBar>
           <p>失落舰船 · 调查 {b.survey}/2</p>
           {event && (
             <>
               <LcarsMeter label="现场接管进度" value={event.work} max={20} />
               <p>
-                {event.outcome || (event.stage === 'responding' ? '接管执行中' : '等待现场接管')}
+                {worldText(world, event.outcome) ||
+                  (event.stage === 'responding' ? '接管执行中' : '等待现场接管')}
               </p>
             </>
           )}
@@ -322,10 +338,12 @@ export function Inspector({
     const chosenBuild = buildOptions.includes(buildKind) ? buildKind : buildOptions[0];
     return (
       <>
-        <LcarsTextBar>{entity.name}</LcarsTextBar>
+        <LcarsTextBar literal>{name(entity)}</LcarsTextBar>
         <p>
-          {b ? BODY_LABELS[b.kind] + ' / ' + b.category : '恒星系 / ' + sys?.starClass} · 调查{' '}
-          {entity.survey}/2
+          {b
+            ? BODY_LABELS[b.kind] + ' / ' + chineseText(b.category)
+            : '恒星系 / ' + chineseText(sys?.starClass ?? '')}{' '}
+          · 调查 {entity.survey}/2
         </p>
         {b && (
           <p>
@@ -353,7 +371,7 @@ export function Inspector({
                   className="record-row"
                   onClick={() => select({ type: 'body', id })}
                 >
-                  {child.name} / {BODY_LABELS[child.kind]}
+                  {name(child)} / {BODY_LABELS[child.kind]}
                 </LcarsButton>
               )
             );
@@ -380,7 +398,7 @@ export function Inspector({
               <input
                 aria-label="新设施名称"
                 value={projectName}
-                placeholder={entity.name + ' ' + FACILITY_LABELS[chosenBuild]}
+                placeholder={name(entity) + ' ' + FACILITY_LABELS[chosenBuild]}
                 onChange={(e) => setProjectName(e.target.value)}
               />
             </LcarsField>
@@ -394,7 +412,7 @@ export function Inspector({
                   type: 'startConstruction',
                   siteId: entity.id,
                   kind: chosenBuild,
-                  name: projectName.trim() || entity.name + ' ' + FACILITY_LABELS[chosenBuild],
+                  name: projectName.trim() || name(entity) + ' ' + FACILITY_LABELS[chosenBuild],
                 })
               }
             >
@@ -403,7 +421,7 @@ export function Inspector({
           </>
         )}
         {(!b || b.kind === 'planet') && (
-          <Rename key={entity.id} id={entity.id} name={entity.name} command={command} />
+          <Rename key={entity.id} id={entity.id} name={name(entity)} command={command} />
         )}
       </>
     );
@@ -413,7 +431,7 @@ export function Inspector({
     if (!p) return <p>项目不可用。</p>;
     return (
       <>
-        <LcarsTextBar>{p.name}</LcarsTextBar>
+        <LcarsTextBar literal>{name(p)}</LcarsTextBar>
         <p>{p.complete ? '已完成' : '等待实物物资'}</p>
         <p>
           材料 {Math.floor(p.stock.materials)} / {p.cost.materials}
@@ -428,7 +446,7 @@ export function Inspector({
           >
             {world.ships.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name}
+                {name(s)}
               </option>
             ))}
           </select>
@@ -478,20 +496,111 @@ export function Inspector({
     if (!l) return <p>设施不可见。</p>;
     return (
       <>
-        <LcarsTextBar>{l.name}</LcarsTextBar>
+        <LcarsTextBar literal>{name(l)}</LcarsTextBar>
         <p>
           {FACILITY_LABELS[l.kind]} /{' '}
-          {l.owner === 'starfleet'
-            ? 'Federation'
-            : l.owner === 'orion'
-              ? 'Orion Syndicate'
-              : 'Romulan'}{' '}
+          {l.owner === 'starfleet' ? '联邦' : l.owner === 'orion' ? '猎户座辛迪加' : '罗慕伦'}{' '}
           {l.distress ? ' / 求救中' : ''}
         </p>
-        <LcarsMeter label="舰体" value={l.hull} max={l.maxHull} />
-        <LcarsMeter label="护盾" value={l.shield} max={l.maxShield} />
-        <p>相位炮射程 {FACILITIES[l.kind].range} · 自卫火控在线</p>
-        {l.owner === 'starfleet' ? (
+        <div className="facility-metrics" aria-label="设施状态与发展">
+          <LcarsMeter label="血量" value={l.hull} max={l.maxHull} />
+          <LcarsMeter label="护盾" value={l.shield} max={l.maxShield} />
+          {l.colony && (
+            <>
+              <LcarsMeter label="人口／住宅" value={l.colony.population} max={l.colony.housing} />
+              {(
+                ['stability', 'morale', 'security', 'industry', 'science', 'contamination'] as const
+              ).map((key) => (
+                <LcarsMeter
+                  key={key}
+                  label={
+                    {
+                      stability: '稳定',
+                      morale: '士气',
+                      security: '安全',
+                      industry: '工业',
+                      science: '科研',
+                      contamination: '污染',
+                    }[key]
+                  }
+                  value={l.colony![key]}
+                  max={100}
+                  danger={key === 'contamination'}
+                />
+              ))}
+              <p>
+                指挥官：
+                {displayName(
+                  world.personnel.find((p) => p.id === l.colony?.commanderId)?.name ?? '岗位空缺',
+                )}
+              </p>
+              <p>预算收益：每千人口每 5 游戏分钟基准 18，受工业、稳定、指挥官和事件影响。</p>
+            </>
+          )}
+        </div>
+        <p>
+          相位炮射程 {FACILITIES[l.kind].range} · {l.hull > 0 ? '自卫火控在线' : '火控离线'}
+        </p>
+        {l.occupation ? (
+          <>
+            <LcarsTextBar>
+              {l.occupation === 'ruined'
+                ? '基地遗址／待接管'
+                : l.occupation === 'secured'
+                  ? '已接管／待改建'
+                  : '基地改建中'}
+            </LcarsTextBar>
+            {l.occupation === 'ruined' && (
+              <>
+                <p>派舰抵达现场接管，耗时 {BASE_REFIT.captureMinutes} 游戏分钟；遭袭时暂停。</p>
+                <LcarsButton onClick={() => launch('CAPTURE')}>派舰现场接管</LcarsButton>
+                {world.ships
+                  .filter(
+                    (ship) =>
+                      ship.current?.action.type === 'CAPTURE' &&
+                      ship.current.action.targetId === l.id,
+                  )
+                  .map((ship) => (
+                    <LcarsMeter
+                      key={ship.id}
+                      label={name(ship) + ' 接管进度'}
+                      value={ship.current!.work}
+                      max={BASE_REFIT.captureMinutes}
+                    />
+                  ))}
+              </>
+            )}
+            {l.occupation === 'secured' && (
+              <>
+                <p>
+                  改建费用：{BASE_REFIT.cost.credits} 预算、{BASE_REFIT.cost.materials}{' '}
+                  现场材料；施工 {BASE_REFIT.minutes} 游戏分钟。
+                </p>
+                <LcarsButton
+                  onClick={() =>
+                    command({
+                      type: 'startBaseRefit',
+                      locationId: l.id,
+                      name: name(l).replace('藏身基地', '前进基地').slice(0, 80),
+                    })
+                  }
+                >
+                  建立基地改建项目
+                </LcarsButton>
+              </>
+            )}
+            {world.projects
+              .filter((p) => p.refitLocationId === l.id && !p.complete)
+              .map((p) => (
+                <LcarsButton key={p.id} onClick={() => select({ type: 'project', id: p.id })}>
+                  运输材料与查看施工进度
+                </LcarsButton>
+              ))}
+            {l.owner === 'starfleet' && (
+              <Rename key={l.id} id={l.id} name={name(l)} command={command} />
+            )}
+          </>
+        ) : l.owner === 'starfleet' ? (
           <>
             {world.ships.some((s) => Math.hypot(s.x - l.x, s.y - l.y) < 90) && (
               <div className="inline-actions">
@@ -499,26 +608,33 @@ export function Inspector({
                   .filter((s) => Math.hypot(s.x - l.x, s.y - l.y) < 90)
                   .map((s) => (
                     <LcarsButton key={s.id} onClick={() => select({ type: 'ship', id: s.id })}>
-                      {s.name}
+                      {name(s)}
                     </LcarsButton>
                   ))}
               </div>
             )}
             {l.kind === 'mine' && returnActions}
-            {l.colony && (
-              <p>
-                核心产出：Credits 预算收益 · 每 5 游戏分钟结算，随人口、工业、稳定、事件和 Commander
-                改变。
-              </p>
-            )}
             <LcarsTextBar>
-              实际仓储 / {l.storageFull ? '仓满：产线等待运输' : '运行中'}
+              实际仓储 /{' '}
+              {world.events.some(
+                (v) =>
+                  v.kind === 'accident' &&
+                  v.subjectId === l.id &&
+                  ['reported', 'responding'].includes(v.stage),
+              )
+                ? '事故停工：等待设备修复'
+                : l.storageFull
+                  ? '仓满：产线等待运输'
+                  : '运行中'}
             </LcarsTextBar>
             {Object.entries(l.stock).map(([k, v]) => (
-              <p key={k}>
-                {GOODS_LABELS[k as keyof typeof GOODS_LABELS]} {Math.floor(v)} /{' '}
-                {l.capacity[k as keyof typeof l.capacity]}
-              </p>
+              <LcarsMeter
+                key={k}
+                label={GOODS_LABELS[k as keyof typeof GOODS_LABELS]}
+                value={v}
+                max={l.capacity[k as keyof typeof l.capacity]}
+                decimals={1}
+              />
             ))}
             <div className="inline-actions">
               <LcarsButton onClick={() => launch('HAUL')}>运输 / 物流</LcarsButton>
@@ -530,25 +646,6 @@ export function Inspector({
             {l.colony && (
               <>
                 <LcarsTextBar>殖民地发展</LcarsTextBar>
-                <p>
-                  人口 {Math.floor(l.colony.population)} / 住宅 {l.colony.housing}
-                </p>
-                <p>
-                  指挥官{' '}
-                  {world.personnel.find((p) => p.id === l.colony?.commanderId)?.name ?? '岗位空缺'}
-                </p>
-                <p>
-                  稳定 {Math.round(l.colony.stability)} · 士气 {Math.round(l.colony.morale)} · 安全{' '}
-                  {Math.round(l.colony.security)}
-                </p>
-                <p>
-                  工业 {l.colony.industry} · 科研 {l.colony.science} · 污染{' '}
-                  {Math.round(l.colony.contamination)}
-                </p>
-                <p>
-                  核心产出 Credits 预算：每千人每五分钟基准 18 Credits，受发展、社会状态、Commander
-                  和事件修正。
-                </p>
                 <div className="inline-actions">
                   {(['housing', 'industry', 'science', 'security'] as const).map((kind) => (
                     <LcarsButton
@@ -574,10 +671,10 @@ export function Inspector({
               .filter((v) => v.subjectId === l.id && ['reported', 'responding'].includes(v.stage))
               .map((v) => (
                 <LcarsButton key={v.id} onClick={() => select({ type: 'event', id: v.id })}>
-                  处置：{v.evidence}
+                  处置：{worldText(world, v.evidence)}
                 </LcarsButton>
               ))}
-            <Rename key={l.id} id={l.id} name={l.name} command={command} />
+            <Rename key={l.id} id={l.id} name={name(l)} command={command} />
           </>
         ) : (
           <>
@@ -595,7 +692,7 @@ export function Inspector({
     if (!c) return <p>接触已过期；未确认击毁。</p>;
     return (
       <>
-        <LcarsTextBar>{c.name ?? '未知接触'}</LcarsTextBar>
+        <LcarsTextBar>{displayName(c.name ?? '未知接触')}</LcarsTextBar>
         <p>
           情报级别：
           {
@@ -609,9 +706,9 @@ export function Inspector({
         </p>
         <p>
           {c.factionId === 'orion'
-            ? 'Orion Syndicate'
+            ? '猎户座辛迪加'
             : c.factionId === 'romulan'
-              ? 'Romulan'
+              ? '罗慕伦'
               : '未知势力'}{' '}
           · {c.hostile ? '已确认敌对' : '尚未确认敌对'} · {c.live ? '实时接触' : '最后已知位置'}
         </p>
@@ -631,9 +728,9 @@ export function Inspector({
           ))}
         </div>
         {c.factionId === 'romulan' && (
-          <LcarsButton onClick={() => launch('HAIL')}>呼叫 Romulan / 外交通信</LcarsButton>
+          <LcarsButton onClick={() => launch('HAIL')}>呼叫 罗慕伦 / 外交通信</LcarsButton>
         )}
-        <p className="muted">攻击未确认敌对 Romulan 会产生政治后果。</p>
+        <p className="muted">攻击未确认敌对 罗慕伦 会产生政治后果。</p>
       </>
     );
   }
@@ -641,7 +738,7 @@ export function Inspector({
     const x = world.wrecks.find((x) => x.id === selection.id);
     return (
       <>
-        <LcarsTextBar>{x?.name ?? '残骸'}</LcarsTextBar>
+        <LcarsTextBar literal>{x ? name(x) : '残骸'}</LcarsTextBar>
         {x &&
           Object.entries(x.stock).map(([k, v]) => (
             <p key={k}>
@@ -657,7 +754,8 @@ export function Inspector({
     <>
       <LcarsTextBar>永久舰船损失</LcarsTextBar>
       <p>
-        {loss?.name} · {loss?.reason}
+        {displayName(loss?.name ?? '', world.renamedEntityIds.includes(selection.id))} ·{' '}
+        {chineseText(loss?.reason ?? '')}
       </p>
       <p>新造舰有独立舰籍，原舰不会复活。</p>
     </>

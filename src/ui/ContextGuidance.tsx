@@ -4,6 +4,7 @@ import type { ComposerRequest } from './OrderComposer';
 import { LcarsButton, LcarsTextBar } from './components/Lcars';
 import { capabilities, cargoUsed } from '../engine/capabilities';
 import { defaultAction } from './OrderComposer';
+import { MineAccidentStatus } from './MineAccidentStatus';
 export function ContextGuidance({
   world,
   selection,
@@ -25,7 +26,11 @@ export function ContextGuidance({
   const body = world.bodies.find((b) => b.id === id),
     location = world.locations.find((l) => l.id === id),
     ship = world.ships.find((s) => s.id === id),
-    project = world.projects.find((p) => p.id === id);
+    project = world.projects.find((p) => p.id === id),
+    accident = world.events.find(
+      (v) =>
+        v.kind === 'accident' && v.subjectId === id && ['reported', 'responding'].includes(v.stage),
+    );
   if (body?.kind === 'derelict') {
     const event = world.events.find((v) => v.kind === 'derelict' && v.subjectId === body.id);
     const wreck = world.wrecks.find((x) => x.id === 'wreck:' + body.id);
@@ -85,7 +90,7 @@ export function ContextGuidance({
       p = world.projects.find((p) => p.siteId === id && !p.complete);
     content = mine ? (
       <>
-        <p>已有矿场；下一步把实际 Materials 运回 Dawn。</p>
+        <p>已有矿场；下一步把实际工业材料运回曙光。</p>
         <LcarsButton onClick={() => select({ type: 'location', id: mine.id })}>
           查看矿场与运输
         </LcarsButton>
@@ -108,9 +113,16 @@ export function ContextGuidance({
     content = (
       <p>
         {project.stock.materials < project.cost.materials
-          ? '下一步：把 Dawn 的材料运入项目，交付后才会施工。'
+          ? '下一步：把 曙光 的材料运入项目，交付后才会施工。'
           : '材料已齐备，施工按游戏时间推进；暂停时进度不会增长。'}
       </p>
+    );
+  else if (location?.kind === 'mine' && location.owner === 'starfleet' && accident)
+    content = (
+      <>
+        <MineAccidentStatus world={world} event={accident} create={create} />
+        {button('派舰现场响应', { type: 'ASSIST_EVENT', targetId: accident.id })}
+      </>
     );
   else if (location?.kind === 'mine' && location.owner === 'starfleet')
     content = (
@@ -118,9 +130,9 @@ export function ContextGuidance({
         <p>
           {location.storageFull
             ? '矿场满仓停产，运输释放仓位后恢复。'
-            : '矿场持续产出 Materials；运回基地才能用于造舰和升级。'}
+            : '矿场持续产出工业材料；运回基地才能用于造舰和升级。'}
         </p>
-        {button('矿场 → Dawn 运输材料', {
+        {button('矿场 → 曙光 运输材料', {
           ...(defaultAction('HAUL', world, selection) as Extract<Action, { type: 'HAUL' }>),
           amount: Math.min(
             20,
@@ -134,17 +146,11 @@ export function ContextGuidance({
   else if (location?.id === 'base')
     content = (
       <p>
-        Credits 是指挥预算；其他资源必须实际存入 Dawn。先安排矿场运输，再进入 STARBASE
+        预算 是指挥预算；其他资源必须实际存入 曙光。先安排矿场运输，再进入 基地
         建造、升级或制造弹药。
       </p>
     );
-  else if (location?.colony)
-    content = (
-      <p>
-        殖民地以 Credits 为核心产出。建设和维修消耗本地材料；指派
-        Commander、发展工业与住宅可改变长期收益。
-      </p>
-    );
+  else if (location?.colony) content = null;
   else if (ship?.current?.action.type === 'SHADOW')
     content = (
       <p>
@@ -156,12 +162,12 @@ export function ContextGuidance({
     content = (
       <>
         <p>货物仍在舰上；只返回不会自动卸货，需明确下达卸货。</p>
-        {button('返回 Dawn 并卸货', { type: 'UNLOAD', targetId: 'base' })}
+        {button('返回 曙光 并卸货', { type: 'UNLOAD', targetId: 'base' })}
       </>
     );
   else if (ship?.classId === 'veil')
     content = (
-      <p>幽影号适合侦察与跟踪。开启隐形后选择 Orion／Romulan 接触并下达 SHADOW；开火会解除隐形。</p>
+      <p>幽影号适合侦察与跟踪。开启隐形后选择 猎户座／罗慕伦 接触并下达 跟踪；开火会解除隐形。</p>
     );
   else if (selection?.type === 'wormhole')
     content = (
@@ -169,7 +175,7 @@ export function ContextGuidance({
     );
   else if (selection?.type === 'contact')
     content = (
-      <p>先识别接触，再选择跟踪、拦截或外交呼叫。Romulan 未确认敌对时，攻击会产生政治后果。</p>
+      <p>先识别接触，再选择跟踪、拦截或外交呼叫。罗慕伦 未确认敌对时，攻击会产生政治后果。</p>
     );
   else if (
     selection?.type === 'point' ||

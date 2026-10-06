@@ -7,7 +7,9 @@ export function inventory(w: WorldState, id: string) {
   return project?.complete
     ? w.locations.find(
         (l) =>
-          l.siteId === project.siteId &&
+          (project.refitLocationId
+            ? l.id === project.refitLocationId
+            : l.siteId === project.siteId) &&
           l.kind === project.kind &&
           l.owner === 'starfleet' &&
           l.hull > 0,
@@ -21,7 +23,12 @@ export function reservationHolder(w: WorldState, d: Directive) {
   const id = 'sourceId' in a ? a.sourceId : 'targetId' in a ? a.targetId : '';
   const project = w.projects.find((p) => p.id === id);
   return project?.complete
-    ? w.locations.find((l) => l.siteId === project.siteId && l.kind === project.kind)
+    ? w.locations.find(
+        (l) =>
+          (project.refitLocationId
+            ? l.id === project.refitLocationId
+            : l.siteId === project.siteId) && l.kind === project.kind,
+      )
     : (w.locations.find((l) => l.id === id) ?? project);
 }
 export function available(w: WorldState, id: string, key: CargoKind) {

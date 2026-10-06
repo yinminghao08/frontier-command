@@ -1,9 +1,18 @@
+import { useContext } from 'react';
+import {
+  ChineseDisplay,
+  chineseText,
+  displayName,
+  displayEntityName,
+  worldText,
+} from './localization';
 import { useState } from 'react';
 import type { Snapshot } from '../engine/types';
 import { EVENT_LABELS } from '../engine/world-events';
 import type { CommandSender } from './types';
 import type { ComposerRequest } from './OrderComposer';
 import { LcarsTextBar, LcarsButton, LcarsField } from './components/Lcars';
+import { MineAccidentStatus } from './MineAccidentStatus';
 export function EventsView({
   world,
   command,
@@ -15,6 +24,7 @@ export function EventsView({
   create: (r: ComposerRequest) => void;
   eventId?: string;
 }) {
+  const chinese = useContext(ChineseDisplay);
   const [colony, setColony] = useState(world.locations.find((l) => l.colony)?.id ?? '');
   const events = world.events.filter((v) =>
     eventId ? v.id === eventId : ['reported', 'responding'].includes(v.stage),
@@ -26,7 +36,7 @@ export function EventsView({
       {events.map((v) => (
         <div className="record-row" data-entity-id={v.id} key={v.id}>
           <b>
-            {EVENT_LABELS[v.kind]} ·{' '}
+            {chinese ? chineseText(EVENT_LABELS[v.kind]) : EVENT_LABELS[v.kind]} ·{' '}
             {
               {
                 reported: '待处置',
@@ -36,12 +46,20 @@ export function EventsView({
               }[v.stage]
             }
           </b>
-          <p>{v.evidence}</p>
-          <p>
-            响应期限 {Math.max(0, Math.ceil(v.deadline - world.time))} 分钟 · 现场工作{' '}
-            {Math.floor(v.work)}/20
-          </p>
-          {v.outcome && <p>{v.outcome}</p>}
+          <p>{chinese ? worldText(world, v.evidence) : v.evidence}</p>
+          {v.kind === 'accident' ? (
+            v.accidentResponse ? (
+              <MineAccidentStatus world={world} event={v} create={create} />
+            ) : (
+              <p>现场工作 {Math.floor(Math.min(v.work, 20))}/20</p>
+            )
+          ) : (
+            <p>
+              响应期限 {Math.max(0, Math.ceil(v.deadline - world.time))} 分钟 · 现场工作{' '}
+              {Math.floor(v.work)}/20
+            </p>
+          )}
+          {v.outcome && <p>{chinese ? worldText(world, v.outcome) : v.outcome}</p>}
           {['reported', 'responding'].includes(v.stage) && (
             <>
               <div className="inline-actions">
@@ -53,7 +71,7 @@ export function EventsView({
                   </LcarsButton>
                 )}
                 {['invasion', 'diplomatic'].includes(v.kind) && (
-                  <span>通过实际防卫、Hail 或撤离改变局势；确认通信不会结束事件。</span>
+                  <span>通过实际防卫、呼叫 或撤离改变局势；确认通信不会结束事件。</span>
                 )}
                 {v.kind === 'wormhole' && (
                   <LcarsButton
@@ -101,7 +119,7 @@ export function EventsView({
                         .filter((l) => l.colony && l.hull > 0)
                         .map((l) => (
                           <option key={l.id} value={l.id}>
-                            {l.name}
+                            {chinese ? displayEntityName(world, l) : l.name}
                           </option>
                         ))}
                     </select>

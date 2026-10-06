@@ -38,7 +38,11 @@ export const UPGRADES = freezeDefinitions({
     cost: cost(220, 45),
     description: '解锁 Constitution / Galaxy 建造',
   },
-  armory: { label: 'Armory', cost: cost(160, 30, 1), description: '解锁实物 Quantum 制造' },
+  armory: {
+    label: 'Armory',
+    cost: cost(160, 30, 1),
+    description: '光子与量子鱼雷制造耗时减半；基础军械库已可生产两种弹药',
+  },
   sensors: {
     label: 'Sensor Network',
     cost: cost(140, 30),
@@ -65,6 +69,12 @@ export const FACILITIES = freezeDefinitions({
   FacilityKind,
   { hull: number; shield: number; damage: number; range: number; cost: Cost }
 >);
+export const BASE_REFIT = freezeDefinitions({
+  cost: cost(500, 100),
+  minutes: 30,
+  captureMinutes: 10,
+  captureRange: 12,
+});
 export const BUILD_COSTS = freezeDefinitions({
   peregrine: cost(220, 20),
   antares: cost(290, 30),

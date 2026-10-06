@@ -1,3 +1,5 @@
+import { productionCost, manufactureCost } from './production';
+export { manufactureCost } from './production';
 import { inventory, available } from './inventory';
 import { STORAGE } from './definitions/frontier';
 import { validateFrontierCommand, applyFrontierCommand } from './frontier-commands';
@@ -7,25 +9,27 @@ import { GOODS } from './types';
 import { actionSchema, commandSchema } from './commands';
 import { emptyStock } from './data';
 import { capabilities, cargoUsed } from './capabilities';
-import { BUILD_COSTS, FACILITIES, UPGRADES, cost } from './definitions/progression';
+import { BUILD_COSTS, FACILITIES, UPGRADES, BASE_REFIT, cost } from './definitions/progression';
 import { RULES } from './definitions/rules';
 import { SHIP_CLASSES } from './definitions/ships';
 import { markerRemovalReason } from './map-markers';
 export const ok = (reason = '命令已接受'): CommandResult => ({ ok: true, reason });
 export const no = (reason: string): CommandResult => ({ ok: false, reason });
 export { inventory, available } from './inventory';
-export function canPay(e: SimulationEngine, c: Cost) {
+export function canPay(e: SimulationEngine, c: Cost, locationId = 'base') {
   return (
     e.state.resources.credits + 1e-8 >= c.credits &&
     (['materials', 'specialFinds'] as const).every(
-      (k) => available(e.state, 'base', k) + 1e-8 >= c[k],
+      (k) => available(e.state, locationId, k) + 1e-8 >= c[k],
     )
   );
 }
-export function pay(e: SimulationEngine, c: Cost) {
+export function pay(e: SimulationEngine, c: Cost, locationId = 'base') {
   e.state.resources.credits = Math.max(0, e.state.resources.credits - c.credits);
-  for (const k of ['materials', 'specialFinds'] as const)
-    e.base.stock[k] = Math.max(0, e.base.stock[k] - c[k]);
+  const holder = inventory(e.state, locationId)!;
+  for (const k of ['materials', 'specialFinds'] as const) {
+    holder.stock[k] = Math.max(0, holder.stock[k] - c[k]);
+  }
 }
 export function validateAction(e: SimulationEngine, s: Ship, a: Action): CommandResult {
   const w = e.state;
@@ -37,6 +41,24 @@ export function validateAction(e: SimulationEngine, s: Ship, a: Action): Command
     if (!event) return no('事件已结束或不存在');
     if (['invasion', 'diplomatic'].includes(event.kind))
       return no('军事与外交事件需要实际防卫、通信或撤离行动');
+    return ok();
+  }
+  if (a.type === 'CAPTURE') {
+    const target = w.locations.find(
+      (l) =>
+        l.id === a.targetId && l.discovered && l.occupation === 'ruined' && l.owner !== 'starfleet',
+    );
+    if (!target) return no('目标不是可接管的基地遗址');
+    if (
+      w.ships.some(
+        (other) =>
+          other.id !== s.id &&
+          [other.current, ...other.suspended].some(
+            (d) => d?.action.type === 'CAPTURE' && d.action.targetId === target.id,
+          ),
+      )
+    )
+      return no('已有舰船正在接管该遗址');
     return ok();
   }
   if (a.type === 'TRANSIT')
@@ -155,6 +177,33 @@ export function validate(
       const v = validateAction(this, s, c.action);
       if (!v.ok) return v;
     }
+    if (c.action.type === 'CAPTURE' && c.shipIds.length !== 1) return no('请选择一艘舰船现场接管');
+    if (c.action.type === 'REARM') {
+      const a = c.action;
+      const immediateCount = w.ships.filter(
+        (s) => c.shipIds.includes(s.id) && !(c.mode === 'QUEUE' && s.current?.source === 'admiral'),
+      ).length;
+      const stock = inventory(w, a.targetId);
+      if (!stock) return no('装弹设施不可用');
+      for (const k of ['photon', 'quantum'] as const) {
+        const released =
+          c.mode === 'REPLACE'
+            ? w.ships
+                .filter((s) => c.shipIds.includes(s.id))
+                .flatMap((s) => [s.current, ...s.suspended])
+                .reduce(
+                  (sum, d) =>
+                    sum +
+                    (d && 'targetId' in d.action && d.action.targetId === a.targetId
+                      ? d.reserved[k]
+                      : 0),
+                  0,
+                )
+            : 0;
+        if (a.load[k] * immediateCount > available(w, a.targetId, k) + released)
+          return no((k === 'photon' ? '光子' : '量子') + '鱼雷可用库存不足');
+      }
+    }
     return ok();
   }
   if (c.type === 'dismissMapMarker') {
@@ -196,25 +245,53 @@ export function validate(
       return no('该地点已有同类设施或项目');
     return w.resources.credits >= FACILITIES[c.kind].cost.credits ? ok() : no('Credits 不足');
   }
+  if (c.type === 'buildShip' || c.type === 'manufacture' || c.type === 'upgrade') {
+    if (
+      !w.locations.some(
+        (l) =>
+          l.id === (c.locationId ?? 'base') &&
+          l.owner === 'starfleet' &&
+          l.kind === 'base' &&
+          l.hull > 0 &&
+          !l.occupation,
+      )
+    )
+      return no('生产基地不可用');
+  }
+  if (c.type === 'startBaseRefit') {
+    const l = w.locations.find(
+      (l) => l.id === c.locationId && l.owner === 'starfleet' && l.occupation === 'secured',
+    );
+    return l && w.resources.credits >= BASE_REFIT.cost.credits
+      ? ok()
+      : no('遗址尚未接管、已在改建或预算不足');
+  }
   if (c.type === 'buildShip') {
     if (!(c.classId in BUILD_COSTS)) return no('不可建造此舰级');
     if ((c.classId === 'constitution' || c.classId === 'galaxy') && !w.upgrades.shipyard)
       return no('需要 Shipyard 升级');
-    return canPay(this, BUILD_COSTS[c.classId as keyof typeof BUILD_COSTS])
+    return canPay(
+      this,
+      productionCost(w, BUILD_COSTS[c.classId as keyof typeof BUILD_COSTS]),
+      c.locationId,
+    )
       ? ok()
       : no('造舰预算或实物库存不足');
   }
   if (c.type === 'upgrade') {
     if (
       w.upgrades[c.upgradeId] ||
-      w.jobs.some((j) => j.kind === 'upgrade' && j.key === c.upgradeId && !j.complete)
+      w.jobs.some(
+        (j) => j.kind === 'upgrade' && j.key === c.upgradeId && !j.complete && !j.cancelled,
+      )
     )
       return no('已升级或正在施工');
-    return canPay(this, UPGRADES[c.upgradeId].cost) ? ok() : no('升级预算或库存不足');
+    return canPay(this, UPGRADES[c.upgradeId].cost, c.locationId) ? ok() : no('升级预算或库存不足');
   }
   if (c.type === 'manufacture') {
-    if (c.cargoKind === 'quantum' && !w.upgrades.armory) return no('需要 Armory 升级');
-    return canPay(this, manufactureCost(c.cargoKind, c.amount)) ? ok() : no('制造预算或材料不足');
+    return canPay(this, productionCost(w, manufactureCost(c.cargoKind, c.amount)), c.locationId)
+      ? ok()
+      : no('制造预算或材料不足');
   }
   if (c.type === 'sellStock')
     return available(w, 'base', c.cargoKind) >= c.amount ? ok() : no('可出售库存不足');
@@ -228,8 +305,6 @@ export function validate(
     return w.communications.some((m) => m.id === c.communicationId) ? ok() : no('通信不存在');
   return ok();
 }
-export const manufactureCost = (k: 'photon' | 'quantum', amount: number) =>
-  cost(amount * (k === 'quantum' ? 8 : 2), amount * (k === 'photon' ? 1 : 2));
 /** Revalidate what remains, rather than charging or loading an interrupted action twice. */
 export function validateContinuation(e: SimulationEngine, s: Ship, d: Directive): CommandResult {
   const a = d.action;
@@ -316,6 +391,11 @@ export function dispatchCommand(
       }
       d.origin = { x: s.x, y: s.y };
       d.source = actorId === w.commander.id ? 'admiral' : 'standing';
+      if (s.current === d && d.action.type === 'REARM') {
+        d.reserved.photon = d.action.load.photon;
+        d.reserved.quantum = d.action.load.quantum;
+        d.phase = 'reserved';
+      }
       this.record('directive', s.name + ' / ' + c.mode + ' / ' + c.action.type, s.id);
     }
     return ok('Admiral 指令已接受：' + c.mode + ' / ' + c.action.type);
@@ -353,6 +433,7 @@ export function dispatchCommand(
       w.bodies.find((b) => b.id === c.entityId);
     const old = entity!.name;
     entity!.name = c.name;
+    if (!w.renamedEntityIds.includes(c.entityId)) w.renamedEntityIds.push(c.entityId);
     if ('label' in entity!) entity!.label = c.name;
     this.record('rename', old + ' → ' + c.name, c.entityId);
     return ok('名称已保存');
@@ -365,6 +446,7 @@ export function dispatchCommand(
       name: c.name,
       kind: c.kind,
       siteId: c.siteId,
+      refitLocationId: null,
       x: site.x,
       y: site.y,
       stock: emptyStock(),
@@ -376,49 +458,79 @@ export function dispatchCommand(
     };
     w.resources.credits -= project.cost.credits;
     w.projects.push(project);
+    w.renamedEntityIds.push(project.id);
     this.record('construction', c.name + ' 开工：等待实际材料运抵', project.id);
     return ok('现场项目已建立，请运输材料');
   }
+  if (c.type === 'startBaseRefit') {
+    const l = w.locations.find((l) => l.id === c.locationId)!;
+    w.resources.credits -= BASE_REFIT.cost.credits;
+    l.occupation = 'rebuilding';
+    w.projects.push({
+      id: 'project-' + w.nextId++,
+      name: c.name,
+      kind: 'base',
+      siteId: l.id,
+      refitLocationId: l.id,
+      x: l.x,
+      y: l.y,
+      stock: emptyStock(),
+      capacity: structuredClone(STORAGE.base),
+      cost: structuredClone(BASE_REFIT.cost),
+      work: 0,
+      duration: BASE_REFIT.minutes,
+      complete: false,
+    });
+    w.renamedEntityIds.push(w.projects.at(-1)!.id);
+    this.record('baseRefit', l.name + ' 开始改建：等待现场材料', l.id);
+    return ok('基地改建项目已建立，请运输材料');
+  }
   if (c.type === 'buildShip') {
-    pay(this, BUILD_COSTS[c.classId as keyof typeof BUILD_COSTS]);
+    pay(this, productionCost(w, BUILD_COSTS[c.classId as keyof typeof BUILD_COSTS]), c.locationId);
     w.jobs.push({
       id: 'job-' + w.nextId++,
       kind: 'ship',
+      locationId: c.locationId ?? 'base',
       key: c.classId,
       name: c.name,
       amount: 1,
       work: 0,
       duration: RULES.shipBuildMinutes,
       complete: false,
+      cancelled: false,
     });
-    this.record('industry', c.name + ' 进入 Shipyard 建造', 'base');
+    this.record('industry', c.name + ' 进入船坞建造', c.locationId ?? 'base');
     return ok('已支付实物与预算，造舰开始');
   }
   if (c.type === 'upgrade') {
-    pay(this, UPGRADES[c.upgradeId].cost);
+    pay(this, UPGRADES[c.upgradeId].cost, c.locationId);
     w.jobs.push({
       id: 'job-' + w.nextId++,
       kind: 'upgrade',
+      locationId: c.locationId ?? 'base',
       key: c.upgradeId,
       name: UPGRADES[c.upgradeId].label,
       amount: 1,
       work: 0,
       duration: 15,
       complete: false,
+      cancelled: false,
     });
     return ok('战略升级施工开始');
   }
   if (c.type === 'manufacture') {
-    pay(this, manufactureCost(c.cargoKind, c.amount));
+    pay(this, productionCost(w, manufactureCost(c.cargoKind, c.amount)), c.locationId);
     w.jobs.push({
       id: 'job-' + w.nextId++,
       kind: 'manufacture',
+      locationId: c.locationId ?? 'base',
       key: c.cargoKind,
       name: c.cargoKind,
       amount: c.amount,
       work: 0,
-      duration: Math.max(3, c.amount * 0.3),
+      duration: Math.max(3, c.amount * 0.3) * (w.upgrades.armory ? 0.5 : 1),
       complete: false,
+      cancelled: false,
     });
     return ok('制造已使用真实材料');
   }

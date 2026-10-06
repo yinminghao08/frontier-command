@@ -1,8 +1,37 @@
-import type { Point, RouteKind, Ship, Snapshot, ReadonlyDeep } from './types';
+import type { Point, RouteKind, Ship, Snapshot, ReadonlyDeep, Directive } from './types';
 import { capabilities } from './capabilities';
 import { RULES } from './definitions/rules';
 import { SECTOR_SIZE } from './definitions/locations';
 export const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+export const routeSpeedMultiplier = (upgrades: { readonly logistics: number }, route: RouteKind) =>
+  route === 'risky' ? 1.5 : route === 'safe' && upgrades.logistics ? 1.25 : 1;
+export function groupMovementFactor(
+  w: { readonly ships: readonly ReadonlyDeep<Ship>[] },
+  s: ReadonlyDeep<Ship>,
+  d: ReadonlyDeep<Directive>,
+) {
+  const peers = d.groupOrderId
+    ? w.ships.filter((p) => p.current?.groupOrderId === d.groupOrderId)
+    : [];
+  if (peers.length < 2) return 1;
+  const speed = Math.min(...peers.map((p) => capabilities(p).warp));
+  const destination = s.path.at(-1) ?? peers.find((p) => p.path.length)?.path.at(-1);
+  const lead = destination
+    ? Math.max(...peers.map((p) => dist(p, destination))) - dist(s, destination)
+    : 0;
+  return (speed / capabilities(s).warp) * (lead > Math.max(60, d.groupSpacing * 3) ? 0.2 : 1);
+}
+export function currentMovementSpeed(
+  w: Pick<Snapshot, 'ships' | 'upgrades'>,
+  s: ReadonlyDeep<Ship>,
+) {
+  const route = s.current?.note.match(/^航行 \/ (safe|direct|risky)/)?.[1] as RouteKind | undefined;
+  return (
+    capabilities(s).warp *
+    routeSpeedMultiplier(w.upgrades, route ?? 'direct') *
+    (s.current ? groupMovementFactor(w, s, s.current) : 1)
+  );
+}
 export function segmentDistance(p: Point, a: Point, b: Point) {
   const l = (b.x - a.x) ** 2 + (b.y - a.y) ** 2,
     t = l
@@ -146,7 +175,7 @@ export function routeEstimate(w: Chart, s: ReadonlyDeep<Ship>, end: Point, route
     length += dist(at, p);
     at = p;
   }
-  const factor = route === 'risky' ? 1.5 : route === 'safe' && w.upgrades.logistics ? 1.25 : 1;
+  const factor = routeSpeedMultiplier(w.upgrades, route);
   const contacts = (w.intel ?? w.contacts ?? []).filter(
     (i) => i.live && i.hostile && segmentDistance(i, s, end) < 200,
   ).length;

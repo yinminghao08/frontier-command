@@ -8,7 +8,8 @@ import type {
 import { useLcars } from '../lcars/LcarsProvider';
 import type { AudioCue } from '../lcars/audio-manager';
 import { usePanelFocus } from '../lcars/usePanelFocus';
-import { Children } from 'react';
+import { ChineseDisplay, chineseText } from '../localization';
+import { Children, useContext } from 'react';
 import { bilingualTitle } from './bilingual';
 export type LcarsTone = 'primary' | 'secondary' | 'danger' | 'orange' | 'almond';
 export function LcarsButton({
@@ -65,13 +66,20 @@ export function LcarsBar({
 export function LcarsTextBar({
   children,
   className = '',
+  literal = false,
 }: {
   children: ReactNode;
   className?: string;
+  literal?: boolean;
 }) {
+  const chinese = useContext(ChineseDisplay);
   const parts = Children.toArray(children);
   const content = parts.every((p) => typeof p === 'string' || typeof p === 'number')
-    ? bilingualTitle(parts.join(''))
+    ? literal
+      ? parts.join('')
+      : chinese
+        ? chineseText(parts.join(''))
+        : bilingualTitle(parts.join(''))
     : children;
   return (
     <div className={`lcars-text-bar ${className}`}>
@@ -98,13 +106,25 @@ export function LcarsPanel({
 export function LcarsField(props: LabelHTMLAttributes<HTMLLabelElement>) {
   return <label {...props} className={`lcars-field ${props.className ?? ''}`} />;
 }
-export function LcarsMeter({ label, value, max }: { label: string; value: number; max: number }) {
+export function LcarsMeter({
+  label,
+  value,
+  max,
+  danger = false,
+  decimals = 0,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  danger?: boolean;
+  decimals?: number;
+}) {
   return (
-    <div className="meter">
+    <div className={'meter' + (danger ? ' meter-danger' : '')}>
       <span>
         {label}
         <b>
-          {Math.round(value)} / {max}
+          {Number(value.toFixed(decimals))} / {max}
         </b>
       </span>
       <progress aria-label={label} value={value} max={max} />

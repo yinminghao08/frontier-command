@@ -40,7 +40,7 @@ export const actionSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('RETURN') }).strict(),
-  z.object({ type: z.enum(['ASSIST_EVENT', 'TRANSIT']), targetId: id }).strict(),
+  z.object({ type: z.enum(['ASSIST_EVENT', 'TRANSIT', 'CAPTURE']), targetId: id }).strict(),
   z
     .object({
       type: z.literal('HAIL'),
@@ -207,16 +207,27 @@ export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('buildShip'),
+      locationId: id.optional(),
       classId: z.enum(['antares', 'peregrine', 'constitution', 'galaxy']),
       name: z.string().trim().min(1).max(80),
     })
     .strict(),
-  z.object({ type: z.literal('upgrade'), upgradeId: upgradeSchema }).strict(),
+  z
+    .object({ type: z.literal('upgrade'), upgradeId: upgradeSchema, locationId: id.optional() })
+    .strict(),
   z
     .object({
       type: z.literal('manufacture'),
+      locationId: id.optional(),
       cargoKind: z.enum(['photon', 'quantum']),
       amount: count,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('startBaseRefit'),
+      locationId: id,
+      name: z.string().trim().min(1).max(80),
     })
     .strict(),
   z.object({ type: z.literal('sellStock'), cargoKind: goodsSchema, amount: count }).strict(),

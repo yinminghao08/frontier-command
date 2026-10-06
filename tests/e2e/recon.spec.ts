@@ -1,3 +1,4 @@
+import { displayName } from '../../src/ui/localization';
 import {
   test,
   expect,
@@ -171,7 +172,7 @@ for (const faction of ['orion', 'romulan'] as const)
             .locator('.strategic-map')
             .getByRole('button', { name: scenario.home.name, exact: true }),
         ).toBeVisible();
-        await expect(page.locator('.inspector')).toContainText(scenario.home.name);
+        await expect(page.locator('.inspector')).toContainText(displayName(scenario.home.name));
       } else {
         await expect
           .poll(
@@ -333,7 +334,7 @@ for (const scale of [1.25, 1.5, 2])
     await page.keyboard.press('Escape');
     await page.locator('.operation-chip[data-ship-id="verity"]').click();
     await expect(page.getByLabel('显示名称', { exact: true })).toHaveValue(
-      e.state.ships.find((ship) => ship.id === 'verity')!.name,
+      displayName(e.state.ships.find((ship) => ship.id === 'verity')!.name),
     );
     await page.locator('.inspector-heading').click();
     await page.locator('.inspector').screenshot({

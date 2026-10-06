@@ -40,7 +40,7 @@ export function applyDamage(
       before >= SHIP_CLASSES[t.classId].hull * 0.3 &&
       t.hull < SHIP_CLASSES[t.classId].hull * 0.3
     )
-      e.critical('lowHull', t.id, t.name + ' 舰体低于30%');
+      e.critical('lowHull', t.id, t.name + ' 血量低于30%');
     const i = e.state.intel.find((i) => i.id === t.id && i.live);
     if (i) {
       i.hull = t.hull;
@@ -56,6 +56,12 @@ export function applyDamage(
       e.critical('lowHull', t.id, t.name + ' 设施严重受损');
     if (t.hull === 0) {
       for (const k of GOODS) loseStock(e, t, k, t.stock[k]);
+      for (const j of e.state.jobs.filter(
+        (j) => j.locationId === t.id && !j.complete && !j.cancelled,
+      )) {
+        j.cancelled = true;
+        e.record('industryLost', t.name + ' 被摧毁，' + j.name + ' 作业永久损失', t.id);
+      }
       for (const p of e.state.personnel)
         if (p.posting?.id === t.id) {
           p.posting = null;
@@ -72,6 +78,12 @@ export function applyDamage(
       }
     }
   } else if (t.hull === 0) {
+    if (t.kind === 'base' || t.kind === 'outpost') {
+      t.occupation = 'ruined';
+      t.shield = 0;
+      t.core = 0;
+      t.cooldown = 0;
+    }
     for (const k of GOODS) loseStock(e, t, k, t.stock[k]);
     if (t.discovered) e.record('factionLoss', t.name + ' 已摧毁；基地库存与恢复能力损失', t.id);
   }

@@ -64,7 +64,7 @@ test('Ctrl selection survives facility inspection, preselects every task and iss
   await expect(ship(p, 'meridian')).toHaveAttribute('aria-pressed', 'true');
   await expect(ship(p, 'vigil')).toHaveAttribute('aria-pressed', 'true');
   await marker(p, 'mine').click();
-  await p.getByRole('button', { name: '矿场 → Dawn 运输材料', exact: true }).click();
+  await p.getByRole('button', { name: '矿场 → 曙光 运输材料', exact: true }).click();
   const d = p.getByRole('dialog', { name: 'Admiral 指令' });
   await expect(d.getByLabel('分配 meridian', { exact: true })).toBeChecked();
   await expect(d.getByLabel('分配 vigil', { exact: true })).toBeChecked();
@@ -89,7 +89,7 @@ test('Ctrl selection survives facility inspection, preselects every task and iss
   await expect(ship(p, 'vigil')).toHaveAttribute('aria-pressed', 'false');
   await expect(ship(p, 'meridian')).toHaveAttribute('aria-pressed', 'true');
   await marker(p, 'mine').click();
-  await p.getByRole('button', { name: '返回 Dawn 并卸货', exact: true }).click();
+  await p.getByRole('button', { name: '返回 曙光 并卸货', exact: true }).click();
   await expect(d.getByLabel('指令类型', { exact: true })).toHaveValue('UNLOAD');
   await expect(d.getByLabel('指令目标', { exact: true })).toHaveValue('base');
   await expect(d.getByLabel('分配 meridian', { exact: true })).toBeChecked();
@@ -102,7 +102,7 @@ test('actual wormhole follow, immediate capture guidance, cloak symbols and pers
   const { p, directory } = await launch();
   await ship(p, 'verity').click();
   await marker(p, 'wormhole:0:0').click();
-  await p.getByRole('button', { name: '穿越 Wormhole', exact: true }).click();
+  await p.getByRole('button', { name: '穿越 虫洞', exact: true }).click();
   let d = p.getByRole('dialog', { name: 'Admiral 指令' });
   await expect(d.getByLabel('分配 verity', { exact: true })).toBeChecked();
   await d.getByRole('button', { name: '下达 Admiral 指令', exact: true }).click();
@@ -250,7 +250,7 @@ test('five strategic upgrades show actual adjacent progress, pause and ONLINE co
   await expect(d.locator('.record-row progress')).not.toHaveAttribute('value', '0');
   await p.screenshot({ path: join(output, 'upgrade-progress.png'), animations: 'disabled' });
   await wait(p, (s) => Object.values(s.upgrades).every(Boolean));
-  await expect(d).toContainText('ONLINE');
+  await expect(d).toContainText('等级 1／已升级');
   await expect(p.getByRole('dialog', { name: 'STARBASE 工作面板' })).toBeVisible();
 });
 

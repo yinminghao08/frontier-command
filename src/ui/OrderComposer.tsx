@@ -1,3 +1,6 @@
+import { rearmPreview } from './rearm';
+import { displayName, displayEntityName } from './localization';
+import { LcarsMeter } from './components/Lcars';
 import { useState } from 'react';
 import type { Action, Snapshot, ModuleId } from '../engine/types';
 import type { Selection } from '../StrategicMap';
@@ -62,6 +65,8 @@ export function defaultAction(
         targetId:
           id || w.events.find((v) => ['reported', 'responding'].includes(v.stage))?.id || '',
       };
+    case 'CAPTURE':
+      return { type, targetId: id || w.locations.find((l) => l.occupation === 'ruined')?.id || '' };
     case 'TRANSIT':
       return { type, targetId: id || w.wormholes[0]?.id || '' };
     case 'HAIL':
@@ -148,34 +153,42 @@ export function OrderComposer({
               ],
     ),
     [mode, setMode] = useState<'REPLACE' | 'QUEUE' | 'INTERRUPT'>('REPLACE');
-  const update = (patch: Partial<Action>) => setAction((a) => ({ ...a, ...patch }) as Action);
+  const [formError, setFormError] = useState('');
+  const update = (patch: Partial<Action>) => {
+    setFormError('');
+    setAction((a) => ({ ...a, ...patch }) as Action);
+  };
   const ships = world.ships.filter((s) => shipIds.includes(s.id)),
     inventory = [
       ...world.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0),
       ...world.projects.filter((p) => !p.complete),
     ];
   const targets =
-    action.type === 'SURVEY'
-      ? [...world.systems, ...world.bodies]
-      : action.type === 'ASSIST_EVENT'
-        ? world.events
-            .filter(
-              (v) =>
-                ['reported', 'responding'].includes(v.stage) &&
-                !['invasion', 'diplomatic'].includes(v.kind),
-            )
-            .map((v) => ({ ...v, name: v.evidence }))
-        : action.type === 'TRANSIT'
-          ? world.wormholes
-          : action.type === 'RECOVER'
-            ? world.wrecks
-            : action.type === 'ESCORT'
-              ? [...world.ships, ...world.civilians]
-              : ['ATTACK', 'DISABLE', 'DRIVE_OFF', 'SHADOW', 'INTERCEPT', 'HAIL'].includes(
-                    action.type,
-                  )
-                ? [...world.contacts, ...world.locations.filter((l) => l.owner !== 'starfleet')]
-                : inventory;
+    action.type === 'CAPTURE'
+      ? world.locations.filter((l) => l.occupation === 'ruined' && l.owner !== 'starfleet')
+      : action.type === 'SURVEY'
+        ? [...world.systems, ...world.bodies]
+        : action.type === 'ASSIST_EVENT'
+          ? world.events
+              .filter(
+                (v) =>
+                  ['reported', 'responding'].includes(v.stage) &&
+                  !['invasion', 'diplomatic'].includes(v.kind),
+              )
+              .map((v) => ({ ...v, name: v.evidence }))
+          : action.type === 'TRANSIT'
+            ? world.wormholes
+            : action.type === 'RECOVER'
+              ? world.wrecks
+              : action.type === 'ESCORT'
+                ? [...world.ships, ...world.civilians]
+                : ['ATTACK', 'DISABLE', 'DRIVE_OFF', 'SHADOW', 'INTERCEPT', 'HAIL'].includes(
+                      action.type,
+                    )
+                  ? [...world.contacts, ...world.locations.filter((l) => l.owner !== 'starfleet')]
+                  : action.type === 'REARM' || action.type === 'REPAIR' || action.type === 'REFIT'
+                    ? world.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0)
+                    : inventory;
   const dest = 'targetId' in action ? inventory.find((l) => l.id === action.targetId) : undefined;
   const origin =
     action.type === 'HAUL' ? inventory.find((l) => l.id === action.sourceId) : undefined;
@@ -201,6 +214,10 @@ export function OrderComposer({
           distance: firstLeg.distance + secondLeg.distance,
           unknownDistance: firstLeg.unknownDistance + secondLeg.unknownDistance,
         }
+      : null;
+  const rearm =
+    action.type === 'REARM'
+      ? rearmPreview(world, shipIds, action.targetId, mode, action.load)
       : null;
   const group = world.groups.find((g) => g.id === request.groupId);
   let allocationLeft =
@@ -423,19 +440,73 @@ export function OrderComposer({
             </select>
           </LcarsField>
         )}
-        {action.type === 'REARM' &&
-          (['photon', 'quantum'] as const).map((k) => (
-            <LcarsField key={k}>
-              {k.toUpperCase()}
-              <input
-                aria-label={'装载 ' + k}
-                type="number"
-                min="0"
-                value={action.load[k]}
-                onChange={(e) => update({ load: { ...action.load, [k]: Number(e.target.value) } })}
-              />
-            </LcarsField>
-          ))}
+        {action.type === 'REARM' && rearm && (
+          <section className="rearm-status" aria-label="装弹容量与库存">
+            <LcarsTextBar>弹仓与基地库存</LcarsTextBar>
+            <p>
+              {rearm.destination ? displayEntityName(world, rearm.destination) : '请选择基地'} ·
+              批量装弹使用每舰相同数量，需求按所选舰船总数计算。
+            </p>
+            {rearm.immediateCount < rearm.ships.length && (
+              <p>排队舰船在指令开始时预留弹药；届时库存不足会等待制造或运输补充。</p>
+            )}
+            {rearm.ships.map((ship) => (
+              <div className="record-row" key={ship.id} data-rearm-ship={ship.id}>
+                <b>{displayEntityName(world, ship)}</b>
+                {(['photon', 'quantum'] as const).map((kind) => {
+                  const capacity = capabilities(ship)[kind];
+                  return (
+                    <div key={kind}>
+                      <LcarsMeter
+                        label={kind === 'photon' ? '光子鱼雷弹仓' : '量子鱼雷弹仓'}
+                        value={ship[kind]}
+                        max={capacity || 1}
+                      />
+                      <p>
+                        {capacity === 0
+                          ? '不支持该弹种（容量 0）'
+                          : `剩余弹仓 ${capacity - ship[kind]} 枚 · 本次装载后 ${ship[kind] + action.load[kind]}／${capacity}`}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            {(['photon', 'quantum'] as const).map((kind) => (
+              <div key={kind}>
+                <p>
+                  {kind === 'photon' ? '光子鱼雷' : '量子鱼雷'}：基地库存{' '}
+                  {rearm.destination?.stock[kind] ?? 0}／仓储容量{' '}
+                  {rearm.destination?.capacity[kind] ?? 0} · 已预留{' '}
+                  {rearm.stock?.reserved[kind] ?? 0} · 本次可用 {rearm.availability[kind]} ·
+                  合计需求 {action.load[kind] * rearm.ships.length}
+                </p>
+                <LcarsField>
+                  {kind === 'photon' ? '每舰装载光子鱼雷' : '每舰装载量子鱼雷'}
+                  <input
+                    aria-label={'装载 ' + kind}
+                    type="number"
+                    min={0}
+                    max={rearm.maximum[kind]}
+                    disabled={rearm.maximum[kind] === 0}
+                    value={action.load[kind]}
+                    onChange={(e) =>
+                      update({ load: { ...action.load, [kind]: Number(e.target.value) } })
+                    }
+                  />
+                </LcarsField>
+              </div>
+            ))}
+            <LcarsButton onClick={() => update({ load: { ...rearm.maximum } })}>
+              装满可用余量
+            </LcarsButton>
+            {rearm.error && (
+              <p className="inline-error" role="status">
+                {rearm.error}
+              </p>
+            )}
+          </section>
+        )}
         {action.type === 'REFIT' && (
           <>
             <LcarsField>
@@ -530,9 +601,14 @@ export function OrderComposer({
             : '临时行动结束后自动接续原指令；目标失效会报告'}
         。
       </p>
+      {formError && (
+        <p role="alert" className="inline-error">
+          {formError}
+        </p>
+      )}
       <div className="dialog-actions">
         <LcarsButton
-          disabled={shipIds.length === 0}
+          disabled={shipIds.length === 0 || !!rearm?.error}
           onClick={async () => {
             const r = await command(
               request.groupId
@@ -540,6 +616,7 @@ export function OrderComposer({
                 : { type: 'issueDirective', shipIds, mode, action },
             );
             if (r.ok) onClose();
+            else setFormError(r.reason);
           }}
         >
           下达 Admiral 指令

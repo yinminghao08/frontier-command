@@ -15,10 +15,7 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
     l.core = Math.min(300, l.core + 5 * dt);
     l.cooldown = Math.max(0, l.cooldown - dt);
     if (w.time - l.attackedAt > 10)
-      l.shield = Math.min(
-        l.maxShield,
-        l.shield + (l.kind === 'base' ? 12 : 3) * dt,
-      );
+      l.shield = Math.min(l.maxShield, l.shield + (l.kind === 'base' ? 12 : 3) * dt);
     l.production += dt;
     if (l.production >= 5 - 1e-8) {
       l.production = Math.max(0, l.production - 5);
@@ -99,12 +96,29 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
   }
   for (const p of w.projects.filter((p) => !p.complete)) {
     if (available(w, p.id, 'materials') + 1e-8 < p.cost.materials) continue;
+    if (
+      p.refitLocationId &&
+      !w.locations.some(
+        (l) =>
+          l.id === p.refitLocationId && l.owner === 'starfleet' && l.occupation === 'rebuilding',
+      )
+    )
+      continue;
     p.work += dt;
     if (p.work + 1e-8 >= p.duration) {
       p.stock.materials = Math.max(0, p.stock.materials - p.cost.materials);
-      const l = makeLocation('facility-' + w.nextId++, p.name, p.kind, p, 'starfleet', p.siteId);
+      let l;
+      if (p.refitLocationId) {
+        l = w.locations.find((l) => l.id === p.refitLocationId)!;
+        if (!l || l.owner !== 'starfleet' || l.occupation !== 'rebuilding') continue;
+        const replacement = makeLocation(l.id, p.name, 'base', l, 'starfleet', l.siteId);
+        Object.assign(l, replacement);
+      } else {
+        l = makeLocation('facility-' + w.nextId++, p.name, p.kind, p, 'starfleet', p.siteId);
+        w.locations.push(l);
+      }
       l.stock = structuredClone(p.stock);
-      w.locations.push(l);
+      if (!w.renamedEntityIds.includes(l.id)) w.renamedEntityIds.push(l.id);
       appointCommander(e, l);
       p.stock = { materials: 0, photon: 0, quantum: 0, specialFinds: 0 };
       p.complete = true;
@@ -113,7 +127,16 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
     }
   }
   advanceSociety(e, dt);
-  for (const j of w.jobs.filter((j) => !j.complete)) {
+  for (const j of w.jobs.filter((j) => !j.complete && !j.cancelled)) {
+    const base = w.locations.find(
+      (l) =>
+        l.id === j.locationId &&
+        l.kind === 'base' &&
+        l.owner === 'starfleet' &&
+        l.hull > 0 &&
+        !l.occupation,
+    );
+    if (!base) continue;
     j.work += dt;
     if (j.work + 1e-8 < j.duration) continue;
     if (j.kind === 'manufacture' && space(base, j.key as CargoKind) < j.amount) {
@@ -130,6 +153,7 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
       s.photon = 0;
       s.quantum = 0;
       w.ships.push(s);
+      w.renamedEntityIds.push(s.id);
       const operatorId = 'ops-' + s.id;
       w.operators.push({
         id: operatorId,
@@ -141,10 +165,10 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
       e.record('growth', s.name + ' 新舰服役，独立舰籍 ' + s.id, s.id);
     } else if (j.kind === 'upgrade') {
       w.upgrades[j.key as UpgradeId] = 1;
-      e.record('growth', j.name + ' 战略能力上线', 'base');
+      e.record('growth', j.name + ' 战略能力上线', base.id);
     } else {
       deposit(base, j.key as CargoKind, j.amount);
-      e.record('industry', '制造 ' + j.amount + ' ' + j.key + ' 实物入库', 'base');
+      e.record('industry', '制造 ' + j.amount + ' ' + j.key + ' 实物入库', base.id);
     }
   }
 }

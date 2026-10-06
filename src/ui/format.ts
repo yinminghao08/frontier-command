@@ -1,13 +1,15 @@
+import { chineseText, worldText } from './localization';
 import type { Action, Ship, Snapshot, ReadonlyDeep } from '../engine/types';
 import { capabilities } from '../engine/capabilities';
-import { dist } from '../engine/navigation';
+import { dist, currentMovementSpeed } from '../engine/navigation';
 export const ACTION_LABELS: Record<Action['type'], string> = {
   MOVE: '移动',
   EXPLORE: '探索星区',
   SURVEY: '调查',
   RETURN: '返回基地',
   ASSIST_EVENT: '响应事件',
-  TRANSIT: '穿越 Wormhole',
+  TRANSIT: '穿越虫洞',
+  CAPTURE: '接管基地遗址',
   HAIL: '呼叫通信',
   HAUL: '运输货物',
   ATTACK: '攻击',
@@ -26,7 +28,7 @@ export const ACTION_LABELS: Record<Action['type'], string> = {
   RECOVER: '打捞货物',
 };
 export function actionProgress(
-  _world: Snapshot,
+  world: Snapshot,
   s: ReadonlyDeep<Ship>,
 ): { text: string; fraction: number | null } {
   if (!s.current)
@@ -41,10 +43,10 @@ export function actionProgress(
     text:
       length > 10
         ? '航行约 ' +
-          Math.ceil(length / capabilities(s).warp) +
+          Math.ceil(length / currentMovementSpeed(world, s)) +
           ' 分钟 · ' +
-          describe(s.current.note)
-        : describe(s.current.note || s.current.phase),
+          describe(s.current.note, world)
+        : describe(s.current.note || s.current.phase, world),
     fraction: null,
   };
 }
@@ -56,7 +58,7 @@ export const GOODS_LABELS = {
   specialFinds: '特殊发现',
 };
 export const FACILITY_LABELS = {
-  base: 'Starbase',
+  base: '基地',
   colony: '殖民地',
   mine: '矿场',
   outpost: '前哨',
@@ -71,7 +73,7 @@ export const BODY_LABELS = {
   ruins: '遗迹',
   derelict: '失落舰船',
 };
-export function describe(text: string) {
+export function describe(text: string, world?: Snapshot) {
   const words: Record<string, string> = {
     starting: '开始',
     Drydock: '船坞',
@@ -108,7 +110,7 @@ export function describe(text: string) {
     Patrol: '巡逻',
     Shadow: '跟踪',
     Intercept: '拦截',
-    Hull: '舰体',
+    Hull: '血量',
     Engines: '推进系统',
     Weapons: '武器系统',
     engines: '推进系统',
@@ -116,5 +118,7 @@ export function describe(text: string) {
     PHOTON: '光子鱼雷',
     QUANTUM: '量子鱼雷',
   };
-  return text.replace(/\b[A-Za-z]+\b/g, (word) => words[word] ?? word);
+  const translate = (value: string) =>
+    chineseText(value.replace(/\b[A-Za-z]+\b/g, (word) => words[word] ?? word));
+  return world ? worldText(world, text, translate) : translate(text);
 }

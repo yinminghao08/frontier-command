@@ -520,7 +520,7 @@ describe('world generation, intelligence and diplomacy', () => {
   it('paired Wormholes preserve hidden exits, change actual position and expand exploration', () => {
     const e = quietEngine(42);
     let generated: ReturnType<typeof generatedSector> | undefined;
-    for (let q = 1; q < 100 && !generated; q++) {
+    for (let q = 1; q < 1000 && !generated; q++) {
       const g = generatedSector(42, { q, r: 0 });
       if (g.wormholes.length) generated = g;
     }

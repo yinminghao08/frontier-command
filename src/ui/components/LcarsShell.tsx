@@ -1,3 +1,4 @@
+import { ChineseDisplay } from '../localization';
 import { useEffect, useLayoutEffect, useState, useRef, type ReactNode } from 'react';
 import type { Snapshot } from '../../engine/types';
 import type { CommandSender, Page } from '../types';
@@ -17,6 +18,8 @@ export const PAGES: Page[] = [
   'ARCHIVE',
 ];
 export const LABELS = ['星区', '舰队', '行动', '人员', '基地', '殖民地', '档案'];
+const shownResource = (value: number, fractional: boolean) =>
+  fractional ? Number(value.toFixed(1)) : Math.floor(value);
 export function LcarsShell({
   world,
   page,
@@ -205,7 +208,7 @@ export function LcarsShell({
               </div>
               <div className="strategic-state">
                 <span>
-                  HULL{' '}
+                  血量{' '}
                   <b className={lost ? 'danger-text' : ''}>
                     {lost ? 'LOST' : Math.ceil(base.hull)}
                   </b>{' '}
@@ -239,12 +242,13 @@ export function LcarsShell({
               <div key={key} data-resource={key}>
                 <span>{label}</span>
                 <b>
-                  {Math.floor(
+                  {shownResource(
                     key === 'credits'
                       ? world.baseResources.credits
                       : world.baseResources.available[
                           key as keyof typeof world.baseResources.available
                         ],
+                    key === 'materials',
                   ).toLocaleString('en-US')}
                 </b>
               </div>
@@ -254,11 +258,12 @@ export function LcarsShell({
               <div className="resource-details">
                 {Object.entries(world.baseResources.stock).map(([key, n]) => (
                   <p key={key}>
-                    {key} · 库存 {Math.floor(n)} · 预留{' '}
-                    {Math.ceil(
+                    {key} · 库存 {shownResource(n, key === 'materials')} · 预留{' '}
+                    {shownResource(
                       world.baseResources.reserved[
                         key as keyof typeof world.baseResources.reserved
                       ],
+                      key === 'materials',
                     )}
                   </p>
                 ))}
@@ -328,29 +333,31 @@ export function LcarsShell({
         </LcarsButton>
         {overlay}
       </main>
-      <aside
-        ref={contextRef}
-        tabIndex={-1}
-        className={'inspector ' + (showContext ? 'is-open' : '')}
-        aria-label="对象详情"
-      >
-        <div className="inspector-heading">
-          <LcarsTextBar className="section-title">对象详情</LcarsTextBar>
-          <LcarsButton
-            className="inspector-close"
-            aria-label="关闭对象详情"
-            sound="navigation"
-            onClick={() => setShowContext(false)}
-          >
-            CLOSE
-          </LcarsButton>
-        </div>
-        <div className="inspector-content">
-          <div key={contextSerial} className="context-transition">
-            {inspector}
+      <ChineseDisplay.Provider value={true}>
+        <aside
+          ref={contextRef}
+          tabIndex={-1}
+          className={'inspector ' + (showContext ? 'is-open' : '')}
+          aria-label="对象详情"
+        >
+          <div className="inspector-heading">
+            <LcarsTextBar className="section-title">对象详情</LcarsTextBar>
+            <LcarsButton
+              className="inspector-close"
+              aria-label="关闭对象详情"
+              sound="navigation"
+              onClick={() => setShowContext(false)}
+            >
+              关闭
+            </LcarsButton>
           </div>
-        </div>
-      </aside>
+          <div className="inspector-content">
+            <div key={contextSerial} className="context-transition">
+              {inspector}
+            </div>
+          </div>
+        </aside>
+      </ChineseDisplay.Provider>
       <footer className="operations-footer">
         <div className="footer-title">
           <LcarsTextBar>FLEET DIRECTIVES</LcarsTextBar>

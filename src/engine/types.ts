@@ -71,6 +71,7 @@ export interface Location extends Point {
   storageFull: boolean;
   extracted: number;
   colony: ColonyState | null;
+  occupation: 'ruined' | 'secured' | 'rebuilding' | null;
 }
 export const CAREERS = [
   'battle',
@@ -170,6 +171,18 @@ export interface WorldEvent {
   followUpId: string | null;
   outcome: string;
 }
+/** Derived public response information; never persisted in WorldState. */
+export interface MineAccidentResponse {
+  workRequired: number;
+  materialRequired: number;
+  availableAtSite: number;
+  responders: {
+    shipId: string;
+    phase: 'travelling' | 'working' | 'awaitingMaterials';
+    cargoMaterials: number;
+    shortfall: number;
+  }[];
+}
 export interface CivilianShip extends Ship {
   homeId: string;
   orderId: string | null;
@@ -201,6 +214,7 @@ export type Action =
   | { type: 'RETURN' }
   | { type: 'ASSIST_EVENT'; targetId: string }
   | { type: 'TRANSIT'; targetId: string }
+  | { type: 'CAPTURE'; targetId: string }
   | { type: 'HAIL'; targetId: string; message: 'greeting' | 'withdraw' | 'deescalate' }
   | {
       type: 'HAUL';
@@ -343,8 +357,9 @@ export interface Cost {
 export interface Construction extends Point {
   id: string;
   name: string;
-  kind: Exclude<FacilityKind, 'base'>;
+  kind: FacilityKind;
   siteId: string;
+  refitLocationId: string | null;
   stock: Stock;
   capacity: Stock;
   cost: Cost;
@@ -354,12 +369,14 @@ export interface Construction extends Point {
 }
 export interface IndustryJob {
   id: string;
+  locationId: string;
   kind: 'ship' | 'upgrade' | 'manufacture';
   key: string;
   amount: number;
   work: number;
   duration: number;
   complete: boolean;
+  cancelled: boolean;
   name: string;
 }
 export interface Operator {
@@ -455,7 +472,7 @@ export interface SiteIntel extends Point {
   lastSeen: number;
 }
 export interface WorldState {
-  version: 9;
+  version: 10;
   tick: number;
   time: number;
   seed: number;
@@ -486,6 +503,8 @@ export interface WorldState {
   tension: number;
   resources: { credits: number };
   upgrades: Record<UpgradeId, number>;
+  productionDiscountUnlocked: boolean;
+  renamedEntityIds: string[];
   groups: TaskGroup[];
   personnel: Personnel[];
   events: WorldEvent[];
@@ -509,7 +528,7 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 9;
+  version: 10;
   tick: number;
   time: number;
   paused: boolean;
@@ -532,6 +551,13 @@ interface SnapshotData {
   wrecks: Wreck[];
   resources: WorldState['resources'];
   baseResources: { credits: number; stock: Stock; available: Stock; reserved: Stock };
+  inventories: { locationId: string; available: Stock; reserved: Stock }[];
+  production: {
+    discounted: boolean;
+    ships: Record<string, { original: Cost; actual: Cost }>;
+    ammunition: Record<'photon' | 'quantum', { original: Cost; actual: Cost }>;
+  };
+  renamedEntityIds: string[];
   mapMarkers: { dismissedIds: string[]; removableIds: string[] };
   upgrades: WorldState['upgrades'];
   tension: number;
@@ -543,7 +569,7 @@ interface SnapshotData {
   armory: { stock: Ammunition; reserved: Ammunition };
   groups: TaskGroup[];
   personnel: Personnel[];
-  events: WorldEvent[];
+  events: (WorldEvent & { accidentResponse?: MineAccidentResponse })[];
   wormholes: Omit<Wormhole, 'exit' | 'exitSector'>[];
   civilians: CivilianShip[];
   trade: TradeState;
@@ -603,9 +629,10 @@ export type Command =
   | { type: 'tradeStock'; direction: 'buy' | 'sell'; cargoKind: CargoKind; amount: number }
   | { type: 'renameEntity'; entityId: string; name: string }
   | { type: 'startConstruction'; siteId: string; kind: Exclude<FacilityKind, 'base'>; name: string }
-  | { type: 'buildShip'; classId: ShipClassId; name: string }
-  | { type: 'upgrade'; upgradeId: UpgradeId }
-  | { type: 'manufacture'; cargoKind: 'photon' | 'quantum'; amount: number }
+  | { type: 'startBaseRefit'; locationId: string; name: string }
+  | { type: 'buildShip'; classId: ShipClassId; name: string; locationId?: string }
+  | { type: 'upgrade'; upgradeId: UpgradeId; locationId?: string }
+  | { type: 'manufacture'; cargoKind: 'photon' | 'quantum'; amount: number; locationId?: string }
   | { type: 'sellStock'; cargoKind: CargoKind; amount: number }
   | { type: 'repairFacility'; locationId: string }
   | { type: 'acknowledge'; communicationId: number }

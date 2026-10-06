@@ -1,3 +1,4 @@
+import { productionQuotes } from './production';
 import type { SimulationEngine } from './engine';
 import type { Observation, Opportunity, Snapshot, Stock } from './types';
 import { visibleIntel } from './sensors';
@@ -5,6 +6,7 @@ import { frontierSectors, sectorId } from './world-generation';
 import { available } from './command-system';
 import { GOODS } from './types';
 import { markerRemovalReason } from './map-markers';
+import { mineAccidentResponse } from './world-events';
 export function opportunities(e: SimulationEngine): Opportunity[] {
   const w = e.state,
     result: Opportunity[] = [];
@@ -121,6 +123,27 @@ export function snapshot(this: SimulationEngine): Snapshot {
         GOODS.map((k) => [k, this.base.stock[k] - available(w, 'base', k)]),
       ) as Stock,
     },
+    inventories: w.locations
+      .filter((l) => l.owner === 'starfleet' && l.hull > 0)
+      .map((l) => ({
+        locationId: l.id,
+        available: Object.fromEntries(GOODS.map((k) => [k, available(w, l.id, k)])) as Stock,
+        reserved: Object.fromEntries(
+          GOODS.map((k) => [k, l.stock[k] - available(w, l.id, k)]),
+        ) as Stock,
+      })),
+    production: productionQuotes(w),
+    renamedEntityIds: w.renamedEntityIds.filter((id) =>
+      [
+        ...w.ships,
+        ...w.locations.filter((l) => l.owner === 'starfleet' || l.discovered),
+        ...w.systems.filter((s) => s.discovered),
+        ...bodies,
+        ...w.projects,
+        ...w.groups,
+        ...w.losses.map((l) => ({ id: l.shipId })),
+      ].some((e) => e.id === id),
+    ),
     mapMarkers: {
       dismissedIds: w.dismissedMarkerIds.filter(
         (id) =>
@@ -155,6 +178,7 @@ export function snapshot(this: SimulationEngine): Snapshot {
       )
       .map((v) => ({
         ...v,
+        ...(v.kind === 'accident' ? { accidentResponse: mineAccidentResponse(this, v) } : {}),
         assetIds: v.assetIds.filter((id) => visibleIntel(w).some((i) => i.id === id)),
       })),
     wormholes: w.wormholes
@@ -197,6 +221,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
           'RETURN',
           'ASSIST_EVENT',
           'TRANSIT',
+          'CAPTURE',
           'HAIL',
         ],
   });

@@ -164,7 +164,7 @@ describe('frontier construction and capabilities', () => {
     }
     expect(b.state.ships[0].shield).toBeGreaterThan(a.state.ships[0].shield);
   });
-  it('base upgrades unlock advanced hulls, Quantum, sensor nodes, persistent routes and platforms', () => {
+  it('base upgrades unlock advanced hulls, efficient manufacturing, sensor nodes, persistent routes and platforms', () => {
     const e = quietEngine();
     e.state.resources.credits = 5000;
     e.base.stock.materials = 500;
@@ -173,7 +173,7 @@ describe('frontier construction and capabilities', () => {
       false,
     );
     expect(e.dispatchCommand({ type: 'manufacture', cargoKind: 'quantum', amount: 4 }).ok).toBe(
-      false,
+      true,
     );
     for (const upgradeId of ['shipyard', 'armory', 'sensors', 'logistics', 'defense'] as const)
       expect(e.dispatchCommand({ type: 'upgrade', upgradeId }).ok).toBe(true);

@@ -39,8 +39,8 @@ export function makeShip(
     hull: d.hull,
     shield: d.shield,
     core: d.core,
-    photon: d.photon,
-    quantum: d.quantum,
+    photon: classId === 'galaxy' ? 36 : d.photon,
+    quantum: classId === 'galaxy' ? 12 : d.quantum,
     modules: [],
     engines: 100,
     weapons: 100,
@@ -137,6 +137,7 @@ export function makeLocation(
 
     storageFull: false,
     extracted: 0,
+    occupation: null,
     colony:
       kind === 'colony'
         ? {
@@ -161,7 +162,7 @@ export function createWorld(seed = 236807): WorldState {
     makeShip(s.id, s.name, s.classId, 'starfleet', { x: BASE.x + (i - 1.5) * 28, y: BASE.y + 45 }),
   );
   const w: WorldState = {
-    version: 9,
+    version: 10,
     tick: 0,
     time: 0,
     seed: seed >>> 0,
@@ -213,6 +214,8 @@ export function createWorld(seed = 236807): WorldState {
     },
     tension: 0,
     resources: { credits: 380 },
+    productionDiscountUnlocked: false,
+    renamedEntityIds: [],
     upgrades: { shipyard: 0, armory: 0, sensors: 0, logistics: 0, defense: 0 },
     groups: [],
     personnel: [],

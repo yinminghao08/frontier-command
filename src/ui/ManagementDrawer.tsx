@@ -16,6 +16,7 @@ import { bilingualTitle } from './components/bilingual';
 import { LcarsDrawer, LcarsButton, LcarsField, LcarsTextBar } from './components/Lcars';
 import type { ComposerRequest } from './OrderComposer';
 import { defaultAction } from './OrderComposer';
+import { ProductionPrice } from './components/ProductionPrice';
 import { ACTION_LABELS } from './format';
 export const STARBASE_MODULES = [
   'COMMAND',
@@ -48,19 +49,31 @@ export function ManagementDrawer({
   save: () => void;
   newFrontier: () => void;
 }) {
+  const [baseId, setBaseId] = useState('base');
   const [tab, setTab] = useState<(typeof STARBASE_MODULES)[number]>('COMMAND'),
     [classId, setClassId] = useState<keyof typeof BUILD_COSTS>('peregrine'),
-    [shipName, setShipName] = useState('USS FRONTIER'),
+    [shipName, setShipName] = useState('边疆号'),
     [selectedShip, setSelectedShip] = useState('verity'),
     [moduleId, setModuleId] = useState<ModuleId>('expandedCargo'),
     [goods, setGoods] = useState<'photon' | 'quantum'>('photon'),
     [amount, setAmount] = useState(10),
     [saleKind, setSaleKind] = useState<CargoKind>('materials');
-  const base = world.locations.find((l) => l.id === 'base')!,
+  const bases = world.locations.filter(
+    (l) => l.kind === 'base' && l.owner === 'starfleet' && l.hull > 0 && !l.occupation,
+  );
+  const base =
+      bases.find((l) => l.id === baseId) ??
+      bases[0] ??
+      world.locations.find((l) => l.id === 'base')!,
     ship = world.ships.find((s) => s.id === selectedShip) ?? world.ships[0],
     shipId = ship?.id ?? '';
   const launch = (type: Parameters<typeof defaultAction>[0], shipId?: string) =>
-    create({ action: defaultAction(type, world), shipId });
+    create({
+      action: ['REPAIR', 'REARM', 'REFIT', 'DOCK', 'UNLOAD'].includes(type)
+        ? ({ ...defaultAction(type, world), targetId: base.id } as ReturnType<typeof defaultAction>)
+        : defaultAction(type, world),
+      shipId,
+    });
   const pickShip = (
     <LcarsField>
       VESSEL
@@ -80,15 +93,15 @@ export function ManagementDrawer({
   const upgrade = (id: UpgradeId) => (
     <div className="record-row">
       <b>
-        {UPGRADES[id].label} / {world.upgrades[id] ? 'ONLINE' : 'BASELINE'}
+        {UPGRADES[id].label} / {world.upgrades[id] ? '等级 1／已升级' : '等级 0／基础系统'}
       </b>
       <p>{UPGRADES[id].description}</p>
       <p>
-        {UPGRADES[id].cost.credits}C / {UPGRADES[id].cost.materials}M /{' '}
-        {UPGRADES[id].cost.specialFinds}F
+        {UPGRADES[id].cost.credits} 预算 / {UPGRADES[id].cost.materials} 材料 /{' '}
+        {UPGRADES[id].cost.specialFinds} 特殊发现
       </p>
       {world.jobs
-        .filter((j) => j.kind === 'upgrade' && j.key === id && !j.complete)
+        .filter((j) => j.kind === 'upgrade' && j.key === id && !j.complete && !j.cancelled)
         .map((j) => (
           <WorkProgress
             key={j.id}
@@ -101,9 +114,11 @@ export function ManagementDrawer({
       <LcarsButton
         disabled={
           !!world.upgrades[id] ||
-          world.jobs.some((j) => j.kind === 'upgrade' && j.key === id && !j.complete)
+          world.jobs.some(
+            (j) => j.kind === 'upgrade' && j.key === id && !j.complete && !j.cancelled,
+          )
         }
-        onClick={() => command({ type: 'upgrade', upgradeId: id })}
+        onClick={() => command({ type: 'upgrade', upgradeId: id, locationId: base.id })}
       >
         升级 {UPGRADES[id].label}
       </LcarsButton>
@@ -111,7 +126,7 @@ export function ManagementDrawer({
   );
   return (
     <LcarsDrawer
-      title={page === 'STARBASE' ? 'DAWN STARBASE / ' + tab : page + ' / COMMAND RECORDS'}
+      title={page === 'STARBASE' ? base.name + ' / ' + tab : page + ' / COMMAND RECORDS'}
       label={page + ' 工作面板'}
       onClose={close}
     >
@@ -120,6 +135,20 @@ export function ManagementDrawer({
       )}
       {page === 'STARBASE' && (
         <>
+          <LcarsField>
+            生产与服务基地
+            <select
+              aria-label="管理基地"
+              value={base.id}
+              onChange={(e) => setBaseId(e.target.value)}
+            >
+              {bases.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </LcarsField>
           <div
             className="inline-actions starbase-tabs"
             role="tablist"
@@ -139,7 +168,7 @@ export function ManagementDrawer({
           </div>
           <LcarsTextBar>
             CREDITS {Math.floor(world.resources.credits)} / MATERIALS{' '}
-            {Math.floor(base.stock.materials)}
+            {Number(base.stock.materials.toFixed(1))}
           </LcarsTextBar>
           {tab === 'COMMAND' && (
             <>
@@ -168,7 +197,7 @@ export function ManagementDrawer({
             <>
               {upgrade('shipyard')}
               <LcarsField>
-                HULL CLASS
+                舰级
                 <select
                   aria-label="建造舰级"
                   value={classId}
@@ -176,11 +205,18 @@ export function ManagementDrawer({
                 >
                   {Object.entries(BUILD_COSTS).map(([id, c]) => (
                     <option key={id} value={id}>
-                      {SHIP_CLASSES[id as ShipClassId].name} · {c.credits}C / {c.materials}M /{' '}
+                      {SHIP_CLASSES[id as ShipClassId].name} ·{' '}
+                      {world.production.ships[id].actual.credits} 预算 /{' '}
+                      {world.production.ships[id].actual.materials} 材料
                     </option>
                   ))}
                 </select>
               </LcarsField>
+              <ProductionPrice
+                original={world.production.ships[classId].original}
+                actual={world.production.ships[classId].actual}
+                discounted={world.production.discounted}
+              />
               <LcarsField>
                 VESSEL NAME
                 <input
@@ -189,11 +225,18 @@ export function ManagementDrawer({
                   onChange={(e) => setShipName(e.target.value)}
                 />
               </LcarsField>
-              <LcarsButton onClick={() => command({ type: 'buildShip', classId, name: shipName })}>
+              <LcarsButton
+                onClick={() =>
+                  command({ type: 'buildShip', classId, name: shipName, locationId: base.id })
+                }
+              >
                 建造新舰
               </LcarsButton>
               {world.jobs
-                .filter((j) => j.kind === 'ship' && !j.complete)
+                .filter(
+                  (j) =>
+                    j.locationId === base.id && j.kind === 'ship' && !j.complete && !j.cancelled,
+                )
                 .map((j) => (
                   <WorkProgress
                     key={j.id}
@@ -209,7 +252,7 @@ export function ManagementDrawer({
           {tab === 'DRYDOCK' && (
             <>
               {pickShip}
-              <p>维修消耗现场 Materials，恢复 Hull / Engines / Weapons；可途中改令。</p>
+              <p>维修消耗现场 Materials，恢复血量、推进系统和武器系统；可途中改令。</p>
               <LcarsButton onClick={() => launch('REPAIR', shipId)}>Dock & Repair</LcarsButton>
             </>
           )}
@@ -263,7 +306,7 @@ export function ManagementDrawer({
                 onClick={() =>
                   create({
                     shipId,
-                    action: { type: 'REFIT', targetId: 'base', moduleId, remove: false },
+                    action: { type: 'REFIT', targetId: base.id, moduleId, remove: false },
                   })
                 }
               >
@@ -278,7 +321,7 @@ export function ManagementDrawer({
               <LcarsTextBar>ACTUAL BASE INVENTORY</LcarsTextBar>
               {Object.entries(base.stock).map(([k, v]) => (
                 <p key={k}>
-                  {k.toUpperCase()} {Math.floor(v)}
+                  {k.toUpperCase()} {Number(v.toFixed(1))}
                 </p>
               ))}
               <LcarsButton onClick={() => launch('HAUL')}>规划真实货运 / 循环航线</LcarsButton>
@@ -324,13 +367,13 @@ export function ManagementDrawer({
                     className="record-row"
                     onClick={() => select({ type: 'location', id: l.id })}
                   >
-                    {l.name} · SHIELD {Math.ceil(l.shield)} / {l.maxShield} · HULL{' '}
+                    {l.name} · SHIELD {Math.ceil(l.shield)} / {l.maxShield} · 血量{' '}
                     {Math.ceil(l.hull)}
                   </LcarsButton>
                 ))}
             </>
           )}
-          {(tab === 'ARMORY' || tab === 'ENGINEERING' || tab === 'LOGISTICS') && (
+          {tab === 'ARMORY' && (
             <>
               <LcarsTextBar>INDUSTRY / PHYSICAL OUTPUT</LcarsTextBar>
               <LcarsField>
@@ -340,10 +383,22 @@ export function ManagementDrawer({
                   value={goods}
                   onChange={(e) => setGoods(e.target.value as typeof goods)}
                 >
-                  <option value="photon">Photon / Materials 1 + Credits 2</option>
-                  <option value="quantum">Quantum / Materials 2 + Credits 8</option>
+                  <option value="photon">
+                    光子鱼雷／每枚 {world.production.ammunition.photon.actual.materials} 材料 +{' '}
+                    {world.production.ammunition.photon.actual.credits} 预算
+                  </option>
+                  <option value="quantum">
+                    量子鱼雷／每枚 {world.production.ammunition.quantum.actual.materials} 材料 +{' '}
+                    {world.production.ammunition.quantum.actual.credits} 预算
+                  </option>
                 </select>
               </LcarsField>
+              <ProductionPrice
+                original={world.production.ammunition[goods].original}
+                actual={world.production.ammunition[goods].actual}
+                discounted={world.production.discounted}
+                amount={amount}
+              />
               <LcarsField>
                 QUANTITY
                 <input
@@ -355,12 +410,21 @@ export function ManagementDrawer({
                 />
               </LcarsField>
               <LcarsButton
-                onClick={() => command({ type: 'manufacture', cargoKind: goods, amount })}
+                disabled={!Number.isInteger(amount) || amount < 1}
+                onClick={() =>
+                  command({ type: 'manufacture', cargoKind: goods, amount, locationId: base.id })
+                }
               >
                 开始实物制造
               </LcarsButton>
               {world.jobs
-                .filter((j) => j.kind === 'manufacture' && !j.complete)
+                .filter(
+                  (j) =>
+                    j.locationId === base.id &&
+                    j.kind === 'manufacture' &&
+                    !j.complete &&
+                    !j.cancelled,
+                )
                 .map((j) => (
                   <WorkProgress
                     key={j.id}
@@ -374,7 +438,7 @@ export function ManagementDrawer({
           )}
           <LcarsTextBar>SHIPYARD / INDUSTRY QUEUE</LcarsTextBar>
           {world.jobs
-            .filter((j) => !j.complete)
+            .filter((j) => j.locationId === base.id && !j.complete && !j.cancelled)
             .map((j) => (
               <WorkProgress
                 key={j.id}

@@ -40,6 +40,8 @@ const directive = z
       'delivering',
       'refitting',
       'rearming',
+      'reserved',
+      'capturing',
     ]),
     work: nn,
     moved: nn,
@@ -128,7 +130,7 @@ const communication = z
   .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(9),
+    version: z.literal(10),
     tick: integer,
     time: nn,
     seed: integer.max(4294967295),
@@ -283,6 +285,7 @@ export const worldSchema = z
           storageFull: z.boolean(),
           extracted: nn,
           colony: colonySchema.nullable(),
+          occupation: z.enum(['ruined', 'secured', 'rebuilding']).nullable(),
         })
         .strict(),
     ),
@@ -291,8 +294,9 @@ export const worldSchema = z
         .extend({
           id,
           name,
-          kind: z.enum(['colony', 'mine', 'outpost', 'platform']),
+          kind: facilityKind,
           siteId: id,
+          refitLocationId: id.nullable(),
           stock: stockSchema,
           capacity: stockSchema,
           cost,
@@ -307,11 +311,13 @@ export const worldSchema = z
         .object({
           id,
           kind: z.enum(['ship', 'upgrade', 'manufacture']),
+          locationId: id,
           key: id,
           amount: integer,
           work: nn,
           duration: nn,
           complete: z.boolean(),
+          cancelled: z.boolean(),
           name,
         })
         .strict(),
@@ -345,6 +351,8 @@ export const worldSchema = z
       pointSchema.extend({ id, locationId: id, progress: nn.max(10), lastSeen: nn }).strict(),
     ),
     recoveredVeil: z.boolean(),
+    productionDiscountUnlocked: z.boolean(),
+    renamedEntityIds: z.array(id),
     contactAlerts: z.array(
       z.object({ contactId: id, lastAlertAt: nn, hostileAlerted: z.boolean() }).strict(),
     ),
@@ -534,9 +542,28 @@ export const worldSchema = z
     for (const b of w.bodies)
       if (!w.systems.some((s) => s.id === b.systemId)) bad('Dangling body reference');
     for (const p of w.projects)
-      if (!w.bodies.some((b) => b.id === p.siteId) && !w.systems.some((s) => s.id === p.siteId))
+      if (
+        p.refitLocationId
+          ? p.kind !== 'base' ||
+            p.siteId !== p.refitLocationId ||
+            !w.locations.some((l) => l.id === p.refitLocationId && l.owner === 'starfleet')
+          : p.kind === 'base' ||
+            (!w.bodies.some((b) => b.id === p.siteId) && !w.systems.some((s) => s.id === p.siteId))
+      )
         bad('Dangling project site');
     for (const l of w.locations) {
+      if (
+        l.occupation &&
+        (l.hull !== 0 ||
+          l.shield !== 0 ||
+          (l.occupation === 'ruined') === (l.owner === 'starfleet'))
+      )
+        bad('Invalid occupation state');
+      if (
+        l.occupation === 'rebuilding' &&
+        !w.projects.some((p) => p.refitLocationId === l.id && !p.complete)
+      )
+        bad('Missing base refit project');
       if (l.hull > l.maxHull || l.shield > l.maxShield) bad('Facility capacity exceeded');
       if (
         l.siteId &&
@@ -607,7 +634,7 @@ export const worldSchema = z
     for (const enemy of w.enemies)
       if (
         enemy.factionId === 'starfleet' ||
-        !w.locations.some((l) => l.id === enemy.homeId && l.owner === enemy.factionId) ||
+        !w.locations.some((l) => l.id === enemy.homeId) ||
         w.factions[enemy.factionId as 'orion' | 'romulan'].losses.includes(enemy.id)
       )
         bad('Invalid faction asset');
@@ -666,7 +693,11 @@ export const worldSchema = z
                   : null;
             const p = w.projects.find((p) => p.id === ref && p.complete),
               canonical = p
-                ? w.locations.find((l) => l.siteId === p.siteId && l.kind === p.kind)?.id
+                ? w.locations.find(
+                    (l) =>
+                      (p.refitLocationId ? l.id === p.refitLocationId : l.siteId === p.siteId) &&
+                      l.kind === p.kind,
+                  )?.id
                 : ref;
             return canonical === holder.id;
           })
@@ -674,6 +705,13 @@ export const worldSchema = z
         if (reserved > holder.stock[k] + 1e-7) bad('Inventory reservation exceeds real stock');
       }
     for (const j of w.jobs) {
+      if (j.complete && j.cancelled) bad('Completed production cannot be cancelled');
+      if (
+        !w.locations.some(
+          (l) => l.id === j.locationId && l.kind === 'base' && l.owner === 'starfleet',
+        )
+      )
+        bad('Invalid production base');
       if (j.kind === 'ship' && !['antares', 'peregrine', 'constitution', 'galaxy'].includes(j.key))
         bad('Invalid shipyard recipe');
       if (j.kind === 'upgrade' && !Object.hasOwn(w.upgrades, j.key))

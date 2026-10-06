@@ -22,7 +22,7 @@ export function StandingPanel({
     >,
     string,
   ][] = [
-    ['retreatHull', '舰体撤退阈值 %'],
+    ['retreatHull', '血量撤退阈值 %'],
     ['retreatShield', '护盾撤退阈值 %'],
     ['retreatCore', '核心撤退阈值 %'],
     ['photonThreshold', '光子鱼雷报告阈值 %'],
@@ -43,8 +43,8 @@ export function StandingPanel({
     >,
     string,
   ][] = [
-    ['allowNeutral', '允许自主进入 Neutral Zone'],
-    ['allowRomulan', '允许自主进入 Romulan territory'],
+    ['allowNeutral', '允许自主进入 中立区'],
+    ['allowRomulan', '允许自主进入 罗慕伦领地'],
     ['autoEscort', '自动护航'],
     ['respondDistress', '自动响应求救'],
     ['protectCivilian', '保护民用舰船'],
@@ -93,7 +93,7 @@ export function StandingPanel({
           {label}
         </LcarsField>
       ))}
-      <p className="muted">Admiral 的当前、排队和挂起指令优先；常备命令只管理自主行为。</p>
+      <p className="muted">舰队司令 的当前、排队和挂起指令优先；常备命令只管理自主行为。</p>
     </>
   );
 }

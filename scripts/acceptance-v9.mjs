@@ -8,8 +8,8 @@ const require = createRequire(import.meta.url);
 const { createWorld } = require('../dist-electron/src/engine/data.js');
 const { SaveStore } = require('../dist-electron/electron/persistence.js');
 const seed = Number(process.argv[2] ?? 236807),
-  directory = mkdtempSync(join(tmpdir(), 'frontier-v9-acceptance-'));
-const output = resolve('docs/verification/v9');
+  directory = mkdtempSync(join(tmpdir(), 'frontier-v10-acceptance-'));
+const output = resolve('docs/verification/v10');
 mkdirSync(output, { recursive: true });
 new SaveStore(directory).write(createWorld(seed));
 const app = await electron.launch({
@@ -85,7 +85,7 @@ try {
   await page.context().setOffline(true);
   await page.evaluate(() => document.fonts.ready);
   const initial = await state();
-  assert.equal(initial.version, 9);
+  assert.equal(initial.version, 10);
   assert.equal(initial.ships.length, 6);
   assert.equal(initial.locations.find((l) => l.id === 'mine').capacity.materials, 3000);
   await capture('start');
@@ -116,7 +116,7 @@ try {
   writeFileSync(
     join(output, `acceptance-${seed}.json`),
     JSON.stringify(
-      { seed, version: 9, complete: true, isolatedUserData: directory, steps, errors },
+      { seed, version: 10, complete: true, isolatedUserData: directory, steps, errors },
       null,
       2,
     ),

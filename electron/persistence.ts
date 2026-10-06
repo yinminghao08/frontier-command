@@ -22,7 +22,7 @@ const metaSchema = z
   })
   .strict();
 const indexSchema = z
-  .object({ version: z.literal(9), activeId: branchId, branches: z.array(metaSchema) })
+  .object({ version: z.literal(10), activeId: branchId, branches: z.array(metaSchema) })
   .strict();
 type Index = z.infer<typeof indexSchema>;
 function atomic(path: string, data: unknown) {
@@ -39,10 +39,19 @@ export class SaveStore {
   readonly indexPath: string;
   private index: Index | null = null;
   private blocked = false;
+  private migrationFailed = false;
   constructor(readonly directory: string) {
-    this.root = join(directory, 'frontiers-v9');
+    this.root = join(directory, 'frontiers-v10');
+    this.indexPath = join(directory, 'timeline-v10.json');
+    if (!existsSync(this.indexPath) && existsSync(join(directory, 'timeline-v9.json'))) {
+      try {
+        this.migrateTimeline();
+      } catch {
+        this.blocked = true;
+        this.migrationFailed = true;
+      }
+    }
     mkdirSync(this.root, { recursive: true });
-    this.indexPath = join(directory, 'timeline-v9.json');
     if (existsSync(this.indexPath))
       try {
         this.index = indexSchema.parse(JSON.parse(readFileSync(this.indexPath, 'utf8')));
@@ -52,6 +61,45 @@ export class SaveStore {
         this.blocked = true;
       }
   }
+  private migrateTimeline() {
+    const legacyIndex = indexSchema
+      .extend({ version: z.literal(9) })
+      .parse(JSON.parse(readFileSync(join(this.directory, 'timeline-v9.json'), 'utf8')));
+    if (!legacyIndex.branches.some((b) => b.id === legacyIndex.activeId))
+      throw Error('Missing active branch');
+    if (existsSync(this.root)) throw Error('Uncommitted migration preserved');
+    const stage = join(this.directory, 'frontiers-v10-migration-' + Date.now());
+    mkdirSync(stage, { recursive: true });
+    // Validate every branch before publishing its index; v9 files are never rewritten.
+    for (const branch of legacyIndex.branches) {
+      const source = join(this.directory, 'frontiers-v9', branch.id);
+      const destination = join(stage, branch.id);
+      mkdirSync(destination);
+      const head = (() => {
+        try {
+          return loadWorld(join(source, 'head.json'));
+        } catch (error) {
+          if (error instanceof UnsupportedSaveVersionError) throw error;
+          return loadWorld(join(source, 'head.json.bak'));
+        }
+      })();
+      atomic(join(destination, 'head.json'), head);
+      atomic(join(destination, 'branch.json'), branch);
+      for (const file of readdirSync(source)) {
+        if (!/^day-\d+\.json$/.test(file) && file !== 'failure.json' && file !== 'head.json.bak')
+          continue;
+        if (file === 'head.json.bak') {
+          try {
+            atomic(join(destination, file), loadWorld(join(source, file)));
+          } catch {
+            /* Keep the original corrupt backup in v9. */
+          }
+        } else atomic(join(destination, file), loadWorld(join(source, file)));
+      }
+    }
+    renameSync(stage, this.root);
+    atomic(this.indexPath, { ...legacyIndex, version: 10 });
+  }
   get path() {
     return join(this.root, this.index?.activeId ?? 'uninitialized', 'head.json');
   }
@@ -59,10 +107,12 @@ export class SaveStore {
     if (this.blocked)
       return {
         world: null,
-        message: '时间线索引损坏或版本不支持；已保留原文件并阻止覆盖。',
+        message: this.migrationFailed
+          ? 'v9 时间线迁移验证失败；原存档完整保留，已阻止启用新版存档。'
+          : '时间线索引损坏或版本不支持；已保留原文件并阻止覆盖。',
         blocked: true,
       };
-    if (!this.index) return { world: null, message: 'v9 Dawn Frontier 就绪。', blocked: false };
+    if (!this.index) return { world: null, message: 'v10 曙光边疆就绪。', blocked: false };
     const terminal = join(this.root, this.index.activeId, 'failure.json');
     if (existsSync(terminal)) {
       try {
@@ -81,7 +131,7 @@ export class SaveStore {
         const world = loadWorld(path);
         return {
           world,
-          message: path === this.path ? '已恢复 v9 时间线' : '已从同代备份恢复',
+          message: path === this.path ? '已恢复 v10 时间线' : '已从同代备份恢复',
           blocked: false,
         };
       } catch (error) {
@@ -114,7 +164,7 @@ export class SaveStore {
     const meta = { id, parent };
     atomic(join(dir, 'branch.json'), meta);
     const next: Index = {
-      version: 9,
+      version: 10,
       activeId: id,
       branches: [...(this.index?.branches ?? []), meta],
     };

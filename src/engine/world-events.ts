@@ -1,11 +1,13 @@
+import { unlockProductionDiscount } from './production';
 import type { SimulationEngine } from './engine';
-import type { Directive, Ship, WorldEvent, WorldEventKind } from './types';
+import type { Directive, Ship, WorldEvent, WorldEventKind, MineAccidentResponse } from './types';
 import { RULES } from './definitions/rules';
 import { available } from './inventory';
 import { capabilities, cargoUsed } from './capabilities';
 import { personnelBonus } from './society';
 import { VEIL_SITE } from './world-generation';
 import { makeShip } from './data';
+import { dist } from './navigation';
 export const EVENT_LABELS: Record<WorldEventKind, string> = {
   wormhole: 'Wormhole 调查',
   plague: '殖民地疫情',
@@ -66,6 +68,46 @@ export function eventAt(e: SimulationEngine, v: WorldEvent) {
     ...e.state.wormholes,
   ].find((x) => x.id === v.subjectId);
 }
+function accidentMaterials(e: SimulationEngine, siteId: string, s: Ship) {
+  const atSite = Math.min(RULES.mineAccidentMaterials, available(e.state, siteId, 'materials'));
+  const fromShip = RULES.mineAccidentMaterials - atSite;
+  return { atSite, fromShip, shortfall: Math.max(0, fromShip - s.cargo.materials) };
+}
+export function mineAccidentResponse(
+  e: SimulationEngine,
+  v: WorldEvent,
+): MineAccidentResponse | undefined {
+  if (v.kind !== 'accident' || !['reported', 'responding'].includes(v.stage)) return;
+  const site = e.state.locations.find(
+    (l) => l.id === v.subjectId && l.owner === 'starfleet' && l.hull > 0,
+  );
+  if (!site) return;
+  return {
+    workRequired: RULES.mineAccidentWork,
+    materialRequired: RULES.mineAccidentMaterials,
+    availableAtSite: available(e.state, site.id, 'materials'),
+    responders: e.state.ships
+      .filter(
+        (s) => s.current?.action.type === 'ASSIST_EVENT' && s.current.action.targetId === v.id,
+      )
+      .map((s) => {
+        const materials = accidentMaterials(e, site.id, s);
+        return {
+          shipId: s.id,
+          phase:
+            dist(s, site) > RULES.eventResponseRange + 1e-8
+              ? 'travelling'
+              : v.work < RULES.mineAccidentWork
+                ? 'working'
+                : materials.shortfall > 0
+                  ? 'awaitingMaterials'
+                  : 'working',
+          cargoMaterials: s.cargo.materials,
+          shortfall: materials.shortfall,
+        };
+      }),
+  };
+}
 export function advanceEvents(e: SimulationEngine, dt: number) {
   const w = e.state;
   if (w.tick % 10 === 0) {
@@ -87,7 +129,7 @@ export function advanceEvents(e: SimulationEngine, dt: number) {
     }
     for (const s of [...w.ships, ...w.civilians])
       if (s.hull < capabilities(s).hull * 0.5 && w.time - s.attackedAt < 30)
-        createEvent(e, 'distress', s.id, s.name + '舰体受损，需要现场保障');
+        createEvent(e, 'distress', s.id, s.name + '血量受损，需要现场保障');
     for (const b of w.bodies.filter((b) => b.discovered && b.survey >= 2)) {
       if (
         (b.hidden || b.kind === 'ruins') &&
@@ -211,6 +253,11 @@ export function assistEvent(
     e.complete(s, '事件已结束');
     return;
   }
+  if (v.kind === 'accident') {
+    // Older saves may have accumulated work indefinitely while waiting for supplies.
+    v.work = Math.min(v.work, RULES.mineAccidentWork);
+    d.work = Math.min(d.work, RULES.mineAccidentWork);
+  }
   const target = eventAt(e, v);
   if (!target) {
     e.complete(s, '事件主体不可用', true);
@@ -298,10 +345,12 @@ export function assistEvent(
       damaged.hull + dt * 8,
     );
   }
-  d.work += dt * power;
-  v.work += dt * power;
+  const workRequired = v.kind === 'accident' ? RULES.mineAccidentWork : 20;
+  const work = v.kind === 'accident' ? Math.min(dt * power, workRequired - v.work) : dt * power;
+  d.work += work;
+  v.work += work;
   d.note = '现场响应：' + EVENT_LABELS[v.kind] + ' ' + Math.floor(v.work) + '/20';
-  if (v.work < 20) return;
+  if (v.work < workRequired) return;
   if (v.kind === 'derelict' && v.subjectId === VEIL_SITE && !e.state.recoveredVeil) {
     const veil = makeShip('veil', 'USS VEIL / 幽影号', 'veil', 'starfleet', target);
     veil.standing.roe = 'HOLD FIRE';
@@ -328,11 +377,36 @@ export function assistEvent(
   )
     return;
   if (v.kind === 'accident') {
-    if (!('stock' in target) || available(e.state, target.id, 'materials') < 5) {
-      d.note = '需要现场 5 Materials 修复设备';
+    if (!facility || facility.owner !== 'starfleet' || facility.hull <= 0) {
+      e.complete(s, '事故设施不可用', true);
       return;
     }
-    target.stock.materials -= 5;
+    const materials = accidentMaterials(e, facility.id, s);
+    if (materials.shortfall > 0) {
+      d.note =
+        '现场工作完成，等待维修材料：矿场可用 ' +
+        available(e.state, facility.id, 'materials') +
+        '，本舰货舱 ' +
+        s.cargo.materials +
+        '，还缺 ' +
+        materials.shortfall +
+        ' 材料';
+      return;
+    }
+    // Validate the full cost before either inventory is debited; reservations stay intact.
+    facility.stock.materials -= materials.atSite;
+    s.cargo.materials -= materials.fromShip;
+    finishEvent(
+      e,
+      v,
+      '设备修复完成，矿场恢复生产；消耗矿场 ' +
+        materials.atSite +
+        '、响应舰 ' +
+        materials.fromShip +
+        ' 材料',
+    );
+    e.complete(s, '矿场事故响应完成');
+    return;
   }
   if (v.kind === 'discovery' && 'specialClaimed' in target) {
     if (cargoUsed(s) >= capabilities(s).cargo) {
@@ -341,6 +415,7 @@ export function assistEvent(
     }
     target.specialClaimed = true;
     s.cargo.specialFinds++;
+    unlockProductionDiscount(e);
   }
   if (v.kind === 'plague' && facility?.colony) {
     facility.colony.contamination = 0;

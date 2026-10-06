@@ -14,6 +14,7 @@ import type { Page } from './ui/types';
 import { sectorCenter } from './engine/world-generation';
 import { ConsoleSettings } from './ui/lcars/ConsoleSettings';
 import { WorldFeedback } from './ui/lcars/WorldFeedback';
+import { worldText } from './ui/localization';
 export function App() {
   const { world, timeline, notice, command, save, reset, dismissNotice } = useFrontier();
   const [page, setPage] = useState<Page>('SECTOR'),
@@ -331,7 +332,7 @@ export function App() {
           onClose={() => setConfirmReset(false)}
         >
           <h2>开始新的边疆世界</h2>
-          <p>保留当前时间线，从 DAY 1 00:00 创建独立的 v9 新世界。</p>
+          <p>保留当前时间线，从 DAY 1 00:00 创建独立的 v10 新世界。</p>
           <div className="dialog-actions">
             <LcarsButton tone="secondary" onClick={() => setConfirmReset(false)}>
               取消
@@ -361,9 +362,9 @@ export function App() {
       />
       {notice && (
         <div className={'notification ' + (notice.error ? 'error' : '')} role="status">
-          <span>{notice.text}</span>
+          <span>{worldText(world, notice.text)}</span>
           <LcarsButton tone="secondary" onClick={dismissNotice} aria-label="关闭通知">
-            CLOSE
+            关闭
           </LcarsButton>
         </div>
       )}

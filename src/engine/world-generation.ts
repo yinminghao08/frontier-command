@@ -1,3 +1,4 @@
+import { pairedSector, fixedPassage } from './wormhole-pairs';
 import type { Body, Point, SectorCoord, StarSystem, WorldState, Wormhole } from './types';
 import { INITIAL_LOCATIONS, SECTOR_SIZE } from './definitions/locations';
 export const VEIL_SITE = 'veil-derelict';
@@ -50,8 +51,7 @@ export function generatedSector(seed: number, coord: SectorCoord) {
       (l) => Math.round(l.x / SECTOR_SIZE) === coord.q && Math.round(l.y / SECTOR_SIZE) === coord.r,
     ),
   ];
-  if (coord.q === 0 && (coord.r === 0 || coord.r === 12))
-    anchors.push({ x: center.x + 90, y: center.y - 80 });
+  if (fixedPassage(coord)) anchors.push({ x: center.x + 90, y: center.y - 80 });
   const stars: StarSystem['starClass'][] = [
     'M',
     'M',
@@ -188,12 +188,15 @@ export function generatedSector(seed: number, coord: SectorCoord) {
     if (rare() < 0.04) add(sys, 'ruins', '古代遗迹');
     if (rare() < 0.08) add(sys, 'derelict', '失落研究舰');
   }
-  const paired = { q: coord.q === 0 ? 0 : -coord.q, r: 12 - coord.r },
+  const paired = pairedSector(seed, coord),
     first = coord.q < paired.q || (coord.q === paired.q && coord.r < paired.r) ? coord : paired;
   const pairRandom = coordinateRandom(seed, first, 0x771234),
     wormholes: Wormhole[] = [];
-  const fixedHole = coord.q === 0 && (coord.r === 0 || coord.r === 12);
-  if ((coord.q !== paired.q || coord.r !== paired.r) && (fixedHole || pairRandom() < 0.025)) {
+  const fixedHole = fixedPassage(coord);
+  if (
+    (coord.q !== paired.q || coord.r !== paired.r) &&
+    (fixedHole || (!fixedPassage(paired) && pairRandom() < 0.025))
+  ) {
     const stability = fixedHole ? 1 : 0.45 + pairRandom() * 0.55;
     wormholes.push({
       id: 'wormhole:' + coord.q + ':' + coord.r,

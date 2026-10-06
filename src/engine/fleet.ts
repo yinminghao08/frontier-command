@@ -2,7 +2,7 @@ import type { SimulationEngine } from './engine';
 import type { Directive, Ship } from './types';
 import { capabilities, cargoUsed } from './capabilities';
 import { available, inventory } from './inventory';
-import { dist } from './navigation';
+import { groupMovementFactor, dist } from './navigation';
 import { makeDirective, validateAction } from './command-system';
 import { regionAt } from './definitions/locations';
 export function groupPeers(e: SimulationEngine, d: Directive) {
@@ -13,14 +13,7 @@ export function groupPeers(e: SimulationEngine, d: Directive) {
     : [];
 }
 export function groupSpeed(e: SimulationEngine, s: Ship, d: Directive) {
-  const peers = groupPeers(e, d);
-  if (peers.length < 2) return 1;
-  const speed = Math.min(...peers.map((p) => capabilities(p).warp));
-  const destination = s.path.at(-1) ?? peers.find((p) => p.path.length)?.path.at(-1);
-  const lead = destination
-    ? Math.max(...peers.map((p) => dist(p, destination))) - dist(s, destination)
-    : 0;
-  return (speed / capabilities(s).warp) * (lead > Math.max(60, d.groupSpacing * 3) ? 0.2 : 1);
+  return groupMovementFactor(e.state, s, d);
 }
 export function prepareGroupHaul(e: SimulationEngine, d: Directive) {
   const peers = groupPeers(e, d).filter((s) => s.current?.action.type === 'HAUL');

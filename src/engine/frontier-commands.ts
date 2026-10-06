@@ -123,10 +123,12 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
       flagshipId: c.flagshipId,
       spacing: c.spacing,
     });
+    w.renamedEntityIds.push(w.groups.at(-1)!.id);
     e.record('fleet', '创建编队 ' + c.name, null);
     return ok();
   }
   if (c.type === 'updateGroup') {
+    if (!w.renamedEntityIds.includes(c.groupId)) w.renamedEntityIds.push(c.groupId);
     Object.assign(w.groups.find((g) => g.id === c.groupId)!, {
       name: c.name,
       shipIds: [...c.shipIds],

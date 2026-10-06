@@ -18,6 +18,8 @@ import {
   project,
   unproject,
   placeLabels,
+  viewportGrid,
+  clusterMarkers,
   type Camera,
   type MapLabel,
 } from './ui/map/camera';
@@ -207,7 +209,14 @@ export function StrategicMap({
   const active = (id: string) =>
       selectedShipIds.includes(id) ||
       (selection && selection.type !== 'ship' && 'id' in selection && selection.id === id),
-    level = camera.k < 0.65 ? 'SECTOR' : camera.k < 1.5 ? 'SYSTEM' : 'LOCAL',
+    level =
+      camera.k < 0.15
+        ? 'OVERVIEW'
+        : camera.k < 0.65
+          ? 'SECTOR'
+          : camera.k < 1.5
+            ? 'SYSTEM'
+            : 'LOCAL',
     pos = (p: Point) => project(p, camera);
   const visible = (p: Point) => {
     const n = pos(p);
@@ -251,7 +260,7 @@ export function StrategicMap({
       }
     },
   });
-  const markers: {
+  type Marker = {
     id: string;
     name: string;
     p: Point;
@@ -259,7 +268,9 @@ export function StrategicMap({
     kind: SymbolKind;
     color: string;
     cloak?: 'off' | 'on' | 'decloaking';
-  }[] = [
+    clusterCount?: number;
+  };
+  const rawMarkers: Marker[] = [
     ...world.systems.filter(visible).map((s) => ({
       id: s.id,
       name: s.name,
@@ -375,6 +386,25 @@ export function StrategicMap({
       color: MAP_PALETTE.unknown,
     })),
   ];
+  const markers: Marker[] =
+    level === 'OVERVIEW'
+      ? clusterMarkers(rawMarkers, camera, (id) => !!active(id)).map((group) => {
+          if (group.length === 1) return group[0];
+          const p = {
+            x: group.reduce((n, m) => n + m.p.x, 0) / group.length,
+            y: group.reduce((n, m) => n + m.p.y, 0) / group.length,
+          };
+          return {
+            id: 'cluster:' + group[0].id,
+            name: group.length + ' 个对象／点击展开',
+            p,
+            selection: { type: 'point' as const, ...p },
+            kind: 'system' as const,
+            color: MAP_PALETTE.decoration.charted,
+            clusterCount: group.length,
+          };
+        })
+      : rawMarkers;
   const markerScale = Math.min(1.5, Math.max(1, camera.width / 1500));
   const displayPositions = new Map<string, Point>();
   const occupiedMarkers: Point[] = [];
@@ -449,16 +479,7 @@ export function StrategicMap({
       color: m.color,
     };
   });
-  const left = unproject({ x: 0, y: 0 }, camera),
-    right = unproject({ x: camera.width, y: camera.height }, camera),
-    cells = [];
-  const minQ = Math.max(Math.floor((left.x + 200) / 400), Math.floor(camera.x / 400) - 12),
-    maxQ = Math.min(Math.floor((right.x + 200) / 400), Math.floor(camera.x / 400) + 12),
-    minR = Math.max(Math.floor((left.y + 200) / 400), Math.floor(camera.y / 400) - 12),
-    maxR = Math.min(Math.floor((right.y + 200) / 400), Math.floor(camera.y / 400) + 12);
-  for (let q = minQ; q <= maxQ; q++)
-    for (let r = minR; r <= maxR; r++)
-      cells.push({ q, r, known: world.sectors.some((s) => s.q === q && s.r === r) });
+  const cells = viewportGrid(camera, world.sectors);
   const obstacles = occupiedMarkers.map((p) => ({
     x: p.x - 18 * markerScale,
     y: p.y - 18 * markerScale,
@@ -466,8 +487,8 @@ export function StrategicMap({
     height: 36 * markerScale,
   }));
   for (const c of cells) {
-    const point = pos({ x: sectorCenter(c).x, y: sectorCenter(c).y - 200 });
-    if (SECTOR_SIZE * camera.k > labelFont * markerScale * 12)
+    const point = pos({ x: (c.q + (c.span - 1) / 2) * 400, y: c.r * 400 - 200 });
+    if (SECTOR_SIZE * c.span * camera.k > labelFont * markerScale * 12)
       obstacles.push({ x: point.x - 110, y: point.y + 12, width: 220, height: 22 * markerScale });
   }
   const placed = placeLabels(
@@ -554,9 +575,9 @@ export function StrategicMap({
         >
           <rect width={camera.width} height={camera.height} fill={MAP_PALETTE.decoration.ink} />
           {cells.map((c) => {
-            const center = sectorCenter(c),
-              p = pos({ x: center.x - 200, y: center.y - 200 }),
-              size = SECTOR_SIZE * camera.k,
+            const center = { x: (c.q + (c.span - 1) / 2) * 400, y: (c.r + (c.span - 1) / 2) * 400 },
+              p = pos({ x: c.q * 400 - 200, y: c.r * 400 - 200 }),
+              size = SECTOR_SIZE * c.span * camera.k,
               label =
                 level === 'SECTOR'
                   ? c.known
@@ -568,6 +589,7 @@ export function StrategicMap({
             return (
               <g key={c.q + ':' + c.r}>
                 <rect
+                  data-grid-span={c.span}
                   x={p.x}
                   y={p.y}
                   width={size}
@@ -575,7 +597,7 @@ export function StrategicMap({
                   fill={
                     c.known ? MAP_PALETTE.decoration.charted : MAP_PALETTE.decoration.unknownSpace
                   }
-                  fillOpacity={c.known ? 0.045 : 0.015}
+                  fillOpacity={c.known && c.span === 1 ? 0.045 : 0.015}
                   stroke={MAP_PALETTE.decoration.grid}
                   strokeOpacity=".15"
                 />
@@ -588,7 +610,7 @@ export function StrategicMap({
                     opacity=".6"
                     className="region-label"
                   >
-                    {label} {c.q}/{c.r}
+                    {c.span > 1 ? '星区群' : label} {c.q}/{c.r}
                   </text>
                 )}
               </g>
@@ -643,6 +665,22 @@ export function StrategicMap({
                 aria-pressed={!!active(m.id)}
                 transform={'translate(' + p.x + ' ' + p.y + ') scale(' + markerScale + ')'}
                 {...interactive(m.selection, m.name)}
+                data-cluster-count={m.clusterCount}
+                onClick={
+                  m.clusterCount
+                    ? (event) => {
+                        event.stopPropagation();
+                        if (moved.current) return;
+                        onManualCamera();
+                        animate({
+                          ...current.current,
+                          x: m.p.x,
+                          y: m.p.y,
+                          k: Math.max(0.2, current.current.k * 4),
+                        });
+                      }
+                    : interactive(m.selection, m.name).onClick
+                }
               >
                 <title>
                   {m.name}
@@ -687,8 +725,28 @@ export function StrategicMap({
                     strokeDasharray="3 3"
                   />
                 )}
+                {m.clusterCount && (
+                  <text
+                    x="0"
+                    y="6"
+                    textAnchor="middle"
+                    fill={MAP_PALETTE.decoration.selection}
+                    fontSize="16"
+                  >
+                    {m.clusterCount}
+                  </text>
+                )}
                 <g opacity={m.cloak === 'on' ? 0.7 : 1}>
-                  <MapSymbol kind={m.kind} color={m.color} />
+                  {m.clusterCount ? (
+                    <circle
+                      r={20}
+                      fill="none"
+                      stroke={MAP_PALETTE.decoration.selection}
+                      strokeWidth={2}
+                    />
+                  ) : (
+                    <MapSymbol kind={m.kind} color={m.color} />
+                  )}
                 </g>
                 {m.selection.type === 'location' &&
                   level !== 'LOCAL' &&

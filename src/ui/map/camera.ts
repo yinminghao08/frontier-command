@@ -41,6 +41,56 @@ export const unproject = (p: Point, c: Camera): Point => ({
   x: c.x + (p.x - c.width / 2) / c.k,
   y: c.y + (p.y - c.height / 2) / c.k,
 });
+/** Coarsen the grid, rather than clipping it to a finite rectangle at distant zoom. */
+export function viewportGrid(c: Camera, sectors: readonly { q: number; r: number }[]) {
+  const span = 2 ** Math.max(0, Math.ceil(Math.log2(80 / (400 * c.k))));
+  const topLeft = unproject({ x: 0, y: 0 }, c),
+    bottomRight = unproject({ x: c.width, y: c.height }, c);
+  const cells: { q: number; r: number; span: number; known: boolean }[] = [];
+  for (
+    let q = Math.floor((topLeft.x + 200) / (400 * span)) * span;
+    q <= Math.floor((bottomRight.x + 200) / (400 * span)) * span;
+    q += span
+  )
+    for (
+      let r = Math.floor((topLeft.y + 200) / (400 * span)) * span;
+      r <= Math.floor((bottomRight.y + 200) / (400 * span)) * span;
+      r += span
+    )
+      cells.push({
+        q,
+        r,
+        span,
+        known: sectors.some((s) => s.q >= q && s.q < q + span && s.r >= r && s.r < r + span),
+      });
+  return cells;
+}
+export function clusterMarkers<T extends { id: string; p: Point }>(
+  markers: readonly T[],
+  c: Camera,
+  selected: (id: string) => boolean,
+  radius = 44,
+) {
+  const groups: T[][] = [];
+  for (const marker of [...markers].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (selected(marker.id)) {
+      groups.push([marker]);
+      continue;
+    }
+    const point = project(marker.p, c);
+    const group = groups.find(
+      (g) =>
+        !g.some((m) => selected(m.id)) &&
+        g.every((m) => {
+          const p = project(m.p, c);
+          return Math.hypot(p.x - point.x, p.y - point.y) < radius;
+        }),
+    );
+    if (group) group.push(marker);
+    else groups.push([marker]);
+  }
+  return groups;
+}
 export function zoomCamera(c: Camera, k: number, p: Point) {
   const anchor = unproject(p, c),
     next = clampCamera({ ...c, k });

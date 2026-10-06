@@ -60,7 +60,7 @@ function gather(e: SimulationEngine, s: Enemy) {
     (r) => w.time - r.seenAt < RULES.reportTTL && !reports.some((n) => n.id === r.id),
   );
   s.localReports.push(...reports);
-  const home = w.locations.find((l) => l.id === s.homeId && l.hull > 0);
+  const home = w.locations.find((l) => l.id === s.homeId && l.owner === s.factionId && l.hull > 0);
   if (home && dist(s, home) < 240) {
     const received = s.localReports.filter((r) => w.time - r.seenAt < RULES.reportTTL);
     faction.reports = faction.reports.filter(
@@ -80,7 +80,7 @@ export function decideThreat(e: SimulationEngine, s: Enemy) {
   s.nextDecision = w.time + RULES.decisionInterval;
   gather(e, s);
   const faction = w.factions[s.factionId as 'orion' | 'romulan'],
-    home = w.locations.find((l) => l.id === s.homeId);
+    home = w.locations.find((l) => l.id === s.homeId && l.owner === s.factionId && l.hull > 0);
   if (
     s.hull < capabilities(s).hull * 0.4 ||
     s.engines < 25 ||
@@ -176,7 +176,7 @@ export function advanceEnemy(e: SimulationEngine, s: Enemy, dt: number) {
   regenerate(s, w.time, dt);
   if (advanceEvasion(e, s, dt)) return;
   decideThreat(e, s);
-  const home = w.locations.find((l) => l.id === s.homeId && l.hull > 0);
+  const home = w.locations.find((l) => l.id === s.homeId && l.owner === s.factionId && l.hull > 0);
   if (s.intent === 'retreat' || s.intent === 'docked') {
     if (!home) {
       s.intent = 'observe';
@@ -336,7 +336,7 @@ export function advanceFactions(e: SimulationEngine, dt: number) {
           0.05),
   );
   const faction = w.factions.orion,
-    home = w.locations.find((l) => l.id === 'orion-base' && l.hull > 0);
+    home = w.locations.find((l) => l.id === 'orion-base' && l.owner === 'orion' && l.hull > 0);
   if (!home) return;
   // Replacements require returned loot, an industrial basket and actual construction time.
   const raiders = w.enemies.filter((s) => s.factionId === 'orion' && s.role === 'raider').length;

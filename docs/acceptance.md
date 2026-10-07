@@ -33,7 +33,8 @@
 | 实际穿越后镜头跟随、手动选择结束、事件仅公开己方 ID/实际出口/tick              | command-v9.test.ts、command-v9.spec.ts                                    |
 | 近距调查完成同一步创建接管事件、上下文入口、无残骸建设、唯一幽影接管           | command-v9.test.ts、recon.test.ts、command-v9.spec.ts、recon.spec.ts      |
 | 自有隐形状态在地图、舰船条和详情清晰可见，保存恢复                             | command-v9.spec.ts、recon.test.ts                                         |
-| 首次接触、10 分钟失联重获、首次敌对升级、同一步合并、各倍率同 tick 暂停        | command-v9.test.ts、command-v9.spec.ts、desktop.spec.ts                   |
+| 每舰稳定 ID 仅首次接触暂停；重获、敌对升级与重载不重复暂停；各倍率同 tick 暂停 | command-v9.test.ts、command-v9.spec.ts、pause-regression.spec.ts          |
+| 真实侦察后接管基地当步可保存；连续运行跨越自动保存周期，重载与确定性验证       | v10.test.ts、pause-regression.spec.ts                                   |
 | 合并警报与单次音效、确认/定位/下令保持暂停、手动继续、静音和音量               | command-v9.spec.ts、lcars.spec.ts                                         |
 | 标记有货物/奖励/事件/打捞时不可移除，无价值时移除并永久保存真实实体/历史       | command-v9.test.ts、command-v9.spec.ts                                    |
 | 五项基地可用资源、扣除预留、零库存显示、文字放大后不重叠                       | command-v9.test.ts、command-v9.spec.ts                                    |

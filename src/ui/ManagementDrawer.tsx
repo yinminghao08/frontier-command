@@ -9,7 +9,6 @@ import type { ShipClassId } from '../engine/definitions/ships';
 import { SHIP_CLASSES } from '../engine/definitions/ships';
 import { BUILD_COSTS, MODULES, UPGRADES } from '../engine/definitions/progression';
 import { capabilities } from '../engine/capabilities';
-import type { TimelineStatus } from '../engine/timeline';
 import type { Page, CommandSender } from './types';
 import type { Selection } from '../StrategicMap';
 import { bilingualTitle } from './components/bilingual';
@@ -31,23 +30,17 @@ export const STARBASE_MODULES = [
 export function ManagementDrawer({
   page,
   world,
-  timeline,
   close,
   select,
   create,
   command,
-  save,
-  newFrontier,
 }: {
   page: Page;
   world: Snapshot;
-  timeline: TimelineStatus;
   close: () => void;
   select: (s: Selection) => void;
   create: (r: ComposerRequest) => void;
   command: CommandSender;
-  save: () => void;
-  newFrontier: () => void;
 }) {
   const [baseId, setBaseId] = useState('base');
   const [tab, setTab] = useState<(typeof STARBASE_MODULES)[number]>('COMMAND'),
@@ -519,48 +512,6 @@ export function ManagementDrawer({
             </LcarsButton>
           ))}
           <p>在星图选择已调查资源点／系统／宜居星球建立新设施。</p>
-        </>
-      )}
-      {page === 'ARCHIVE' && (
-        <>
-          <div className="inline-actions">
-            <LcarsButton onClick={save}>立即保存</LcarsButton>
-            <LcarsButton
-              disabled={timeline.previousDay === null}
-              onClick={() => command({ type: 'restorePreviousDay' })}
-            >
-              从昨日建立独立时间线
-            </LcarsButton>
-            <LcarsButton tone="danger" onClick={newFrontier}>
-              BEGIN NEW FRONTIER
-            </LcarsButton>
-          </div>
-          <LcarsTextBar>PERMANENT LOSSES / {world.losses.length}</LcarsTextBar>
-          {world.losses.map((l) => (
-            <LcarsButton
-              key={l.shipId}
-              shape="rail"
-              className="record-row"
-              onClick={() => select({ type: 'loss', id: l.shipId })}
-            >
-              {l.name} · {l.reason}
-            </LcarsButton>
-          ))}
-          <LcarsTextBar>TIMELINES</LcarsTextBar>
-          {timeline.branches.map((b) => (
-            <p key={b.id}>
-              {b.id} / {b.status} / {b.lossCount} LOSSES
-            </p>
-          ))}
-          <LcarsTextBar>PERSISTENT FRONTIER HISTORY / {world.history.length}</LcarsTextBar>
-          {[...world.history].reverse().map((h) => (
-            <p key={h.id}>
-              <small>
-                {Math.floor(h.time)}m / {h.kind}
-              </small>{' '}
-              {h.text}
-            </p>
-          ))}
         </>
       )}
     </LcarsDrawer>

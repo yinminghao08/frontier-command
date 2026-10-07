@@ -17,7 +17,7 @@ export const PAGES: Page[] = [
   'COLONIES',
   'ARCHIVE',
 ];
-export const LABELS = ['星区', '舰队', '行动', '人员', '基地', '殖民地', '档案'];
+export const LABELS = ['星区', '舰队', '行动', '人员', '基地', '殖民地', '存档'];
 const shownResource = (value: number, fractional: boolean) =>
   fractional ? Number(value.toFixed(1)) : Math.floor(value);
 export function LcarsShell({

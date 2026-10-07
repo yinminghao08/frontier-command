@@ -96,6 +96,16 @@ Timeline branching and recovery remain transactional: immutable historical snaps
 
 ## UI Boundary
 
+### Save manager
+
+The existing `ARCHIVE` navigation identity now presents the LCARS save manager. Main-process `world:saves` returns only public catalogue metadata; `world:save-action` validates create/copy/load/rename/delete and manager open/close requests. Renderer receives neither raw worlds nor paths. Opening the manager pauses the authoritative engine and blocks resume until it closes. A successful world switch resets transient UI selection, camera following, composers and contact dialogs.
+
+The timeline v10 index remains authoritative for branch IDs, names and parent links; optional names preserve compatibility with unnamed indices. `branch.json` is the original creation receipt, not the mutable catalogue. World schema version stays 10. Failure-first loading and same-generation backup fallback are shared by catalogue and activation. An unreadable branch is protected independently of the catalogue, allowing selection of another valid save; invalid indices prohibit mutations.
+
+Creation reserves a non-reusable numeric ID, stages validated worlds and daily snapshots, writes a recovery journal, renames the directory, then atomically publishes the index. On failure it removes unpublished data while retaining the ID reservation. Activation validates the target and saves the outgoing world before publishing the active ID. Copying materializes all effective ancestor snapshots into an independent branch and preserves failure sealing.
+
+Deletion first materializes inherited days in direct children and detaches their parent links in the new index. It moves the selected inactive directory to a tombstone before index publication. A failed commit restores the directory and removes newly added days. Startup restores a tombstone still referenced by the index or removes a committed deletion; creation journals likewise distinguish committed worlds from unpublished ones. Snapshot additions left by an interrupted deletion are harmless copies of effective history. Cleanup failures keep recoverable journals and never report a committed operation as an uncommitted failure.
+
 The existing LCARS 26 Classic design system is the UI foundation.
 
 - `SECTOR`: expandable Strategic Map and context commands

@@ -12,7 +12,7 @@ const TRANSLATIONS: Record<string, string> = {
   PERSONNEL: '人员',
   STARBASE: '基地',
   COLONIES: '殖民地',
-  ARCHIVE: '档案',
+  ARCHIVE: '存档',
   'COMMAND RECORDS': '指挥记录',
   COMMAND: '指挥',
   SHIPYARD: '船坞',

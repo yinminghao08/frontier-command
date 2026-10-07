@@ -86,6 +86,89 @@
   inset: 0.6em 0 0 var(--inner);
   z-index: 12;
 }
+.save-workspace {
+  display: grid;
+  grid-template-columns: minmax(14em, 0.9fr) minmax(16em, 1.1fr);
+  gap: 1.5em;
+  align-items: start;
+}
+.save-list,
+.save-detail {
+  min-width: 0;
+}
+.save-list {
+  max-height: min(32em, 35vh);
+  overflow: auto;
+}
+.save-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ink);
+  padding: 0.4em 0;
+}
+.save-row.lcars-button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 0.4em;
+  margin-bottom: var(--cut);
+  padding: 0.9em 1em;
+  text-align: left;
+  border-radius: 0;
+  border-left: 0.8em solid var(--bluey);
+  background: var(--ink);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  text-transform: none;
+}
+.save-row[aria-pressed='true'] {
+  border-color: var(--butterscotch);
+  background: var(--butterscotch);
+  color: var(--ink);
+}
+.save-row small {
+  font-family: var(--body-family);
+  font-size: 0.8em;
+}
+.save-detail h2,
+.save-detail dd {
+  overflow-wrap: anywhere;
+}
+.save-detail dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.6em 1em;
+}
+.save-detail dt {
+  color: var(--african-violet);
+}
+.save-detail dd {
+  margin: 0;
+}
+.save-history {
+  margin-top: 1em;
+  border-top: var(--cut) solid var(--bluey);
+  padding-top: 0.8em;
+}
+.save-history summary {
+  cursor: pointer;
+  color: var(--almond-creme);
+  padding: 0.4em 0;
+}
+.save-error {
+  color: var(--red);
+  overflow-wrap: anywhere;
+}
+.save-manager {
+  container-type: inline-size;
+}
+@container (max-width: 40em) {
+  .save-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .record-list {
   display: flex;
   flex-direction: column;

@@ -6,7 +6,8 @@ import { StrategicMap, type Selection } from './StrategicMap';
 import { Inspector } from './ui/Inspector';
 import { OrderComposer, type ComposerRequest } from './ui/OrderComposer';
 import { LcarsShell } from './ui/components/LcarsShell';
-import { LcarsDialog, LcarsButton, LcarsFrame } from './ui/components/Lcars';
+import { LcarsButton, LcarsFrame } from './ui/components/Lcars';
+import { SaveManager } from './ui/SaveManager';
 import { CommandLost } from './ui/CommandLost';
 import { ManagementDrawer } from './ui/ManagementDrawer';
 import type { Point } from './engine/types';
@@ -16,7 +17,18 @@ import { ConsoleSettings } from './ui/lcars/ConsoleSettings';
 import { WorldFeedback } from './ui/lcars/WorldFeedback';
 import { worldText } from './ui/localization';
 export function App() {
-  const { world, timeline, notice, command, save, reset, dismissNotice } = useFrontier();
+  const {
+    world,
+    timeline,
+    catalog,
+    saveBlocked,
+    ready,
+    saveAction,
+    notice,
+    command,
+    save,
+    dismissNotice,
+  } = useFrontier();
   const [page, setPage] = useState<Page>('SECTOR'),
     [selection, setSelection] = useState<Selection | null>({ type: 'location', id: 'base' });
   const [focus, setFocus] = useState<{ point: Point; serial: number } | null>(null);
@@ -27,11 +39,21 @@ export function App() {
   const selectedShips = useRef(selectedShipIds);
   selectedShips.current = selectedShipIds;
   const [composer, setComposer] = useState<ComposerRequest | null>(null),
-    [confirmReset, setConfirmReset] = useState(false),
+    [managerCreate, setManagerCreate] = useState(false),
     [settings, setSettings] = useState(false);
   const [commandTarget, setCommandTarget] = useState<Selection | null>(null),
     [destination, setDestination] = useState<Point | null>(null),
     [moveMode, setMoveMode] = useState<'REPLACE' | 'QUEUE' | 'INTERRUPT'>('REPLACE');
+  const startupChecked = useRef(false);
+  const managerPending = useRef(false);
+  useEffect(() => {
+    if (!world || !ready || startupChecked.current) return;
+    startupChecked.current = true;
+    if (saveBlocked) {
+      setPage('ARCHIVE');
+      void saveAction({ type: 'openManager' });
+    }
+  }, [world, ready, saveBlocked, saveAction]);
   useEffect(() => {
     const cancel = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setDestination(null);
@@ -163,6 +185,23 @@ export function App() {
     setCommandTarget(null);
     setSelectedShipIds([]);
     setFollowShipId(null);
+    setManagerCreate(false);
+    setMoveMode('REPLACE');
+  };
+  const openManager = async (create = false) => {
+    setComposer(null);
+    setSettings(false);
+    setManagerCreate(create);
+    const result = await saveAction({ type: 'openManager' });
+    if (result.ok) setPage('ARCHIVE');
+  };
+  const closeManager = async () => {
+    if (managerPending.current) return;
+    const result = await saveAction({ type: 'closeManager' });
+    if (result.ok) {
+      setPage('SECTOR');
+      setManagerCreate(false);
+    }
   };
   const openComposer = (request: ComposerRequest) => {
     if (request.shipId || request.groupId || request.shipIds) {
@@ -194,7 +233,13 @@ export function App() {
       <LcarsShell
         world={world}
         page={page}
-        onPage={(next) => {
+        onPage={async (next) => {
+          if (managerPending.current) return;
+          if (next === 'ARCHIVE') {
+            await openManager();
+            return;
+          }
+          if (page === 'ARCHIVE') await saveAction({ type: 'closeManager' });
           setSettings(false);
           setPage(next);
         }}
@@ -202,16 +247,40 @@ export function App() {
         locate={locate}
         contextSerial={serial}
         selectedShipIds={selectedShipIds}
-        onSettings={() => setSettings(true)}
+        onSettings={async () => {
+          if (managerPending.current) return;
+          if (page === 'ARCHIVE') {
+            await closeManager();
+          }
+          setSettings(true);
+        }}
         overlay={
           settings ? (
             <ConsoleSettings close={() => setSettings(false)} />
+          ) : page === 'ARCHIVE' ? (
+            <SaveManager
+              world={world}
+              timeline={timeline}
+              catalog={catalog}
+              protectedCurrent={saveBlocked}
+              action={saveAction}
+              save={save}
+              command={command}
+              close={() => void closeManager()}
+              changed={changedWorld}
+              initialCreate={managerCreate}
+              onBusyChange={(busy) => {
+                managerPending.current = busy;
+              }}
+              select={(s) => {
+                void closeManager().then(() => select(s, true));
+              }}
+            />
           ) : (
             page !== 'SECTOR' && (
               <ManagementDrawer
                 page={page}
                 world={world}
-                timeline={timeline}
                 close={() => setPage('SECTOR')}
                 select={(s) => {
                   select(s, true);
@@ -219,8 +288,6 @@ export function App() {
                 }}
                 create={openComposer}
                 command={command}
-                save={save}
-                newFrontier={() => setConfirmReset(true)}
               />
             )
           )
@@ -301,19 +368,16 @@ export function App() {
           focus={focus}
         />
       </LcarsShell>
-      {world.status === 'commandLost' &&
-        page !== 'ARCHIVE' &&
-        selection?.type !== 'loss' &&
-        !confirmReset && (
-          <CommandLost
-            world={world}
-            timeline={timeline}
-            command={command}
-            onRestored={changedWorld}
-            onNewFrontier={() => setConfirmReset(true)}
-            onArchive={() => setPage('ARCHIVE')}
-          />
-        )}
+      {world.status === 'commandLost' && page !== 'ARCHIVE' && selection?.type !== 'loss' && (
+        <CommandLost
+          world={world}
+          timeline={timeline}
+          command={command}
+          onRestored={changedWorld}
+          onNewFrontier={() => void openManager(true)}
+          onArchive={() => void openManager()}
+        />
+      )}
       {composer && world.status === 'active' && (
         <OrderComposer
           world={world}
@@ -325,41 +389,20 @@ export function App() {
           }}
         />
       )}
-      {confirmReset && (
-        <LcarsDialog
-          title="BEGIN NEW FRONTIER"
-          label="新世界确认"
-          onClose={() => setConfirmReset(false)}
-        >
-          <h2>开始新的边疆世界</h2>
-          <p>保留当前时间线，从 DAY 1 00:00 创建独立的 v10 新世界。</p>
-          <div className="dialog-actions">
-            <LcarsButton tone="secondary" onClick={() => setConfirmReset(false)}>
-              取消
-            </LcarsButton>
-            <LcarsButton
-              onClick={async () => {
-                const r = await reset();
-                if (r.ok) {
-                  setConfirmReset(false);
-                  changedWorld();
-                }
-              }}
-            >
-              保留记录并创建新世界
-            </LcarsButton>
-          </div>
-        </LcarsDialog>
+      {page !== 'ARCHIVE' && (
+        <>
+          <ContactAlert
+            key={timeline.activeId}
+            world={world}
+            branch={timeline.activeId}
+            command={command}
+            locate={(id) => {
+              setPage('SECTOR');
+              locate(id);
+            }}
+          />
+        </>
       )}
-      <ContactAlert
-        world={world}
-        branch={timeline.activeId}
-        command={command}
-        locate={(id) => {
-          setPage('SECTOR');
-          locate(id);
-        }}
-      />
       {notice && (
         <div className={'notification ' + (notice.error ? 'error' : '')} role="status">
           <span>{worldText(world, notice.text)}</span>

@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Command, SessionCommand, Snapshot, PublicSimulationEvent } from '../src/engine/types';
+import type { SaveAction } from '../src/engine/timeline';
 contextBridge.exposeInMainWorld('frontier', {
   getState: () => ipcRenderer.invoke('world:get'),
   command: (command: Command | SessionCommand) => ipcRenderer.invoke('world:command', command),
   save: () => ipcRenderer.invoke('world:save'),
   timeline: () => ipcRenderer.invoke('world:timeline'),
+  listSaves: () => ipcRenderer.invoke('world:saves'),
+  saveAction: (action: SaveAction) => ipcRenderer.invoke('world:save-action', action),
   setDisplayZoom: (factor: number) => ipcRenderer.invoke('display:zoom', factor),
   onEvents: (callback: (events: PublicSimulationEvent[]) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, events: PublicSimulationEvent[]) =>

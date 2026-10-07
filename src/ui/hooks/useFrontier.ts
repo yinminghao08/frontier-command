@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Command, SessionCommand, Snapshot } from '../../engine/types';
-import type { TimelineStatus } from '../../engine/timeline';
+import type { SaveAction, SaveCatalog, TimelineStatus } from '../../engine/timeline';
 import type { Notice } from '../types';
 import { useLcars } from '../lcars/LcarsProvider';
 export function useFrontier() {
@@ -11,6 +11,14 @@ export function useFrontier() {
     branches: [],
   });
   const [world, setWorld] = useState<Snapshot | null>(null);
+  const [catalog, setCatalog] = useState<SaveCatalog>({
+    activeId: null,
+    blocked: false,
+    message: '',
+    saves: [],
+  });
+  const [saveBlocked, setSaveBlocked] = useState(false);
+  const [ready, setReady] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const notify = useCallback((text: string, error = false) => {
@@ -40,6 +48,8 @@ export function useFrontier() {
     window.frontier.getState().then((data) => {
       setWorld(data.state);
       setTimeline(data.timeline);
+      setSaveBlocked(data.saveBlocked);
+      setReady(true);
       if (data.saveBlocked) notify(data.saveMessage, true);
     });
     return window.frontier.onState(setWorld);
@@ -51,6 +61,7 @@ export function useFrontier() {
         .getState()
         .then((data) => {
           setTimeline(data.timeline);
+          setSaveBlocked(data.saveBlocked);
           if (data.saveBlocked) notify(data.saveMessage, true);
         })
         .catch(() => {});
@@ -59,20 +70,46 @@ export function useFrontier() {
     const r = await window.frontier.save();
     audio.play(r.ok ? 'action' : 'alert');
     notify(r.reason, !r.ok);
-  };
-  const reset = async () => {
-    const r = await command({ type: 'beginNewFrontier' });
-    notify(r.reason, !r.ok);
+    setCatalog(await window.frontier.listSaves());
     return r;
   };
+  const refreshSaves = useCallback(async () => {
+    const next = await window.frontier.listSaves();
+    setCatalog(next);
+  }, []);
+  const saveAction = useCallback(
+    async (action: SaveAction) => {
+      try {
+        const result = await window.frontier.saveAction(action);
+        if (!['openManager', 'closeManager'].includes(action.type)) {
+          audio.play(result.ok ? 'action' : 'alert');
+          notify(result.reason, !result.ok);
+        }
+        const data = await window.frontier.getState();
+        setWorld(data.state);
+        setTimeline(data.timeline);
+        setSaveBlocked(data.saveBlocked);
+        await refreshSaves();
+        return result;
+      } catch {
+        notify('无法连接存档管理器，请重试。', true);
+        return { ok: false, reason: '无法连接存档管理器，请重试。' };
+      }
+    },
+    [audio, notify, refreshSaves],
+  );
   return {
     world,
     timeline,
+    catalog,
+    saveBlocked,
+    ready,
+    saveAction,
+    refreshSaves,
     notice,
     command,
     notify,
     save,
-    reset,
     dismissNotice: () => setNotice(null),
   };
 }

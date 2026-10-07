@@ -44,7 +44,7 @@ export function CommandLost({
           BEGIN NEW FRONTIER
         </LcarsButton>
         <LcarsButton tone="secondary" sound="navigation" onClick={onArchive}>
-          VIEW ARCHIVE
+          SAVE MANAGER / 存档管理
         </LcarsButton>
       </div>
     </LcarsDialog>

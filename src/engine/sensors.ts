@@ -105,6 +105,7 @@ export function updateSensors(e: SimulationEngine) {
     const previousSeen = w.intel.find((i) => i.id === enemy.id)?.lastSeen;
     const result = observe(w, enemy, source.active ? 2 : 1);
     let alert = w.contactAlerts.find((a) => a.contactId === enemy.id);
+    const firstContact = !alert;
     if (
       !alert ||
       (previousSeen !== undefined && w.time - previousSeen >= 10) ||
@@ -114,9 +115,9 @@ export function updateSensors(e: SimulationEngine) {
         (result.record.hostile ? '已确认敌对接触' : '发现外部舰船接触') +
         '：' +
         (result.record.name ?? '未知舰船') +
-        '，请 Admiral 处置后手动继续';
+        (firstContact ? '，请 Admiral 处置后手动继续' : '');
       e.report(message, result.record.id, 'urgent', 'threat');
-      e.critical('newContact', result.record.id, message);
+      if (firstContact) e.critical('newContact', result.record.id, message);
       if (!alert) {
         alert = { contactId: enemy.id, lastAlertAt: w.time, hostileAlerted: false };
         w.contactAlerts.push(alert);

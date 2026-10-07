@@ -222,6 +222,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
           );
         }
         target.owner = 'starfleet';
+        w.siteIntel = w.siteIntel.filter((i) => i.locationId !== target.id);
         target.occupation = 'secured';
         target.distress = false;
         target.discovered = true;

@@ -14,6 +14,7 @@ import { advanceEnemy, advanceFactions } from '../src/engine/threats';
 import { rearmPreview } from '../src/ui/rearm';
 import { viewportGrid, fitCamera, project, clusterMarkers } from '../src/ui/map/camera';
 import { displayEntityName, worldText } from '../src/ui/localization';
+import { worldSchema } from '../src/engine/save-schema';
 import { describe as describeAction } from '../src/ui/format';
 
 const directories: string[] = [];
@@ -36,6 +37,47 @@ function captureWorld() {
   return { e, l, ship };
 }
 describe('v10 production, capture and persistent world', () => {
+  it('scouted base capture saves on the ownership-change step and continues for 60 minutes deterministically', () => {
+    const e = quietEngine();
+    const site = e.state.locations.find((l) => l.id === 'orion-base')!;
+    const ship = e.state.ships[2];
+    ship.x = site.x;
+    ship.y = site.y;
+    e.dispatchCommand({ type: 'pause', paused: false });
+    for (let i = 0; i < 110; i++) e.step();
+    expect(e.state.paused).toBe(false);
+    expect(site.discovered).toBe(true);
+    expect(e.state.siteIntel.some((i) => i.locationId === site.id)).toBe(true);
+    e.hit(site, site.hull + site.shield + 1);
+    e.finishCritical();
+    e.dispatchCommand({ type: 'pause', paused: false });
+    expect(issue(e, { type: 'CAPTURE', targetId: site.id }, ship.id).ok).toBe(true);
+    for (let i = 0; i < 200 && site.owner !== 'starfleet' && !e.state.paused; i++) e.step();
+    expect(site.owner).toBe('starfleet');
+    expect(e.state.siteIntel.some((i) => i.locationId === site.id)).toBe(false);
+    expect(e.state.history.some((h) => h.kind === 'discovery' && h.entityId === site.id)).toBe(
+      true,
+    );
+    expect(e.state.history.some((h) => h.kind === 'capture' && h.entityId === site.id)).toBe(true);
+    const directory = mkdtempSync(join(tmpdir(), 'frontier-capture-autosave-'));
+    directories.push(directory);
+    const store = new SaveStore(directory);
+    store.write(e.state);
+    const restored = new SimulationEngine(store.read().world!);
+    const tick = e.state.tick;
+    for (let i = 1; i <= 600; i++) {
+      e.step();
+      restored.step();
+      expect(worldSchema.safeParse(e.state).success).toBe(true);
+      if (i % 100 === 0) {
+        store.write(e.state);
+        expect(store.read().world).toEqual(e.state);
+      }
+    }
+    expect(e.state.tick).toBe(tick + 600);
+    expect(e.state.paused).toBe(false);
+    expect(restored.state).toEqual(e.state);
+  });
   it('manufactures both ammunition types before upgrades and halves upgraded manufacturing time', () => {
     const e = quietEngine();
     for (const cargoKind of ['photon', 'quantum'] as const)

@@ -219,34 +219,66 @@ describe('real contact pauses', () => {
       expect(e.state.communications.filter((c) => c.priority === 'urgent')).toHaveLength(count);
     },
   );
-  it('ten minutes without observation retriggers, and first hostile evidence retriggers once', () => {
-    const e = quietEngine(),
-      enemy = makeEnemy('returning-contact', 'scout', 'romulan', { x: e.base.x + 80, y: e.base.y });
-    enemy.cloak = 'off';
-    e.state.enemies = [enemy];
-    updateSensors(e);
-    e.finishCritical();
-    const first = e.state.contactAlerts[0].lastAlertAt;
-    updateSensors(e);
-    expect(e.pending).toHaveLength(0);
-    e.state.tick = 101;
-    e.state.time = 10.1;
-    updateSensors(e);
-    expect(e.pending.map((r) => r.kind)).toEqual(['newContact']);
-    e.finishCritical();
-    expect(e.state.contactAlerts[0].lastAlertAt).toBeGreaterThan(first);
-    e.state.tick++;
-    e.state.time = e.state.tick / 10;
-    enemy.lastHostileAt = e.state.time;
-    enemy.lastHostileTargetId = 'base';
-    updateSensors(e);
-    expect(e.pending).toHaveLength(1);
-    e.finishCritical();
-    updateSensors(e);
-    expect(e.pending).toHaveLength(0);
-    expect(e.state.contactAlerts[0].hostileAlerted).toBe(true);
-    expect(parseSave(e.state).contactAlerts).toEqual(e.state.contactAlerts);
-  });
+  it.each([1, 4, 16] as const)(
+    '%sx only pauses once per stable contact ID, including after reload',
+    (speed) => {
+      const e = quietEngine(),
+        enemy = makeEnemy('returning-contact', 'scout', 'romulan', {
+          x: e.base.x + 80,
+          y: e.base.y,
+        });
+      e.state.speed = speed;
+      enemy.cloak = 'off';
+      enemy.nextDecision = 1e9;
+      enemy.standing.roe = 'HOLD FIRE';
+      e.state.enemies = [enemy];
+      updateSensors(e);
+      e.finishCritical();
+      const first = e.state.contactAlerts[0].lastAlertAt;
+      e.dispatchCommand({ type: 'pause', paused: false });
+      updateSensors(e);
+      expect(e.pending).toHaveLength(0);
+      enemy.x = 10000;
+      enemy.y = 10000;
+      while (e.state.tick < 120 && !e.state.paused) e.advanceFrame();
+      expect(e.state.tick).toBeGreaterThanOrEqual(120);
+      expect(e.state.paused).toBe(false);
+      enemy.x = e.base.x + 80;
+      enemy.y = e.base.y;
+      updateSensors(e);
+      expect(e.finishCritical()).toEqual([]);
+      expect(e.state.paused).toBe(false);
+      expect(e.state.contactAlerts[0].lastAlertAt).toBeGreaterThan(first);
+      expect(e.state.communications.at(-1)?.text).not.toContain('手动继续');
+      enemy.lastHostileAt = e.state.time;
+      enemy.lastHostileTargetId = 'base';
+      updateSensors(e);
+      expect(e.finishCritical()).toEqual([]);
+      expect(e.state.paused).toBe(false);
+      expect(e.state.communications.at(-1)?.text).toContain('已确认敌对接触');
+      expect(e.state.communications.at(-1)?.text).not.toContain('手动继续');
+      const count = e.state.communications.length;
+      updateSensors(e);
+      expect(e.pending).toHaveLength(0);
+      expect(e.state.communications).toHaveLength(count);
+      expect(e.state.contactAlerts[0].hostileAlerted).toBe(true);
+      const restored = new SimulationEngine(parseSave(e.state));
+      updateSensors(restored);
+      expect(restored.finishCritical()).toEqual([]);
+      expect(restored.state.paused).toBe(false);
+      expect(restored.state.contactAlerts).toEqual(e.state.contactAlerts);
+      const newEnemy = makeEnemy('new-stable-id', 'scout', 'orion', {
+        x: e.base.x + 80,
+        y: e.base.y,
+      });
+      newEnemy.cloak = 'off';
+      restored.state.enemies.push(newEnemy);
+      updateSensors(restored);
+      expect(restored.pending.map((r) => r.entityId)).toEqual(['new-stable-id']);
+      restored.finishCritical();
+      expect(restored.state.paused).toBe(true);
+    },
+  );
 });
 it('dense high priority labels stay local with a four-em maximum connector', () => {
   const labels = Array.from({ length: 30 }, (_, i) => ({

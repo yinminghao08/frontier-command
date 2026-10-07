@@ -264,12 +264,10 @@ test('all map entity silhouettes and Chinese Inspector domains render including 
   await p.keyboard.press('Escape');
   await p
     .getByRole('navigation')
-    .getByRole('button', { name: /PERSONNEL/ })
+    .getByRole('button', { name: /AGENTS/ })
     .click();
-  await expect(p.getByRole('dialog', { name: 'PERSONNEL 工作面板' })).toContainText(
-    'Commander 陈星',
-  );
-  await expect(p.getByLabel('任职目标 commander-colony')).toBeVisible();
+  await expect(p.getByRole('dialog', { name: 'AGENTS 工作面板' })).toContainText('Talia');
+  await expect(p.getByRole('button', { name: '查看 Agent Mira' })).toBeVisible();
   await p.screenshot({ path: 'test-results/v9-personnel-and-inspectors.png' });
   expect(errors).toEqual([]);
 });

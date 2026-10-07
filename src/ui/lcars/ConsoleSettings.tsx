@@ -2,6 +2,7 @@ import { useLcars } from './LcarsProvider';
 import { LcarsButton, LcarsDrawer, LcarsField, LcarsPanel } from '../components/Lcars';
 import type { AnimationMode } from './preferences';
 import emblem from '../../assets/lcars-26/assets/sfcmd.png';
+import { AgentApiSettingsPanel } from '../AgentApiSettings';
 export function ConsoleSettings({ close }: { close: () => void }) {
   const { preferences, updatePreferences } = useLcars();
   return (
@@ -12,6 +13,7 @@ export function ConsoleSettings({ close }: { close: () => void }) {
       className="console-settings"
     >
       <p className="panel-intro">LIBRARY COMPUTER ACCESS / RETRIEVAL SYSTEM</p>
+      <AgentApiSettingsPanel />
       <LcarsPanel title="DISPLAY / TEXT 显示与文字">
         <LcarsField>
           TEXT SIZE 文字大小 <output>{Math.round(preferences.textScale * 100)}%</output>

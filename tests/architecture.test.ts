@@ -9,7 +9,7 @@ describe('authoritative v9 world, deterministic replay, Agent boundary', () => {
   it('operator ports expose only observations and validated own-ship actions; Admiral takes priority', () => {
     const e = quietEngine(),
       port = e.controllerPort('ops-verity');
-    expect(port.getObservation()?.ship.id).toBe('verity');
+    expect(port.getObservation()?.ship?.id).toBe('verity');
     expect(Object.keys(port).sort()).toEqual(['getObservation', 'submitAction']);
     expect(port.submitAction({ type: 'MOVE', point: { x: 10, y: 10 } }).ok).toBe(true);
     expect(port.submitAction({ type: 'DOCK', targetId: 'base' }).ok).toBe(false);
@@ -102,7 +102,7 @@ describe('authoritative v9 world, deterministic replay, Agent boundary', () => {
   });
   it('unsupported saves and impossible inventories, slots and refs are rejected', () => {
     const e = quietEngine();
-    for (const version of [5, 6, 7, 8, 11])
+    for (const version of [5, 6, 7, 8, 9, 10, 12])
       expect(() => parseSave({ ...e.state, version })).toThrow();
     for (const change of [
       (w: typeof e.state) => {

@@ -14,7 +14,10 @@ import type { SimulationEngine } from './engine';
 import type { Directive, Point, Ship } from './types';
 import { GOODS } from './types';
 import { capabilities, cargoUsed } from './capabilities';
-import { dist, move, planRoute, safeRouteBlocked, routeSpeedMultiplier } from './navigation';
+import { dist, move, routeSpeedMultiplier } from './navigation';
+import { planJourney } from './journey';
+import { transit } from './transit';
+import { agentOutcome } from './agents';
 import { regenerate } from './combat';
 import { available, inventory, validateAction } from './command-system';
 import { RULES } from './definitions/rules';
@@ -42,14 +45,15 @@ export function go(
   d: Directive,
   p: Point,
   dt: number,
-  route: 'safe' | 'direct' | 'risky' = 'direct',
+  route?: 'safe' | 'direct' | 'risky',
   range = 6,
 ) {
   const allowed = (p: Point) => autonomousAllowed(s, p);
   if (
-    d.source === 'standing' &&
+    d.source !== 'admiral' &&
     (!allowed(p) ||
-      (['INTERCEPT', 'SHADOW', 'ESCORT', 'ASSIST_EVENT'].includes(d.action.type) &&
+      (d.source === 'standing' &&
+        ['INTERCEPT', 'SHADOW', 'ESCORT', 'ASSIST_EVENT'].includes(d.action.type) &&
         dist(d.origin, p) > s.standing.maxPursuit))
   ) {
     e.complete(s, '自主行动超出追击范围或边境权限', true);
@@ -57,6 +61,7 @@ export function go(
   }
   if (dist(s, p) <= range + 1e-8) {
     s.path = [];
+    d.journey = null;
     return true;
   }
   const distance = dist(s, p),
@@ -64,22 +69,72 @@ export function go(
       x: p.x + ((s.x - p.x) * range) / distance,
       y: p.y + ((s.y - p.y) * range) / distance,
     };
-  if (!s.path.length || dist(s.path[s.path.length - 1], target) > 25)
-    s.path = planRoute(e.state, s, target, route);
-  const factor = routeSpeedMultiplier(e.state.upgrades, route);
-  if (d.source === 'standing' && s.path.some((p) => !allowed(p))) {
+  if (
+    !d.journey ||
+    dist(d.journey.destination, target) > 25 ||
+    d.journey.legIndex >= d.journey.legs.length
+  ) {
+    const tolerance =
+      e.state.agents.find((a) => a.id === d.actorId)?.personality.riskTolerance ?? 40;
+    d.journey = {
+      ...planJourney(e.state, s, target, route, tolerance),
+      legIndex: 0,
+      transitWork: 0,
+    };
+    s.path = [];
+  }
+  const journey = d.journey,
+    leg = journey.legs[journey.legIndex];
+  if (!leg) return false;
+  if (
+    d.source !== 'admiral' &&
+    journey.legs.some(
+      (l) => !allowed(l.destination) || (l.type === 'warp' && l.path.some((p) => !allowed(p))),
+    )
+  ) {
     e.complete(s, '自主航线超出边境权限', true);
     return false;
   }
   const previous = { x: s.x, y: s.y };
-  if (s.path[0] && move(s, s.path[0], dt, factor * groupSpeed(e, s, d))) s.path.shift();
+  if (leg.type === 'wormhole') {
+    const h = e.state.wormholes.find((h) => h.id === leg.wormholeId && h.discovered && h.surveyed);
+    if (!h || dist(h.exit, leg.destination) > 1e-8) {
+      d.journey = null;
+      s.path = [];
+      return false;
+    }
+    if (dist(s, h) > 8) {
+      d.journey = null;
+      s.path = [];
+      return false;
+    }
+    journey.transitWork += dt;
+    d.note = 'TRANSIT / ' + h.name + ' / ' + journey.transitWork.toFixed(1) + ' / 2';
+    if (journey.transitWork + 1e-8 >= 2) {
+      if (!transit(e, s, h)) return false;
+      journey.legIndex++;
+      journey.transitWork = 0;
+      borderCrossing(e, s, previous);
+    }
+    return false;
+  }
+  if (!s.path.length) s.path = structuredClone(leg.path);
+  if (
+    s.path[0] &&
+    move(s, s.path[0], dt, routeSpeedMultiplier(e.state.upgrades, leg.route) * groupSpeed(e, s, d))
+  )
+    s.path.shift();
+  if (!s.path.length) journey.legIndex++;
   borderCrossing(e, s, previous);
   d.moved += dist(previous, s);
   d.note =
     '航行 / ' +
-    route +
-    (route === 'safe' && safeRouteBlocked(e.state, s, s.path) ? ' / 无安全通路，请护航或改线' : '');
-  if (route === 'risky') e.hit(s, 0.75 * dt * capabilities(s).hazardFactor);
+    leg.route +
+    ' / Journey ' +
+    Math.min(journey.legIndex + 1, journey.legs.length) +
+    '/' +
+    journey.legs.length;
+  if (leg.route === 'risky') e.hit(s, 0.75 * dt * capabilities(s).hazardFactor);
   return dist(s, p) <= range + 1e-8;
 }
 function survey(
@@ -239,50 +294,9 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
     if (go(e, s, d, h, dt, 'direct', 8)) {
       d.work += dt;
       if (d.work >= 2) {
-        h.surveyed = true;
-        h.transits++;
-        if (!h.stable) {
-          e.hit(s, 20 * (1 - h.stability));
-          h.stability = Math.max(0.1, h.stability - 0.03);
-        }
-        if (s.hull <= 0) return;
         const previous = { x: s.x, y: s.y };
-        s.x = h.exit.x;
-        s.y = h.exit.y;
+        if (!transit(e, s, h)) return;
         borderCrossing(e, s, previous);
-        s.path = [];
-        const sector = materialize(w, h.exitSector);
-        sector.discovered = true;
-        if (
-          !w.wormholes.some(
-            (other) => other.sectorId === sector.id && other.x === h.exit.x && other.y === h.exit.y,
-          )
-        ) {
-          w.wormholes.push({
-            ...h,
-            id: 'wormhole:' + h.exitSector.q + ':' + h.exitSector.r,
-            sectorId: sector.id,
-            x: h.exit.x,
-            y: h.exit.y,
-            name: '亚空间通道 ' + h.exitSector.q + '/' + h.exitSector.r,
-            exit: { x: h.x, y: h.y },
-            exitSector: { q: Math.floor((h.x + 200) / 400), r: Math.floor((h.y + 200) / 400) },
-            transits: 0,
-          });
-        }
-        for (const id of sector.systemIds) reveal(e, s, id, 1, false);
-        for (const other of w.wormholes.filter((x) => x.sectorId === sector.id)) {
-          other.discovered = true;
-          other.stability = h.stability;
-          other.stable = h.stable;
-        }
-        e.pendingEvents.push({
-          type: 'shipTransited',
-          shipId: s.id,
-          destination: { x: s.x, y: s.y },
-          tick: w.tick,
-        });
-        e.record('wormhole', s.name + '实际穿越 ' + h.name + '，航线与星图改变', h.id);
         e.complete(s, 'Wormhole 航行完成');
       }
     }
@@ -417,6 +431,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         d.carried = n;
         d.reserved[a.cargoKind] = 0;
         d.phase = 'delivering';
+        d.journey = null;
         d.work = 0;
         s.path = [];
         e.record('cargo', s.name + ' 装载 ' + n + ' ' + a.cargoKind + '；真实航线启用', s.id);
@@ -446,6 +461,8 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
           return;
         }
         if (a.repeat) {
+          agentOutcome(e, s, d, '实际交付 ' + d.delivered + ' ' + a.cargoKind, false, true);
+          d.journey = null;
           d.phase = 'starting';
           d.work = 0;
           d.carried = 0;
@@ -563,15 +580,20 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       e.complete(s, '护航对象永久损失', true);
       return;
     }
+    const contract = w.escortRequests.find(
+      (r) => r.responderId === d.actorId && r.targetShipId === target.id && r.status === 'accepted',
+    );
     if (
       !target.current &&
-      dist(target, e.base) < 40 &&
+      (!contract || contract.started) &&
+      dist(s, target) < 60 &&
+      w.locations.some((l) => l.owner === 'starfleet' && l.hull > 0 && dist(target, l) < 40) &&
       (!('phase' in target) || target.phase !== 'delivery')
     ) {
       e.complete(s, '护航对象已安全抵港');
       return;
     }
-    go(e, s, d, target, dt, 'direct', 35);
+    go(e, s, d, target, dt, undefined, 35);
     if (s.current !== d) return;
     d.note = 'Escort / ' + target.name;
     autonomousFire(e, s, target);

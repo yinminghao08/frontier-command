@@ -124,6 +124,14 @@ export function SaveManager({
             新建存档
           </LcarsButton>
           <LcarsButton
+            disabled={busy || catalog.blocked}
+            onClick={() =>
+              void run(() => action({ type: 'demo', name: 'AGENT DEMO / v11 演示' }), changed)
+            }
+          >
+            AGENT DEMO / 演示存档
+          </LcarsButton>
+          <LcarsButton
             disabled={busy || catalog.blocked || protectedCurrent || !catalog.activeId}
             onClick={() => openForm('copy')}
           >
@@ -131,6 +139,10 @@ export function SaveManager({
           </LcarsButton>
         </div>
         <p className="muted">世界已暂停。关闭或切换存档后，请手动继续模拟。</p>
+        <p className="muted">
+          Agent Demo 会建立独立存档：已确认虫洞、真实货运与护航、聊天记录和即将毕业的学员。继续 16×
+          模拟即可观察结果。
+        </p>
         {catalog.message && <p role="alert">{catalog.message}</p>}
         {protectedCurrent && (
           <p role="alert">当前存档受保护，原文件保留。请选择其他有效存档或新建世界。</p>

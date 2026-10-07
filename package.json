@@ -1,9 +1,9 @@
 {
   "name": "frontier-command",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Frontier Command — Lv1 + Lv2 deterministic frontier ecology",
+  "description": "Frontier Command — v11 Agent-driven frontier ecology",
   "author": "Frontier Command Project",
   "main": "dist-electron/electron/main.js",
   "scripts": {
@@ -11,6 +11,7 @@
     "build": "node scripts/create-icon.mjs && tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
     "start": "npm run build && electron .",
     "test": "vitest run",
+    "demo:save": "npm run build && node scripts/create-agent-demo.mjs",
     "format": "prettier --write src electron scripts tests *.json *.ts index.html",
     "test:e2e": "npm run build && playwright test",
     "test:package": "node scripts/smoke-package.mjs",

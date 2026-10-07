@@ -9,6 +9,8 @@ import { advanceEnemy, advanceFactions } from './threats';
 import { advanceEconomy } from './services';
 import { updateSensors } from './sensors';
 import { applyDamage, fire } from './combat';
+import { advanceAgents, agentOutcome } from './agents';
+import { wakeAgent } from './chat';
 import type {
   Action,
   AgentControllerPort,
@@ -27,6 +29,8 @@ export class SimulationEngine {
   pendingEvents: SimulationEvent[] = [];
   constructor(world = createWorld()) {
     this.state = structuredClone(world);
+    for (const a of this.state.agents)
+      if (a.status === 'waiting') wakeAgent(a, 'recovery', this.state.time, true);
   }
   get base() {
     return this.state.locations.find((l) => l.id === 'base')!;
@@ -59,7 +63,7 @@ export class SimulationEngine {
     if (w.communications.length > 100) w.communications.shift();
     this.log(text, priority === 'urgent' ? 'danger' : priority === 'high' ? 'warning' : 'info');
   }
-  record(kind: string, text: string, entityId: string | null) {
+  record(kind: string, text: string, entityId: string | null, communicate = true) {
     this.state.history.push({
       id: this.state.nextHistory++,
       time: this.state.time,
@@ -67,7 +71,11 @@ export class SimulationEngine {
       text,
       entityId,
     });
-    this.report(text, entityId);
+    const agentTask = this.state.ships.some(
+      (s) => s.id === entityId && s.current?.source === 'agent',
+    );
+    if (communicate && !agentTask) this.report(text, entityId);
+    else this.log(text);
   }
   critical(kind: CriticalReason['kind'], entityId: string, message: string) {
     if (!this.pending.some((r) => r.kind === kind && r.entityId === entityId))
@@ -107,6 +115,7 @@ export class SimulationEngine {
   }
   complete(s: Ship, text: string, failed = false) {
     const old = s.current;
+    if (old) agentOutcome(this, s, old, text, failed);
     s.current = null;
     s.tracking = null;
     s.path = [];
@@ -114,8 +123,17 @@ export class SimulationEngine {
     if (old)
       this.record(
         failed ? 'actionFailed' : 'action',
-        s.name + ' / ' + old.action.type + ' / ' + text,
+        s.name +
+          ' / ' +
+          old.action.type +
+          ' / ' +
+          old.source.toUpperCase() +
+          ' / ' +
+          old.actorId +
+          ' / ' +
+          text,
         s.id,
+        old.source !== 'agent',
       );
     const next = s.suspended.pop() ?? s.queue.shift();
     if (next) {
@@ -157,6 +175,7 @@ export class SimulationEngine {
     advanceTrade(this, fixedDelta);
     advanceFactions(this, fixedDelta);
     advanceEvents(this, fixedDelta);
+    advanceAgents(this, fixedDelta);
     return [...events, ...this.pendingEvents.splice(0), ...this.finishCritical()];
   }
   advanceFrame(afterStep?: (events: SimulationEvent[], state: WorldState) => void) {

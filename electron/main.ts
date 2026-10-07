@@ -1,11 +1,15 @@
-import { app, BrowserWindow, ipcMain, protocol, net } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, net, safeStorage } from 'electron';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { SimulationEngine } from '../src/engine/engine';
 import { createWorld } from '../src/engine/data';
+import { createAgentDemoWorld } from '../src/engine/demo';
 import { HOST_FRAME_MS } from '../src/engine/clock';
 import { SaveStore } from './persistence';
 import { z } from 'zod';
+import { AgentConfigStore, apiInputSchema } from './agents/config';
+import { AgentDecisionService } from './agents/service';
+import { ChatCompletionsClient, AgentApiError } from './agents/client';
 function failureReason(error: unknown) {
   if (error instanceof z.ZodError || error instanceof SyntaxError)
     return '存档内容无法读取或未通过校验；原文件已保留。';
@@ -16,6 +20,7 @@ function failureReason(error: unknown) {
 }
 const saveActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('create'), name: z.string().trim().min(1).max(40) }).strict(),
+  z.object({ type: z.literal('demo'), name: z.string().trim().min(1).max(40) }).strict(),
   z.object({ type: z.literal('copy'), name: z.string().trim().min(1).max(40) }).strict(),
   z.object({ type: z.literal('load'), id: z.string().regex(/^frontier-\d{6,}$/) }).strict(),
   z
@@ -44,6 +49,29 @@ let timer: ReturnType<typeof setInterval> | undefined;
 let lastAutoSave = 0;
 let saveMessage = '';
 let managerOpen = false;
+let agentConfig: AgentConfigStore;
+let agentService: AgentDecisionService | undefined;
+const agentClient = new ChatCompletionsClient();
+function startAgentService() {
+  agentService?.dispose();
+  agentService = new AgentDecisionService(
+    {
+      snapshot: () => engine.snapshot(),
+      controllerPort: (id) => engine.controllerPort(id),
+      command: (command, actorId) => {
+        if (saveBlocked) return { ok: false, reason: '当前存档受保护' };
+        const result = engine.dispatchCommand(command, actorId);
+        if (result.ok) {
+          save();
+          send();
+        }
+        return result;
+      },
+    },
+    () => agentConfig.connection(),
+    agentClient,
+  );
+}
 const send = () => {
   if (window && !window.isDestroyed()) window.webContents.send('world:state', engine.snapshot());
 };
@@ -83,6 +111,8 @@ app.whenReady().then(async () => {
   saveMessage = loaded.message;
   saveBlocked = loaded.blocked;
   engine = new SimulationEngine(loaded.world ?? createWorld());
+  agentConfig = new AgentConfigStore(app.getPath('userData'), safeStorage);
+  startAgentService();
   if (engine.state.status === 'active') engine.state.paused = true;
   if (!loaded.world && !loaded.blocked) store.write(engine.state);
   window = new BrowserWindow({
@@ -146,6 +176,7 @@ app.whenReady().then(async () => {
             ? store.restorePreviousDay(engine.state)
             : store.beginNew(createWorld(), saveBlocked ? undefined : engine.state);
         engine = new SimulationEngine(next);
+        startAgentService();
         saveBlocked = false;
         lastAutoSave = engine.state.tick;
         managerOpen = false;
@@ -209,6 +240,13 @@ app.whenReady().then(async () => {
         case 'create':
           next = store.beginNew(createWorld(), saveBlocked ? undefined : engine.state, action.name);
           break;
+        case 'demo':
+          next = store.beginNew(
+            createAgentDemoWorld(),
+            saveBlocked ? undefined : engine.state,
+            action.name,
+          );
+          break;
         case 'copy': {
           if (saveBlocked) throw Error('当前存档受保护，无法复制');
           const copied = structuredClone(engine.state);
@@ -228,6 +266,7 @@ app.whenReady().then(async () => {
       }
       if (next) {
         engine = new SimulationEngine(next);
+        startAgentService();
         saveBlocked = false;
         saveMessage = '已切换存档，世界保持暂停';
         lastAutoSave = engine.state.tick;
@@ -264,7 +303,45 @@ app.whenReady().then(async () => {
       window!.webContents.setZoomFactor(zoom);
     return zoom;
   });
+  ipcMain.handle('agent:settings', (event) => {
+    trusted(event);
+    return agentConfig.publicSettings();
+  });
+  ipcMain.handle('agent:configure-api', (event, input: unknown) => {
+    trusted(event);
+    const parsed = apiInputSchema.safeParse(input);
+    if (!parsed.success)
+      return { ok: false, reason: 'API 设置格式无效，请检查地址、模型与推理档位。' };
+    try {
+      agentConfig.update(parsed.data);
+      startAgentService();
+      if (!saveBlocked)
+        for (const agent of engine.snapshot().agents)
+          engine.dispatchCommand({ type: 'retryAgent', agentId: agent.id });
+      save();
+      send();
+      return { ok: true, reason: 'Agent API 设置已保存，Key 使用系统加密。' };
+    } catch {
+      return { ok: false, reason: 'API 设置无法安全保存，请检查系统加密与磁盘。' };
+    }
+  });
+  ipcMain.handle('agent:test-api', async (event, input: unknown) => {
+    trusted(event);
+    const parsed = input === undefined ? undefined : apiInputSchema.safeParse(input);
+    if (parsed && !parsed.success) return { ok: false, reason: 'API 测试参数无效。' };
+    try {
+      return await agentClient.test(
+        agentConfig.connection(parsed?.success ? parsed.data : undefined),
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof AgentApiError ? error.message : 'API 测试失败，请检查配置。',
+      };
+    }
+  });
   window.on('close', () => {
+    agentService?.dispose();
     const result = save();
     if (!result.ok) console.error(result.reason);
   });
@@ -297,6 +374,7 @@ app.whenReady().then(async () => {
       }
     }
     send();
+    if (!saveBlocked && !managerOpen) agentService?.pump();
     const publicEvents = events.filter((event) => event.type === 'shipTransited');
     if (publicEvents.length && window && !window.isDestroyed())
       window.webContents.send('world:events', publicEvents);
@@ -310,6 +388,7 @@ app.on('second-instance', () => {
   }
 });
 app.on('window-all-closed', () => {
+  agentService?.dispose();
   if (timer) clearInterval(timer);
   app.quit();
 });

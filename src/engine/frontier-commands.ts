@@ -7,6 +7,7 @@ import { canMeet, fundDevelopment } from './society';
 import { DEVELOPMENT } from './definitions/frontier';
 import { tradeReason, orderTrade } from './trade';
 import { eventAt, finishEvent } from './world-events';
+import { AGENT_RULES } from './definitions/agents';
 export function validateFrontierCommand(e: SimulationEngine, c: Command): CommandResult | null {
   const w = e.state;
   if (c.type === 'createGroup' || c.type === 'updateGroup') {
@@ -59,11 +60,14 @@ export function validateFrontierCommand(e: SimulationEngine, c: Command): Comman
     const p = w.personnel.find((p) => p.id === c.personnelId && p.status === 'candidate');
     return !p
       ? no('候选人不可用')
-      : c.accept && w.resources.credits < 90
-        ? no('培养需要 90 Credits')
+      : c.accept &&
+          w.resources.credits < AGENT_RULES.recruitmentCredits + AGENT_RULES.trainingCredits
+        ? no('录取 60 + 训练 90，需要 150 Credits')
         : ok();
   }
   if (c.type === 'assignPersonnel') {
+    if (w.agents.some((a) => a.originPersonnelId === c.personnelId))
+      return no('毕业 Agent 请使用舰船分配');
     const p = w.personnel.find(
       (p) => p.id === c.personnelId && ['available', 'assigned'].includes(p.status),
     );
@@ -181,11 +185,15 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
     const p = w.personnel.find((p) => p.id === c.personnelId)!;
     p.career = c.career;
     if (c.accept) {
-      w.resources.credits -= 90;
+      w.resources.credits -= AGENT_RULES.recruitmentCredits + AGENT_RULES.trainingCredits;
       p.status = 'training';
       p.skills[c.career] = 50;
     } else p.status = 'rejected';
-    e.record('personnel', p.name + (c.accept ? '获准培养，支付90 Credits' : '候选被拒绝'), p.id);
+    e.record(
+      'personnel',
+      p.name + (c.accept ? '获准培养，录取60 + 训练90 Credits' : '候选被拒绝'),
+      p.id,
+    );
     return ok();
   }
   if (c.type === 'assignPersonnel') {

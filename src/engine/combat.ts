@@ -8,6 +8,7 @@ import { emptyStock } from './data';
 import { SHIP_CLASSES, WEAPONS } from './definitions/ships';
 import { dist } from './navigation';
 import { RULES } from './definitions/rules';
+import { agentVesselLost } from './agents';
 export function regenerate(s: Ship, time: number, dt: number) {
   const d = capabilities(s);
   for (const k of Object.keys(s.cooldowns)) s.cooldowns[k] = Math.max(0, s.cooldowns[k] - dt);
@@ -105,6 +106,7 @@ export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
       operatorIds,
     });
     w.assignments = w.assignments.filter((a) => a.shipId !== s.id);
+    agentVesselLost(e, s);
     for (const op of w.operators) if (operatorIds.includes(op.id)) op.availability = 'vesselLost';
     for (const p of w.personnel)
       if (p.posting?.id === s.id) {

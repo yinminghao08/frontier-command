@@ -1,12 +1,16 @@
 import { productionQuotes } from './production';
 import type { SimulationEngine } from './engine';
-import type { Observation, Opportunity, Snapshot, Stock } from './types';
+import type { Action, Observation, Opportunity, Snapshot, Stock } from './types';
 import { visibleIntel } from './sensors';
 import { frontierSectors, sectorId } from './world-generation';
 import { available } from './command-system';
 import { GOODS } from './types';
 import { markerRemovalReason } from './map-markers';
 import { mineAccidentResponse } from './world-events';
+import { validateAutonomousAction } from './agents';
+import { capabilities, cargoUsed } from './capabilities';
+import { journeyOptions } from './journey';
+import { AGENT_RULES } from './definitions/agents';
 export function opportunities(e: SimulationEngine): Opportunity[] {
   const w = e.state,
     result: Opportunity[] = [];
@@ -79,6 +83,10 @@ export function snapshot(this: SimulationEngine): Snapshot {
     commander: w.commander,
     operators: w.operators,
     assignments: w.assignments,
+    agents: w.agents,
+    chatChannels: w.chatChannels,
+    chatMessages: w.chatMessages,
+    escortRequests: w.escortRequests,
     losses: w.losses,
     ships: w.ships,
     contacts: visibleIntel(w),
@@ -183,7 +191,10 @@ export function snapshot(this: SimulationEngine): Snapshot {
       })),
     wormholes: w.wormholes
       .filter((h) => h.discovered)
-      .map(({ exit, exitSector, ...publicHole }) => publicHole),
+      .map(({ exit, exitSector, ...publicHole }) => ({
+        ...publicHole,
+        exit: publicHole.surveyed ? exit : null,
+      })),
     civilians: w.civilians,
     trade: w.trade,
     opportunities: opportunities(this),
@@ -197,32 +208,157 @@ export function snapshot(this: SimulationEngine): Snapshot {
   });
 }
 export function getObservation(this: SimulationEngine, operatorId: string): Observation | null {
-  const a = this.state.assignments.find((a) => a.operatorId === operatorId),
-    s = this.state.ships.find((s) => s.id === a?.shipId);
-  if (!s) return null;
-  const snap = this.snapshot();
+  const assignment = this.state.assignments.find((a) => a.operatorId === operatorId);
+  const ship = this.state.ships.find((s) => s.id === assignment?.shipId) ?? null;
+  const self = this.state.agents.find((a) => a.id === operatorId) ?? null;
+  if (!ship && !self) return null;
+  const snap = this.snapshot(),
+    examples: Action[] = [];
+  const locations = snap.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0);
+  if (ship) {
+    const cap = capabilities(ship),
+      free = Math.floor(cap.cargo - cargoUsed(ship));
+    examples.push({ type: 'MOVE', point: { x: ship.x + 20, y: ship.y } }, { type: 'RETURN' });
+    for (const sector of frontierSectors(snap.sectors))
+      examples.push({ type: 'EXPLORE', sector: { q: sector.q, r: sector.r }, approach: 'remote' });
+    for (const t of [...snap.systems, ...snap.bodies].slice(0, 40))
+      examples.push({ type: 'SURVEY', targetId: t.id, approach: 'close', deep: false });
+    for (const h of snap.wormholes) examples.push({ type: 'TRANSIT', targetId: h.id });
+    for (const event of snap.events.filter((v) => ['reported', 'responding'].includes(v.stage)))
+      examples.push({ type: 'ASSIST_EVENT', targetId: event.id });
+    for (const target of snap.locations.filter((l) => l.occupation === 'ruined'))
+      examples.push({ type: 'CAPTURE', targetId: target.id });
+    for (const i of snap.contacts) {
+      examples.push(
+        ...(['ATTACK', 'DISABLE', 'DRIVE_OFF', 'INTERCEPT', 'SHADOW'] as const).map((type) => ({
+          type,
+          targetId: i.id,
+        })),
+      );
+      if (i.live && i.factionId === 'romulan')
+        examples.push({ type: 'HAIL', targetId: i.id, message: 'deescalate' });
+    }
+    for (const l of snap.locations.filter((l) => l.owner !== 'starfleet' && l.hull > 0))
+      for (const type of ['ATTACK', 'DISABLE', 'DRIVE_OFF', 'INTERCEPT'] as const)
+        examples.push({ type, targetId: l.id });
+    for (const t of [...snap.ships, ...snap.civilians].filter((s) => s.id !== ship.id))
+      examples.push({ type: 'ESCORT', targetId: t.id });
+    for (const l of locations) {
+      examples.push({ type: 'PATROL', targetId: l.id, duration: 30 });
+      for (const type of ['RETREAT', 'DOCK', 'REPAIR', 'UNLOAD'] as const)
+        examples.push({ type, targetId: l.id });
+      const stock = snap.inventories.find((i) => i.locationId === l.id)?.available;
+      if (stock)
+        examples.push({
+          type: 'REARM',
+          targetId: l.id,
+          load: {
+            photon: Math.min(cap.photon - ship.photon, Math.floor(stock.photon)),
+            quantum: Math.min(cap.quantum - ship.quantum, Math.floor(stock.quantum)),
+          },
+        });
+      for (const moduleId of [
+        'deepScan',
+        'longRangeSensors',
+        'precisionTargeting',
+        'reinforcedShields',
+        'expandedCargo',
+      ] as const)
+        examples.push({
+          type: 'REFIT',
+          targetId: l.id,
+          moduleId,
+          remove: ship.modules.includes(moduleId),
+        });
+    }
+    for (const src of snap.inventories)
+      for (const dst of [...locations, ...snap.projects.filter((p) => !p.complete)].filter(
+        (l) => l.id !== src.locationId,
+      )) {
+        for (const cargoKind of GOODS) {
+          const amount = Math.min(50, free, Math.floor(src.available[cargoKind]));
+          if (amount > 0)
+            examples.push({
+              type: 'HAUL',
+              sourceId: src.locationId,
+              targetId: dst.id,
+              cargoKind,
+              amount,
+              route: 'safe',
+              repeat: false,
+            });
+        }
+      }
+    for (const wreck of snap.wrecks) examples.push({ type: 'RECOVER', targetId: wreck.id });
+  }
+  const legal = ship ? examples.filter((a) => validateAutonomousAction(this, ship, a).ok) : [];
+  const sources = snap.inventories
+    .filter((i) => i.available.materials >= 10)
+    .map((i) => i.locationId);
   return structuredClone({
     time: snap.time,
     operatorId,
-    ship: s,
+    self,
+    ship,
+    currentTask: ship?.current ?? null,
+    fleet: snap.agents.map((a) => ({
+      id: a.id,
+      name: a.name,
+      career: a.career,
+      assignedShipId: a.assignedShipId,
+      status: a.status,
+      currentGoal: a.currentGoal,
+    })),
+    ownShips: snap.ships,
     contacts: snap.contacts,
+    sectors: snap.sectors,
     systems: snap.systems,
     bodies: snap.bodies,
+    locations: snap.locations,
+    projects: snap.projects,
+    wormholes: snap.wormholes,
+    journeys: ship
+      ? [...locations, ...snap.projects.filter((p) => !p.complete)].slice(0, 24).map((l) => ({
+          targetId: l.id,
+          plans: journeyOptions(snap, ship, l, self?.personality.riskTolerance),
+        }))
+      : [],
+    inventories: snap.inventories,
+    logisticsNeeds: [
+      ...locations
+        .filter((l) => l.kind === 'base')
+        .map((l) => ({
+          targetId: l.id,
+          cargoKind: 'materials' as const,
+          amount: Math.max(0, 250 - l.stock.materials),
+          sourceIds: sources.filter((id) => id !== l.id),
+        })),
+      ...snap.projects
+        .filter((p) => !p.complete)
+        .map((p) => ({
+          targetId: p.id,
+          cargoKind: 'materials' as const,
+          amount: Math.max(0, p.cost.materials - p.stock.materials),
+          sourceIds: sources,
+        })),
+    ].filter((n) => n.amount > 0),
+    company: {
+      credits: snap.resources.credits,
+      upgrades: snap.upgrades,
+      tension: snap.tension,
+      status: snap.status,
+    },
+    recentChat: snap.chatMessages
+      .filter((m) =>
+        snap.chatChannels.some((ch) => ch.id === m.channelId && ch.members.includes(operatorId)),
+      )
+      .slice(-AGENT_RULES.chatObservationLimit),
+    channels: snap.chatChannels.filter((ch) => ch.members.includes(operatorId)),
+    escortRequests: snap.escortRequests
+      .filter((r) => r.requesterId === operatorId || r.responderId === operatorId)
+      .slice(-16),
     opportunities: snap.opportunities,
-    legalActions: s.current
-      ? []
-      : [
-          'MOVE',
-          'EXPLORE',
-          'SURVEY',
-          'HAUL',
-          'PATROL',
-          'RETREAT',
-          'RETURN',
-          'ASSIST_EVENT',
-          'TRANSIT',
-          'CAPTURE',
-          'HAIL',
-        ],
+    legalActions: [...new Set(legal.map((a) => a.type))],
+    actionExamples: legal,
   });
 }

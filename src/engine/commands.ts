@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { agentCareerSchema, modelConfigSchema } from './agent-schema';
 const id = z.string().min(1).max(160),
   n = z.number().finite(),
   count = n.int().min(1).max(10000);
@@ -76,6 +77,34 @@ export const actionSchema = z.discriminatedUnion('type', [
     .object({ type: z.literal('REFIT'), targetId: id, moduleId: moduleSchema, remove: z.boolean() })
     .strict(),
 ]);
+export const agentDecisionSchema = z
+  .object({
+    goal: z.string().trim().min(1).max(240),
+    rationale: z.string().trim().min(1).max(600),
+    action: actionSchema.nullable(),
+    messages: z
+      .array(
+        z
+          .object({
+            channelId: id,
+            content: z.string().trim().min(1).max(1200),
+            mentions: z.array(id).max(12).default([]),
+          })
+          .strict(),
+      )
+      .max(3)
+      .default([]),
+    memory: z.string().trim().min(1).max(300).nullable().default(null),
+    waitMinutes: n.min(5).max(180).default(30),
+    coordination: z
+      .discriminatedUnion('type', [
+        z.object({ type: z.literal('requestEscort'), agentId: id, targetShipId: id }).strict(),
+        z.object({ type: z.literal('answerEscort'), requestId: id, accept: z.boolean() }).strict(),
+      ])
+      .nullable()
+      .default(null),
+  })
+  .strict();
 export const careerSchema = z.enum([
   'battle',
   'science',
@@ -115,6 +144,42 @@ const groupFields = {
   spacing: n.min(15).max(100),
 };
 export const commandSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('assignAgent'), agentId: id, shipId: id.nullable() }).strict(),
+  z
+    .object({
+      type: z.literal('configureAgent'),
+      agentId: id,
+      modelConfig: modelConfigSchema,
+      enabled: z.boolean(),
+    })
+    .strict(),
+  z.object({ type: z.literal('retryAgent'), agentId: id }).strict(),
+  z
+    .object({
+      type: z.literal('sendChat'),
+      channelId: id,
+      content: z.string().trim().min(1).max(1200),
+      mentions: z.array(id).max(12),
+    })
+    .strict(),
+  z.object({ type: z.literal('readChat'), channelId: id, throughId: n.int().min(0) }).strict(),
+  z
+    .object({
+      type: z.literal('agentDecision'),
+      agentId: id,
+      revision: n.int().min(0),
+      decision: agentDecisionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('agentDecisionState'),
+      agentId: id,
+      revision: n.int().min(0),
+      state: z.enum(['waiting', 'error', 'offline', 'ready']),
+      error: z.string().max(400).nullable(),
+    })
+    .strict(),
   z.object({ type: z.literal('dismissMapMarker'), entityId: id }).strict(),
   z
     .object({
@@ -147,7 +212,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       type: z.literal('candidate'),
       personnelId: id,
       accept: z.boolean(),
-      career: careerSchema,
+      career: agentCareerSchema,
     })
     .strict(),
   z

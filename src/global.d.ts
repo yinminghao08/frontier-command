@@ -6,6 +6,7 @@ import type {
   PublicSimulationEvent,
 } from './engine/types';
 import type { SaveAction, SaveCatalog, TimelineStatus } from './engine/timeline';
+import type { AgentApiInput, AgentApiSettings, AgentApiResult } from './engine/agent-api';
 declare global {
   interface Window {
     frontier: {
@@ -23,6 +24,9 @@ declare global {
       onState(callback: (state: Snapshot) => void): () => void;
       onEvents(callback: (events: PublicSimulationEvent[]) => void): () => void;
       setDisplayZoom(factor: number): Promise<number>;
+      agentSettings(): Promise<AgentApiSettings>;
+      configureAgentApi(settings: AgentApiInput): Promise<AgentApiResult>;
+      testAgentApi(settings?: AgentApiInput): Promise<AgentApiResult>;
     };
   }
 }

@@ -81,7 +81,7 @@ test('Classic geometry, eight Starbase modules, directives and Inspector at six 
     await screenshot(page, 'v9-' + width + 'x' + height);
   }
   await size(page, 1920, 1080);
-  for (const nav of ['OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
+  for (const nav of ['OPERATIONS', 'AGENTS', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
     const trigger = page.getByRole('navigation').getByRole('button', { name: new RegExp(nav) });
     await trigger.click();
     await expect(page.getByRole('dialog', { name: nav + ' 工作面板' })).toBeVisible();
@@ -227,7 +227,7 @@ for (const scale of [1.25, 1.5, 2])
     await expect.poll(() => page.evaluate(() => devicePixelRatio)).toBe(scale);
     const menu = page.getByRole('button', { name: 'MENU 导航', exact: true });
     if (await menu.isVisible()) await menu.click();
-    for (const nav of ['SECTOR', 'OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
+    for (const nav of ['SECTOR', 'OPERATIONS', 'AGENTS', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
       const button = page.getByRole('navigation').getByRole('button', { name: new RegExp(nav) });
       await button.scrollIntoViewIfNeeded();
       await expect(button).toBeInViewport();

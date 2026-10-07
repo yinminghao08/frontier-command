@@ -12,12 +12,12 @@ export const PAGES: Page[] = [
   'SECTOR',
   'FLEET',
   'OPERATIONS',
-  'PERSONNEL',
+  'AGENTS',
   'STARBASE',
   'COLONIES',
   'ARCHIVE',
 ];
-export const LABELS = ['星区', '舰队', '行动', '人员', '基地', '殖民地', '存档'];
+export const LABELS = ['星区', '舰队', '行动', '智能体', '基地', '殖民地', '存档'];
 const shownResource = (value: number, fractional: boolean) =>
   fractional ? Number(value.toFixed(1)) : Math.floor(value);
 export function LcarsShell({
@@ -304,7 +304,7 @@ export function LcarsShell({
           <span>
             LCARS / 2368
             <br />
-            RULES AI / LOCAL
+            AGENT LINK / V11
           </span>
           <LcarsButton
             shape="flat"

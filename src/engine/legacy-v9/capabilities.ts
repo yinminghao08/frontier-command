@@ -1,6 +1,6 @@
 import { SHIP_CLASSES, MODULE_SLOTS } from './ships';
 import type { Ship, ReadonlyDeep } from '../types';
-export function capabilities(s: ReadonlyDeep<Ship>) {
+export function capabilities(s: ReadonlyDeep<Pick<Ship, 'classId' | 'modules' | 'engines'>>) {
   const d = SHIP_CLASSES[s.classId];
   return {
     ...d,
@@ -13,5 +13,5 @@ export function capabilities(s: ReadonlyDeep<Ship>) {
     warp: d.warp * Math.max(0.15, s.engines / 100),
   };
 }
-export const cargoUsed = (s: ReadonlyDeep<Ship>) =>
+export const cargoUsed = (s: ReadonlyDeep<Pick<Ship, 'cargo' | 'passengers'>>) =>
   Object.values(s.cargo).reduce((a, b) => a + b, 0) + s.passengers / 5;

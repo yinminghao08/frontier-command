@@ -27,27 +27,13 @@ afterEach(() => {
   for (const p of dirs.splice(0)) rmSync(p, { recursive: true, force: true });
 });
 describe('v9 timeline persistence', () => {
-  it('loads isolated v9 fixtures and resumes the same physical world deterministically', () => {
-    const load = (name: string) =>
-      parseSave(JSON.parse(readFileSync(join('tests', 'fixtures', 'v9', name + '.json'), 'utf8')));
-    const initial = load('initial');
-    expect(initial.paused).toBe(true);
-    expect(initial.speed).toBe(1);
-    expect(initial.ships).toHaveLength(6);
-    const progress = load('in-progress');
-    expect(progress.ships.some((s) => s.cargo.materials > 0)).toBe(true);
-    expect(progress.systems.length).toBeGreaterThan(initial.systems.length);
-    const a = new SimulationEngine(progress),
-      b = new SimulationEngine(load('in-progress'));
-    run(a, 25);
-    run(b, 25);
-    expect(a.state).toEqual(b.state);
-    expect(load('continued').ships.some((s) => s.modules.includes('expandedCargo'))).toBe(true);
-    const terminal = new SimulationEngine(load('command-lost'));
-    const frozen = structuredClone(terminal.state);
-    expect(terminal.state.status).toBe('commandLost');
-    terminal.advanceFrame();
-    expect(terminal.state).toEqual(frozen);
+  it('rejects old v9 fixtures and preserves their bytes', () => {
+    for (const name of ['initial', 'in-progress', 'continued', 'command-lost']) {
+      const path = join('tests', 'fixtures', 'v9', name + '.json');
+      const source = readFileSync(path, 'utf8');
+      expect(() => parseSave(JSON.parse(source))).toThrow('Unsupported save version: 9');
+      expect(readFileSync(path, 'utf8')).toBe(source);
+    }
   });
   it('persists reservations, ammunition and deterministic continuation', () => {
     const e = quietEngine();
@@ -105,7 +91,7 @@ describe('v9 timeline persistence', () => {
     expect(
       readdirSync(join(store.root, 'frontier-000001')).some((n) => n.includes('corrupt')),
     ).toBe(true);
-    writeFileSync(store.path, JSON.stringify({ ...w, version: 11 }));
+    writeFileSync(store.path, JSON.stringify({ ...w, version: 12 }));
     expect(store.read().blocked).toBe(true);
     expect(() => store.write(w)).toThrow();
   });

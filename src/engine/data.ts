@@ -13,6 +13,8 @@ import { INITIAL_FLEET, SHIP_CLASSES, type ShipClassId } from './definitions/shi
 import { FACILITIES } from './definitions/progression';
 import { materialize } from './world-generation';
 import { DEFAULT_STANDING, STORAGE } from './definitions/frontier';
+import { makeAgent, registerAgent } from './agents';
+import { COMMAND_CHANNEL } from './chat';
 export { BASE } from './definitions/locations';
 export const emptyStock = (): Stock => ({
   materials: 0,
@@ -162,7 +164,7 @@ export function createWorld(seed = 236807): WorldState {
     makeShip(s.id, s.name, s.classId, 'starfleet', { x: BASE.x + (i - 1.5) * 28, y: BASE.y + 45 }),
   );
   const w: WorldState = {
-    version: 10,
+    version: 11,
     tick: 0,
     time: 0,
     seed: seed >>> 0,
@@ -179,6 +181,19 @@ export function createWorld(seed = 236807): WorldState {
       availability: 'available',
     })),
     assignments: ships.map((s) => ({ operatorId: 'ops-' + s.id, shipId: s.id, since: 0 })),
+    agents: [],
+    chatChannels: [
+      {
+        id: COMMAND_CHANNEL,
+        name: 'FRONTIER COMMAND',
+        kind: 'command',
+        members: ['commander'],
+        readThrough: 0,
+      },
+    ],
+    chatMessages: [],
+    escortRequests: [],
+    nextChat: 1,
     losses: [],
     ships,
     enemies: [],
@@ -329,5 +344,7 @@ export function createWorld(seed = 236807): WorldState {
     entityId: 'mine',
     category: 'request',
   });
+  registerAgent(w, makeAgent('ops-horizon', 'Talia', 'battle', 'horizon'));
+  registerAgent(w, makeAgent('ops-meridian', 'Mira', 'logistics', 'meridian'));
   return w;
 }

@@ -214,7 +214,7 @@ describe('v9 finite physical economy', () => {
 describe('coordinated task groups and Admiral priority', () => {
   it('explicit QUEUE takes priority over a current autonomous escort', () => {
     const e = quietEngine(),
-      s = e.state.ships[0];
+      s = e.state.ships[1];
     const f = e.state.ships[4];
     f.x = s.x;
     f.y = s.y;
@@ -327,39 +327,26 @@ describe('coordinated task groups and Admiral priority', () => {
   });
 });
 describe('personnel and persistent consequences', () => {
-  it('Commander reports candidates, acceptance pays training, appointments require a meeting and work gains experience', () => {
-    const e = quietEngine(),
-      colony = e.state.locations.find((l) => l.id === 'colony')!;
+  it('Commander candidates become independently assignable Agents after paid simulation-time training', () => {
+    const e = quietEngine();
     run(e, 120);
     const p = e.state.personnel.find((p) => p.status === 'candidate')!;
     expect(p.originId).toBe('colony');
     const credits = e.state.resources.credits;
-    e.dispatchCommand({ type: 'candidate', personnelId: p.id, accept: true, career: 'science' });
-    expect(e.state.resources.credits).toBe(credits - 90);
-    run(e, 90);
-    expect(p.status).toBe('available');
     expect(
-      e.dispatchCommand({
-        type: 'assignPersonnel',
-        personnelId: p.id,
-        targetType: 'ship',
-        targetId: 'verity',
-      }).ok,
-    ).toBe(false);
-    const s = e.state.ships.find((s) => s.id === 'verity')!;
-    s.x = colony.x;
-    s.y = colony.y;
-    expect(
-      e.dispatchCommand({
-        type: 'assignPersonnel',
-        personnelId: p.id,
-        targetType: 'ship',
-        targetId: s.id,
-      }).ok,
+      e.dispatchCommand({ type: 'candidate', personnelId: p.id, accept: true, career: 'logistics' })
+        .ok,
     ).toBe(true);
-    run(e, 5);
-    expect(p.experience).toBeGreaterThan(0);
-    expect(personnelBonus(e, s.id, 'science')).toBeGreaterThan(0);
+    expect(e.state.resources.credits).toBe(credits - 150);
+    run(e, 90);
+    const a = e.state.agents.find((a) => a.originPersonnelId === p.id)!;
+    expect(p.status).toBe('available');
+    expect(a.assignedShipId).toBeNull();
+    expect(e.dispatchCommand({ type: 'assignAgent', agentId: a.id, shipId: 'verity' }).ok).toBe(
+      true,
+    );
+    expect(personnelBonus(e, 'verity', 'logistics')).toBeGreaterThan(0);
+    expect(() => parseSave(e.state)).not.toThrow();
   });
   it('development spends local Materials and survives reload', () => {
     const e = quietEngine(),
@@ -531,7 +518,7 @@ describe('world generation, intelligence and diplomacy', () => {
     const s = e.state.ships[2];
     s.x = h.x;
     s.y = h.y;
-    expect('exit' in e.snapshot().wormholes[0]).toBe(false);
+    expect(e.snapshot().wormholes[0].exit).toBeNull();
     expect(generatedSector(42, h.exitSector).wormholes[0].exit).toEqual({ x: h.x, y: h.y });
     issue(e, { type: 'TRANSIT', targetId: h.id });
     until(e, () => !s.current);

@@ -9,7 +9,7 @@ const TRANSLATIONS: Record<string, string> = {
   'DAWN STARBASE': '曙光基地',
   SECTOR: '星区',
   OPERATIONS: '行动',
-  PERSONNEL: '人员',
+  AGENTS: '智能体',
   STARBASE: '基地',
   COLONIES: '殖民地',
   ARCHIVE: '存档',

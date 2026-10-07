@@ -145,6 +145,7 @@ test('onsite responder cargo repairs without remote inventory and renders travel
   const status = p.getByRole('complementary', { name: '对象详情' }).getByLabel('矿场事故响应状态');
   await expect(status).toContainText('航行中');
   await expect(status).toContainText('舰上材料抵达后可用');
+  await p.getByRole('button', { name: '4×', exact: true }).click();
   await p.getByRole('button', { name: '继续', exact: true }).click();
   await expect(status).toContainText('现场施工', { timeout: 15000 });
   await expect

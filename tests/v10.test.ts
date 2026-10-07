@@ -396,71 +396,36 @@ describe('v10 production, capture and persistent world', () => {
       }
     }
   });
-  it('migrates an entire v9 timeline without changing original files or asset positions', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'frontier-v10-migration-'));
+  it('starts an independent v11 timeline without touching old v9/v10 worlds', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'frontier-v11-isolation-'));
     directories.push(dir);
     const original = readFileSync('tests/fixtures/v9/in-progress.json', 'utf8');
     const branch = { id: 'frontier-000001', parent: null };
-    const source = join(dir, 'frontiers-v9', branch.id);
-    mkdirSync(source, { recursive: true });
-    for (const file of ['head.json', 'head.json.bak', 'day-1.json'])
-      writeFileSync(join(source, file), original);
-    const index = JSON.stringify({ version: 9, activeId: branch.id, branches: [branch] });
-    writeFileSync(join(dir, 'timeline-v9.json'), index);
+    for (const version of [9, 10]) {
+      const source = join(dir, 'frontiers-v' + version, branch.id);
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, 'head.json'), original);
+      writeFileSync(
+        join(dir, 'timeline-v' + version + '.json'),
+        JSON.stringify({ version, activeId: branch.id, branches: [branch] }),
+      );
+    }
     const store = new SaveStore(dir);
-    const loaded = store.read();
-    expect(loaded.blocked).toBe(false);
-    expect(loaded.world?.version).toBe(10);
-    expect(loaded.world?.ships.map((s) => [s.id, s.x, s.y, s.photon, s.quantum])).toEqual(
-      JSON.parse(original).ships.map(
-        (s: { id: string; x: number; y: number; photon: number; quantum: number }) => [
-          s.id,
-          s.x,
-          s.y,
-          s.photon,
-          s.quantum,
-        ],
-      ),
-    );
-    expect(readFileSync(join(source, 'head.json'), 'utf8')).toBe(original);
-    expect(readFileSync(join(dir, 'timeline-v9.json'), 'utf8')).toBe(index);
-    expect(store.root).toContain('frontiers-v10');
-    const next = new SimulationEngine(loaded.world!);
-    run(next, 5);
-    store.write(next.state);
-    expect(store.read().world).toEqual(next.state);
-    expect(store.restorePreviousDay({ ...next.state, tick: 14400, time: 1440 }).version).toBe(10);
+    expect(store.read().world).toBeNull();
+    const e = quietEngine();
+    store.write(e.state);
+    expect(store.read().world?.version).toBe(11);
+    expect(store.root).toContain('frontiers-v11');
+    for (const version of [9, 10])
+      expect(readFileSync(join(dir, 'frontiers-v' + version, branch.id, 'head.json'), 'utf8')).toBe(
+        original,
+      );
   });
-  it('legacy ordinary portals are rerouted while explored sectors and fixed passage persist', () => {
+  it('rejects old schema even when its portal data exists', () => {
     const old: unknown = JSON.parse(readFileSync('tests/fixtures/v9/initial.json', 'utf8'));
-    const current = parseSave(old);
-    const generation = materialize(current, { q: 0, r: -1 });
-    current.wormholes = current.wormholes.filter((h) => h.id !== 'wormhole:0:-1');
-    current.wormholes.push({
-      ...current.wormholes[0],
-      id: 'wormhole:0:-1',
-      name: '亚空间通道 0/-1',
-      sectorId: generation.id,
-      x: 90,
-      y: -480,
-      exit: { x: 90, y: 5120 },
-      exitSector: { q: 0, r: 13 },
-      transits: 1,
-    });
-    const legacy = JSON.parse(JSON.stringify(current)) as Record<string, unknown>;
-    legacy.version = 9;
-    delete legacy.productionDiscountUnlocked;
-    delete legacy.renamedEntityIds;
-    legacy.locations = current.locations.map(({ occupation: _, ...l }) => l);
-    const migrated = parseSave(legacy);
-    expect(migrated.wormholes.find((h) => h.id === 'wormhole:0:-1')!.exitSector.q).not.toBe(0);
-    expect(migrated.wormholes.find((h) => h.id === 'wormhole:0:0')!.exitSector).toEqual({
-      q: 0,
-      r: 12,
-    });
-    expect(migrated.sectors).toEqual(current.sectors);
+    expect(() => parseSave(old)).toThrow('Unsupported save version: 9');
   });
-  it('preserves custom bilingual-looking names and migration failures leave v9 files untouched', () => {
+  it('preserves custom bilingual-looking names and ignores corrupt legacy files', () => {
     const e = quietEngine();
     e.dispatchCommand({ type: 'renameEntity', entityId: 'horizon', name: 'My Ship / 自定义' });
     const w = new SimulationEngine(parseSave(e.state)).snapshot();
@@ -473,7 +438,7 @@ describe('v10 production, capture and persistent world', () => {
     writeFileSync(join(source, 'head.json'), 'invalid saved world');
     const index = JSON.stringify({ version: 9, activeId: branch.id, branches: [branch] });
     writeFileSync(join(dir, 'timeline-v9.json'), index);
-    expect(new SaveStore(dir).read().blocked).toBe(true);
+    expect(new SaveStore(dir).read().blocked).toBe(false);
     expect(readFileSync(join(source, 'head.json'), 'utf8')).toBe('invalid saved world');
     expect(readFileSync(join(dir, 'timeline-v9.json'), 'utf8')).toBe(index);
   });

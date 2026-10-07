@@ -27,7 +27,7 @@ const metaSchema = z
   })
   .strict();
 const indexSchema = z
-  .object({ version: z.literal(10), activeId: branchId, branches: z.array(metaSchema) })
+  .object({ version: z.literal(11), activeId: branchId, branches: z.array(metaSchema) })
   .strict();
 type Index = z.infer<typeof indexSchema>;
 function atomic(path: string, data: unknown) {
@@ -44,20 +44,10 @@ export class SaveStore {
   readonly indexPath: string;
   private index: Index | null = null;
   private blocked = false;
-  private migrationFailed = false;
   private indexBlocked = false;
   constructor(readonly directory: string) {
-    this.root = join(directory, 'frontiers-v10');
-    this.indexPath = join(directory, 'timeline-v10.json');
-    if (!existsSync(this.indexPath) && existsSync(join(directory, 'timeline-v9.json'))) {
-      try {
-        this.migrateTimeline();
-      } catch {
-        this.blocked = true;
-        this.migrationFailed = true;
-        this.indexBlocked = true;
-      }
-    }
+    this.root = join(directory, 'frontiers-v11');
+    this.indexPath = join(directory, 'timeline-v11.json');
     mkdirSync(this.root, { recursive: true });
     if (existsSync(this.indexPath))
       try {
@@ -185,48 +175,9 @@ export class SaveStore {
     return {
       activeId: this.index?.activeId ?? null,
       blocked: this.indexBlocked,
-      message: this.indexBlocked ? '时间线索引损坏或迁移失败；原文件已保护，禁止修改。' : '',
+      message: this.indexBlocked ? '时间线索引损坏；原文件已保护，禁止修改。' : '',
       saves,
     };
-  }
-  private migrateTimeline() {
-    const legacyIndex = indexSchema
-      .extend({ version: z.literal(9) })
-      .parse(JSON.parse(readFileSync(join(this.directory, 'timeline-v9.json'), 'utf8')));
-    if (!legacyIndex.branches.some((b) => b.id === legacyIndex.activeId))
-      throw Error('Missing active branch');
-    if (existsSync(this.root)) throw Error('Uncommitted migration preserved');
-    const stage = join(this.directory, 'frontiers-v10-migration-' + Date.now());
-    mkdirSync(stage, { recursive: true });
-    // Validate every branch before publishing its index; v9 files are never rewritten.
-    for (const branch of legacyIndex.branches) {
-      const source = join(this.directory, 'frontiers-v9', branch.id);
-      const destination = join(stage, branch.id);
-      mkdirSync(destination);
-      const head = (() => {
-        try {
-          return loadWorld(join(source, 'head.json'));
-        } catch (error) {
-          if (error instanceof UnsupportedSaveVersionError) throw error;
-          return loadWorld(join(source, 'head.json.bak'));
-        }
-      })();
-      atomic(join(destination, 'head.json'), head);
-      atomic(join(destination, 'branch.json'), branch);
-      for (const file of readdirSync(source)) {
-        if (!/^day-\d+\.json$/.test(file) && file !== 'failure.json' && file !== 'head.json.bak')
-          continue;
-        if (file === 'head.json.bak') {
-          try {
-            atomic(join(destination, file), loadWorld(join(source, file)));
-          } catch {
-            /* Keep the original corrupt backup in v9. */
-          }
-        } else atomic(join(destination, file), loadWorld(join(source, file)));
-      }
-    }
-    renameSync(stage, this.root);
-    atomic(this.indexPath, { ...legacyIndex, version: 10 });
   }
   get path() {
     return join(this.root, this.index?.activeId ?? 'uninitialized', 'head.json');
@@ -238,17 +189,15 @@ export class SaveStore {
     if (this.blocked)
       return {
         world: null,
-        message: this.migrationFailed
-          ? 'v9 时间线迁移验证失败；原存档完整保留，已阻止启用新版存档。'
-          : '时间线索引损坏或版本不支持；已保留原文件并阻止覆盖。',
+        message: '时间线索引损坏或版本不支持；已保留原文件并阻止覆盖。',
         blocked: true,
       };
-    if (!this.index) return { world: null, message: 'v10 曙光边疆就绪。', blocked: false };
+    if (!this.index) return { world: null, message: 'v11 Agent边疆就绪。', blocked: false };
     try {
       const loaded = this.readBranch(this.index.activeId);
       return {
         world: loaded.world,
-        message: loaded.backup ? '已从同代备份恢复' : '已恢复 v10 时间线',
+        message: loaded.backup ? '已从同代备份恢复' : '已恢复 v11 时间线',
         blocked: false,
       };
     } catch (error) {
@@ -304,7 +253,7 @@ export class SaveStore {
       writeFileSync(journal, '', { flag: 'wx' });
       renameSync(dir, destination);
       moved = true;
-      this.commit({ version: 10, activeId: id, branches: [...(this.index?.branches ?? []), meta] });
+      this.commit({ version: 11, activeId: id, branches: [...(this.index?.branches ?? []), meta] });
     } catch (error) {
       rmSync(dir, { recursive: true, force: true });
       if (moved) rmSync(destination, { recursive: true, force: true });

@@ -3,7 +3,7 @@ export type Page =
   | 'SECTOR'
   | 'FLEET'
   | 'OPERATIONS'
-  | 'PERSONNEL'
+  | 'AGENTS'
   | 'STARBASE'
   | 'COLONIES'
   | 'ARCHIVE';

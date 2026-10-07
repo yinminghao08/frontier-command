@@ -51,6 +51,8 @@ export function advanceStanding(e: SimulationEngine, s: Ship) {
     s.emergencyRetreat = null;
     return;
   }
+  // An assigned Agent owns autonomous high-level choices. ROE still governs automatic fire.
+  if (e.state.agents.some((a) => a.assignedShipId === s.id && a.enabled)) return;
   const c = capabilities(s),
     o = s.standing,
     low =
@@ -64,6 +66,7 @@ export function advanceStanding(e: SimulationEngine, s: Ship) {
     if (!validateAction(e, s, action).ok) return;
     const d = makeDirective(e, action);
     d.source = 'standing';
+    d.actorId = 'standing:' + s.id;
     d.origin = { x: s.x, y: s.y };
     s.current = d;
     s.path = [];

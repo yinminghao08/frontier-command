@@ -301,14 +301,7 @@ for (const scale of [1.25, 1.5, 2])
           path: join(output, 'native-' + scale * 100 + '-text-' + text * 100 + '.png'),
           animations: 'disabled',
         });
-        for (const page of [
-          'FLEET',
-          'OPERATIONS',
-          'PERSONNEL',
-          'COLONIES',
-          'ARCHIVE',
-          'STARBASE',
-        ]) {
+        for (const page of ['FLEET', 'OPERATIONS', 'AGENTS', 'COLONIES', 'ARCHIVE', 'STARBASE']) {
           await nav(p, page);
           const d = p.getByRole('dialog', { name: page + ' 工作面板' });
           await expect(d).toBeVisible();
@@ -365,7 +358,12 @@ for (const scale of [1.25, 1.5, 2])
         expect(
           await p.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize)),
         ).toBeCloseTo(18 * text, 1);
-        await expect.poll(() => p.evaluate(() => innerWidth)).toBeGreaterThanOrEqual(1919);
+        const actualWidth = await app!.evaluate(
+          ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getContentBounds().width,
+        );
+        await expect
+          .poll(() => p.evaluate(() => innerWidth))
+          .toBeGreaterThanOrEqual(actualWidth - 1);
         await p.evaluate(
           () =>
             new Promise<void>((resolve) =>

@@ -298,7 +298,7 @@ for (const scale of [1.25, 1.5, 2])
       animations: 'disabled',
     });
     await page.keyboard.press('Escape');
-    for (const nav of ['OPERATIONS', 'PERSONNEL', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
+    for (const nav of ['OPERATIONS', 'AGENTS', 'STARBASE', 'COLONIES', 'ARCHIVE']) {
       await page
         .getByRole('navigation')
         .getByRole('button', { name: new RegExp(nav) })

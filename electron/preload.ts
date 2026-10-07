@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Command, SessionCommand, Snapshot, PublicSimulationEvent } from '../src/engine/types';
 import type { SaveAction } from '../src/engine/timeline';
+import type { AgentApiInput } from '../src/engine/agent-api';
 contextBridge.exposeInMainWorld('frontier', {
   getState: () => ipcRenderer.invoke('world:get'),
   command: (command: Command | SessionCommand) => ipcRenderer.invoke('world:command', command),
@@ -9,6 +10,10 @@ contextBridge.exposeInMainWorld('frontier', {
   listSaves: () => ipcRenderer.invoke('world:saves'),
   saveAction: (action: SaveAction) => ipcRenderer.invoke('world:save-action', action),
   setDisplayZoom: (factor: number) => ipcRenderer.invoke('display:zoom', factor),
+  agentSettings: () => ipcRenderer.invoke('agent:settings'),
+  configureAgentApi: (settings: AgentApiInput) =>
+    ipcRenderer.invoke('agent:configure-api', settings),
+  testAgentApi: (settings?: AgentApiInput) => ipcRenderer.invoke('agent:test-api', settings),
   onEvents: (callback: (events: PublicSimulationEvent[]) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, events: PublicSimulationEvent[]) =>
       callback(events);

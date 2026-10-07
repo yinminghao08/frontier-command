@@ -1,4 +1,12 @@
-# Frontier Command v10 验收
+# Frontier Command v11 Agent 验收
+
+当前 v11 使用新世界与独立存档目录，不迁移 v10。`tests/agents.test.ts` 验证独立 Agent、完整公开 observation、Admiral 优先级、原子拒绝非法决策、真实攻击/护航/运输、聊天与有限记忆、培养、经验及关系变化。`tests/agent-api.test.ts` 验证 main-only 协议、独立模型/NONE、兼容重试、超时、加密配置、凭据不进入记录、决策节点与过期响应。
+
+`tests/e2e/agents.spec.ts` 实际启动 Electron：使用隔离存档和本地 Chat Completions 协议服务完成群聊/私聊/@ → 模型决策 → 校验 → 实际 HAUL/ESCORT → 已确认虫洞 → 真实卸货 → 经验/关系/记忆，以及拒绝、错误恢复、培养、分配、重启、拖动通讯和大字号布局。外部 provider 需玩家自行配置凭据；测试服务不在应用运行路径中。
+
+Demo 的规则与确定性验收见 `tests/agent-demo.test.ts`；Electron 从随附的独立存档加载，并验证一键生成与库存/训练真实结算。[Demo 使用说明](../demo/README.md) · [v11 验证记录](verification/v11/README.md)。
+
+# Frontier Command v10 历史验收
 
 矿场事故修复：`tests/mine-accidents.test.ts` 验证现场／舰上／混合材料、预留守恒、缺料停工、真实补给恢复、多舰单次结算及超额工作旧存档的确定性恢复。`tests/e2e/mine-accidents.spec.ts` 使用隔离存档运行生产 Electron，验证缺料详情、一次性补给表单、航行／施工提示及恢复生产；截图位于 `docs/verification/mine-accidents/`。
 

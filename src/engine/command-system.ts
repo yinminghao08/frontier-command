@@ -13,6 +13,14 @@ import { BUILD_COSTS, FACILITIES, UPGRADES, BASE_REFIT, cost } from './definitio
 import { RULES } from './definitions/rules';
 import { SHIP_CLASSES } from './definitions/ships';
 import { markerRemovalReason } from './map-markers';
+import {
+  applyAgentCommand,
+  validateAgentCommand,
+  validateAutonomousAction,
+  agentOutcome,
+} from './agents';
+import { hasAdmiralWork } from './fleet';
+import { wakeAgent } from './chat';
 export const ok = (reason = '命令已接受'): CommandResult => ({ ok: true, reason });
 export const no = (reason: string): CommandResult => ({ ok: false, reason });
 export { inventory, available } from './inventory';
@@ -156,19 +164,34 @@ export function validate(
   const c = parsed.data as Command,
     w = this.state;
   if (w.status !== 'active') return no('COMMAND LOST：只能恢复昨日或开始新边疆');
+  if (actorId === w.commander.id && ['agentDecision', 'agentDecisionState'].includes(c.type))
+    return no('此命令仅允许主进程 Agent port 调用');
   if (
     actorId !== w.commander.id &&
     !(
-      c.type === 'issueDirective' &&
-      c.shipIds.length === 1 &&
-      w.assignments.some((a) => a.operatorId === actorId && a.shipId === c.shipIds[0])
+      (c.type === 'issueDirective' &&
+        c.shipIds.length === 1 &&
+        w.assignments.some((a) => a.operatorId === actorId && a.shipId === c.shipIds[0])) ||
+      (['agentDecision', 'agentDecisionState'].includes(c.type) &&
+        'agentId' in c &&
+        c.agentId === actorId) ||
+      (c.type === 'sendChat' && w.agents.some((a) => a.id === actorId))
     )
   )
     return no('该操作者无此命令权限');
+  const agentResult = validateAgentCommand(this, c, actorId);
+  if (agentResult) return agentResult;
   if (c.type === 'issueDirective') {
     for (const id of c.shipIds) {
       const s = w.ships.find((s) => s.id === id);
       if (!s) return no('舰船不存在');
+      if (actorId !== w.commander.id) {
+        if (hasAdmiralWork(s)) return no('Admiral 当前、队列和挂起指令优先');
+        const agent = w.agents.find((a) => a.id === actorId);
+        if (agent && !agent.enabled) return no('Agent 自主控制已关闭');
+        const autonomous = validateAutonomousAction(this, s, c.action);
+        if (!autonomous.ok) return autonomous;
+      }
       if (
         (c.mode === 'QUEUE' && s.queue.length >= 32) ||
         (c.mode === 'INTERRUPT' && s.current && s.suspended.length >= 16)
@@ -330,6 +353,8 @@ export function makeDirective(e: SimulationEngine, action: Action): Directive {
     search: 0,
     note: '',
     source: 'admiral',
+    actorId: e.state.commander.id,
+    journey: null,
     groupOrderId: null,
     groupSlot: 0,
     groupTotal: 0,
@@ -346,6 +371,8 @@ export function dispatchCommand(
   if (!valid.ok) return valid;
   const c = commandSchema.parse(input) as Command,
     w = this.state;
+  const agentApplied = applyAgentCommand(this, c, actorId);
+  if (agentApplied) return agentApplied;
   const applied = applyFrontierCommand(this, c);
   if (applied) return applied;
   if (c.type === 'dismissMapMarker') {
@@ -375,6 +402,8 @@ export function dispatchCommand(
     for (const id of c.shipIds) {
       const s = w.ships.find((s) => s.id === id)!,
         d = makeDirective(this, c.action);
+      if (c.mode !== 'QUEUE' && s.current?.source === 'agent')
+        agentOutcome(this, s, s.current, '新指令接管', true);
       if (c.mode === 'QUEUE' && s.current?.source === 'admiral') s.queue.push(d);
       else {
         if (c.mode === 'INTERRUPT' && s.current) s.suspended.push(s.current);
@@ -390,18 +419,48 @@ export function dispatchCommand(
         s.status = 'active';
       }
       d.origin = { x: s.x, y: s.y };
-      d.source = actorId === w.commander.id ? 'admiral' : 'standing';
+      d.source =
+        actorId === w.commander.id
+          ? 'admiral'
+          : w.agents.some((a) => a.id === actorId)
+            ? 'agent'
+            : 'standing';
+      d.actorId = actorId;
+      const agent = w.agents.find((a) => a.assignedShipId === s.id);
+      if (agent && d.source === 'admiral') {
+        wakeAgent(agent, 'admiralDirective', w.time, true);
+        agent.status = 'admiral';
+      }
       if (s.current === d && d.action.type === 'REARM') {
         d.reserved.photon = d.action.load.photon;
         d.reserved.quantum = d.action.load.quantum;
         d.phase = 'reserved';
       }
-      this.record('directive', s.name + ' / ' + c.mode + ' / ' + c.action.type, s.id);
+      this.record(
+        'directive',
+        s.name +
+          ' / ' +
+          d.source.toUpperCase() +
+          ' / ' +
+          d.actorId +
+          ' / ' +
+          c.mode +
+          ' / ' +
+          c.action.type,
+        s.id,
+      );
     }
-    return ok('Admiral 指令已接受：' + c.mode + ' / ' + c.action.type);
+    return ok(
+      (actorId === w.commander.id ? 'Admiral' : 'Agent') +
+        ' 指令已接受：' +
+        c.mode +
+        ' / ' +
+        c.action.type,
+    );
   }
   if (c.type === 'cancelDirective') {
     const s = w.ships.find((s) => s.id === c.shipId)!;
+    if (s.current?.source === 'agent') agentOutcome(this, s, s.current, 'Admiral 取消指令', true);
     s.current = null;
     s.queue = [];
     s.suspended = [];
@@ -555,9 +614,16 @@ export function submitAction(this: SimulationEngine, operatorId: string, input: 
   if (!s) return no('执行主体不可用');
   if ([s.current, ...s.queue, ...s.suspended].some((d) => d?.source === 'admiral'))
     return no('Admiral 当前、队列和挂起指令优先');
-  if (s.current || s.queue.length || s.suspended.length) return no('执行主体正在完成既有行动');
+  const agent = this.state.agents.find((a) => a.id === operatorId);
+  if (!agent && (s.current || s.queue.length || s.suspended.length))
+    return no('执行主体正在完成既有行动');
   return this.dispatchCommand(
-    { type: 'issueDirective', shipIds: [s.id], mode: 'QUEUE', action: parsed.data },
+    {
+      type: 'issueDirective',
+      shipIds: [s.id],
+      mode: agent ? 'REPLACE' : 'QUEUE',
+      action: parsed.data,
+    },
     operatorId,
   );
 }

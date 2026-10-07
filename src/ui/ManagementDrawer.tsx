@@ -1,6 +1,7 @@
 import { WorkProgress } from './components/WorkProgress';
 import { FleetManager } from './FleetManager';
-import { PersonnelView } from './PersonnelView';
+import { AgentsView } from './AgentsView';
+import { AgentTraining } from './AgentTraining';
 import { EventsView } from './EventsView';
 import { TradeView } from './TradeView';
 import { useState } from 'react';
@@ -34,6 +35,7 @@ export function ManagementDrawer({
   select,
   create,
   command,
+  openChat,
 }: {
   page: Page;
   world: Snapshot;
@@ -41,6 +43,7 @@ export function ManagementDrawer({
   select: (s: Selection) => void;
   create: (r: ComposerRequest) => void;
   command: CommandSender;
+  openChat: (channelId: string) => void;
 }) {
   const [baseId, setBaseId] = useState('base');
   const [tab, setTab] = useState<(typeof STARBASE_MODULES)[number]>('COMMAND'),
@@ -119,7 +122,13 @@ export function ManagementDrawer({
   );
   return (
     <LcarsDrawer
-      title={page === 'STARBASE' ? base.name + ' / ' + tab : page + ' / COMMAND RECORDS'}
+      title={
+        page === 'STARBASE'
+          ? base.name + ' / ' + tab
+          : page === 'AGENTS'
+            ? 'AGENTS / 智能体'
+            : page + ' / COMMAND RECORDS'
+      }
       label={page + ' 工作面板'}
       onClose={close}
     >
@@ -481,10 +490,11 @@ export function ManagementDrawer({
           ))}
         </>
       )}
-      {page === 'PERSONNEL' && <PersonnelView world={world} command={command} />}
+      {page === 'AGENTS' && <AgentsView world={world} command={command} openChat={openChat} />}
       {page === 'COLONIES' && (
         <>
           <LcarsTextBar>FRONTIER / COLONIES / MINES / OUTPOSTS</LcarsTextBar>
+          <AgentTraining world={world} command={command} />
           {world.locations
             .filter((l) => l.owner === 'starfleet' && l.id !== 'base')
             .map((l) => (

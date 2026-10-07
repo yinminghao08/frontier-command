@@ -16,6 +16,7 @@ import { sectorCenter } from './engine/world-generation';
 import { ConsoleSettings } from './ui/lcars/ConsoleSettings';
 import { WorldFeedback } from './ui/lcars/WorldFeedback';
 import { worldText } from './ui/localization';
+import { Communications } from './ui/Communications';
 export function App() {
   const {
     world,
@@ -34,6 +35,11 @@ export function App() {
   const [focus, setFocus] = useState<{ point: Point; serial: number } | null>(null);
   const [selectedShipIds, setSelectedShipIds] = useState<string[]>([]);
   const [followShipId, setFollowShipId] = useState<string | null>(null);
+  const [chatRequest, setChatRequest] = useState<{ channelId: string; serial: number } | null>(
+    null,
+  );
+  const openChat = (channelId: string) =>
+    setChatRequest((r) => ({ channelId, serial: (r?.serial ?? 0) + 1 }));
   const followedShip = useRef(followShipId);
   followedShip.current = followShipId;
   const selectedShips = useRef(selectedShipIds);
@@ -187,6 +193,7 @@ export function App() {
     setFollowShipId(null);
     setManagerCreate(false);
     setMoveMode('REPLACE');
+    setChatRequest(null);
   };
   const openManager = async (create = false) => {
     setComposer(null);
@@ -288,6 +295,7 @@ export function App() {
                 }}
                 create={openComposer}
                 command={command}
+                openChat={openChat}
               />
             )
           )
@@ -368,6 +376,12 @@ export function App() {
           focus={focus}
         />
       </LcarsShell>
+      <Communications
+        key={timeline.activeId}
+        world={world}
+        command={command}
+        requested={chatRequest}
+      />
       {world.status === 'commandLost' && page !== 'ARCHIVE' && selection?.type !== 'loss' && (
         <CommandLost
           world={world}

@@ -1,10 +1,10 @@
 # STARFLEET: FRONTIER COMMAND
 
-**Lv1 + Lv2 / v10 Dawn Frontier。玩家是拥有最终指挥权的 Admiral。**
+**Lv1 + Lv2 + 第一版 Agent / v11 Dawn Frontier。玩家是拥有最终指挥权的 Admiral。**
 
-沿用 Electron 主进程的持续世界和 LCARS 26 Classic 控制台：探索、建设、实际运输、殖民地发展、人员培养和持久势力。v10 提供中文对象详情、殖民地分段指标、弹仓与预留库存、永久生产五折、基地接管与改建、多基地本地生产、远景聚合和分散的远距离虫洞。保留隐形侦察、秘密尾随与现有指挥系统，没有 LLM 决策。
+持续世界、LCARS 26 Classic、探索、建设、实际运输、殖民地与持久势力之上，加入独立的 Battle / Logistics Agent。模型决定意图、路线风险、聊天与协作；Electron 主进程执行经过校验的高层 Action。初始 Talia 驾驶 Galaxy，Mira 驾驶 Antares；职业代表专长，不限制合法行动。
 
-![中文殖民地状态](docs/verification/v10/colony-chinese.png)
+![Agent 名册](docs/verification/v11/agents-roster.png)
 
 ## 运行
 
@@ -16,6 +16,28 @@ npm start
 ```
 
 新世界暂停于 DAY 1 00:00，默认 1×。约一现实秒推进一游戏分钟；4× / 16× 重复相同的 0.1 游戏分钟固定步。重启暂停，不离线推进。
+
+快速展示新增内容：**存档管理器 → AGENT DEMO / 演示存档 → 继续**。默认 16×，已准备真实的虫洞运输、护航、群聊/私聊和接近毕业的学员；约几十秒内可看到结果。也提供 [独立 Demo 存档与演示步骤](demo/README.md)，运行 `npm run demo:save` 可重新生成。初始决策是经校验的场景编排，后续自主决策需要配置自己的 API。
+
+## Agent 与通讯
+
+1. 打开 **CONSOLE SETTINGS → AGENT API**，填写 OpenAI-compatible Base URL、API Key、默认 Model 与 reasoning effort。可以先测试当前输入，再保存。协议是 `/chat/completions`；Base URL 可填 API 根路径或完整 endpoint。
+2. Key 使用 Electron `safeStorage` 系统加密，独立保存于本机配置；不会进入公开 Snapshot、聊天、日志或世界存档。未配置 API 时 Agent 显示离线，Admiral 仍可指挥全部舰船。没有脚本自动决策的替代模型。
+3. 在 **AGENTS / 智能体** 按 BATTLE、LOGISTICS 查看姓名、舰船、目标、经验/技能、模型和实时状态。详情可查看性格、信任/疲劳/士气、有限记忆与关系，分配舰船、覆盖 Model / reasoning，关闭自主控制或请求再次决策。
+4. 常驻 **CHAT / 通讯** 按钮可拖至视口任意位置，位置独立保存在界面偏好中。浮窗列出固定 FRONTIER COMMAND 群聊和每个 Admiral ↔ Agent 私聊；红点只在有未读时显示。聊天不暂停世界，可直接输入 `@Talia`、`@Mira` 或使用提及按钮。
+5. Agent 的请求、拒绝、危险、任务执行与完成报告都进入聊天。协作不是文字模拟：接受护航必须同时提交对应 ESCORT；实际结果更新经验、技能、关系和记忆。聊天按游戏时间持久保存，Agent 只观察最近 24 条相关消息和最多 32 条记忆。
+
+Reasoning 支持 none / low / medium / high。`none` **不发送** `reasoning_effort`；具体模型的默认内部推理由 provider 决定。Provider 明确拒绝 reasoning 参数时省略并重试；拒绝 JSON 模式时退回文本 JSON，仍执行本地严格 schema 校验。调用超时、连接错误、非法 JSON 或非法 Action 会进入私聊错误，并可手动重试或在 30 游戏分钟后复查，不影响物理模拟。
+
+模型只在新任务、聊天/提及、护航、公开危险、任务结果或空闲复查节点调用，每次决策独立于 simulation tick。Admiral 当前、排队和挂起指令优先；过期模型响应会丢弃。模型只获得自己的状态、己方资产、公开地图/接触、实际库存/需求、航线、聊天与关系，不获得未知敌人、秘密基地、意图或随机源。
+
+## Journey Planner
+
+MOVE、HAUL、ESCORT 和 Agent 航行共用 Journey Planner。比较普通 Warp、safe/direct/risky 与**已经发现且实际确认出口**的虫洞，根据 ETA 和公开风险选择 `Warp → 入口 → 2 分钟 TRANSIT → 出口 → Warp`，可以连续使用多条已知通道。HAUL 的指定 route 约束各段 Warp，MOVE 自动比较各模式；路径、航行进度、装卸货、虫洞风险与事件均由引擎执行并存档。未知或未确认出口不能自动利用；第一次仍需显式 TRANSIT 探索。
+
+## Colony Academy
+
+殖民地指挥官继续产生候选人。Admiral 可拒绝，或选择 Battle / Logistics 培养，立即支付 **60 Credits 录取 + 90 Credits 训练**。实际训练持续 90 游戏分钟，暂停时不推进，途中可保存恢复。毕业加入群聊并获得独立 Agent 档案；之后在详情手动分配舰船。旧 NPC 殖民地指挥官继续服务殖民地。
 
 ## 经济与指挥
 
@@ -35,7 +57,7 @@ Colony 以 Credits 为核心产出：每千人口每五分钟基准 18 Credits�
 
 设施 Credits 费用：Mine 165、Outpost 200、Colony 280、Platform 190。造舰 Credits 费用：Peregrine 220、Antares 290、Constitution 550、Galaxy 860。Materials 与 Special Finds 原有费用保留。
 
-舰船没有 Admiral 待办时原地待命。低弹药只报告；可选“已停靠时维修与装弹”只使用本地库存。战斗紧急撤退是远离实际威胁的本地脱离，结束后待命。RETURN / DOCK 必须由 Admiral 显式下达。REPLACE、QUEUE、INTERRUPT、编队、货物预留与永久舰损保留。
+未分配 Agent 的舰船没有 Admiral 待办时原地待命。低弹药只报告；可选“已停靠时维修与装弹”只使用本地库存。战斗紧急撤退是远离实际威胁的本地脱离，结束后待命。Agent 可以自主选择 RETURN / DOCK；Admiral 可以随时改令。REPLACE、QUEUE、INTERRUPT、编队、货物预留与永久舰损保留。
 
 ## 存档管理器
 
@@ -47,7 +69,7 @@ Colony 以 Credits 为核心产出：每千人口每五分钟基准 18 Credits�
 - 重命名仅修改名称。删除需要二次确认；当前存档须先切换后才能删除。删除父存档会保全子分支依赖的日快照。
 - 当前存档详情可展开永久损失和世界历史，并从昨日创建独立存档。失败界面的新建与查看档案入口使用同一管理器。
 
-不可读取的原文件不会被覆盖；索引损坏或迁移失败时保护整个目录并显示错误。存档操作不提供导入、导出或云同步。
+不可读取的原文件不会被覆盖；索引损坏或版本不支持时保护整个目录并显示错误。存档操作不提供导入、导出或云同步。
 
 ## v10 基地与生产
 
@@ -94,7 +116,7 @@ Sector / System / Local 采用分层显示；选中系统也可展开次级天�
 
 Renderer 只有只读公开 Snapshot，未知敌方基地、AI intent、真实目的地、反跟踪证据、假航点与随机源留在主进程及严格存档。地点情报仅公开玩家实际观测到的坐标和确认进度。
 
-v10 使用独立 `timeline-v10.json` 与 `frontiers-v10/frontier-******/`。首次启动会验证并迁移整个 v9 时间线，v9 原文件保持原样；迁移失败时阻止覆盖。严格拒绝 v8 及更早世界。保留原子写入、每日快照、独立分支恢复、存档错误保护和永久舰损。全舰损后可通过 Colony 收入、有限贸易与 Shipyard 恢复。
+v11 使用独立 `timeline-v11.json` 与 `frontiers-v11/frontier-******/`，不迁移 v10 或更早存档，不改写原文件。世界、聊天、协作、培养、Agent 状态和每舰旅程采用严格 v11 schema；凭据独立系统加密。保留原子写入、每日快照、独立分支恢复、存档错误保护和永久舰损。Agent 档案在舰损后保留，可重新分配新舰；全舰损后仍可通过 Colony 收入、有限贸易与 Shipyard 恢复。
 
 ## 验证
 
@@ -102,7 +124,9 @@ v10 使用独立 `timeline-v10.json` 与 `frontiers-v10/frontier-******/`。首�
 npm test
 npm run build
 npm run test:e2e
-node scripts/acceptance-v9.mjs 236807
+npx playwright test tests/e2e/agents.spec.ts
 ```
+
+Agent 专项测试使用本地 HTTP 协议测试服务与隔离 userData，验证真实 Electron IPC、DPAPI 配置保存、私聊/群聊/@、培养、独立模型、NONE、兼容重试及虫洞运输/护航。测试服务不是应用里的决策回退；真实外部 provider 需配置自己的 API 后使用。
 
 [架构](docs/architecture.md) · [世界](docs/worldbuilding.md) · [验收](docs/acceptance.md) · [演示](docs/demo-script.md) · [验证记录](docs/verification.md)

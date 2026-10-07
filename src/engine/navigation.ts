@@ -25,6 +25,7 @@ export function currentMovementSpeed(
   w: Pick<Snapshot, 'ships' | 'upgrades'>,
   s: ReadonlyDeep<Ship>,
 ) {
+  if (s.current?.journey?.legs[s.current.journey.legIndex]?.type === 'wormhole') return 0;
   const route = s.current?.note.match(/^航行 \/ (safe|direct|risky)/)?.[1] as RouteKind | undefined;
   return (
     capabilities(s).warp *
@@ -52,7 +53,7 @@ export function move(s: Ship, p: Point, dt: number, factor = 1) {
   s.y += Math.sin(s.heading) * step;
   return false;
 }
-type Chart = Pick<Snapshot, 'locations' | 'bodies' | 'upgrades' | 'sectors'> & {
+export type Chart = Pick<Snapshot, 'locations' | 'bodies' | 'upgrades' | 'sectors'> & {
   intel?: Snapshot['contacts'];
   contacts?: Snapshot['contacts'];
   time: number;

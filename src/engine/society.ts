@@ -3,12 +3,27 @@ import type { Career, Location, Personnel, Ship } from './types';
 import { DEVELOPMENT } from './definitions/frontier';
 import { available } from './inventory';
 import { dist } from './navigation';
+import { makeAgent, registerAgent } from './agents';
+import { appendChat, COMMAND_CHANNEL } from './chat';
+import { AGENT_RULES } from './definitions/agents';
 export function personnelBonus(e: SimulationEngine, targetId: string, career: Career) {
   return Math.min(
     0.3,
-    e.state.personnel
-      .filter((p) => p.status === 'assigned' && p.posting?.id === targetId)
-      .reduce((n, p) => n + (p.skills[career] + Math.floor(p.experience / 60)) * 0.001, 0),
+    [
+      ...e.state.agents
+        .filter((a) => a.assignedShipId === targetId)
+        .map(
+          (a) =>
+            (a.skills[
+              career === 'battle' ? 'battle' : career === 'logistics' ? 'logistics' : 'navigation'
+            ] +
+              Math.floor(a.experience / 60)) *
+            0.001,
+        ),
+      ...e.state.personnel
+        .filter((p) => p.status === 'assigned' && p.posting?.id === targetId)
+        .map((p) => (p.skills[career] + Math.floor(p.experience / 60)) * 0.001),
+    ].reduce((sum, bonus) => sum + bonus, 0),
   );
 }
 export function appointCommander(e: SimulationEngine, l: Location) {
@@ -37,7 +52,19 @@ export function advanceSociety(e: SimulationEngine, dt: number) {
       if (p.training >= 90 - 1e-8) {
         p.training = 90;
         p.status = 'available';
-        e.record('personnel', p.name + ' 完成' + p.career + '培养，可任职', p.id);
+        if (p.career === 'battle' || p.career === 'logistics') {
+          const a = makeAgent('agent-' + p.id, p.name, p.career, null, p.id);
+          registerAgent(w, a);
+          appendChat(
+            e,
+            a.id,
+            COMMAND_CHANNEL,
+            '训练完成，已加入 FRONTIER COMMAND。等待 Admiral 分配舰船。',
+            [],
+            'report',
+          );
+        }
+        e.record('personnel', p.name + ' 完成 Agent 培养，可分配舰船', p.id, false);
       }
     }
     if (p.status === 'assigned') p.experience += dt * 0.1;
@@ -78,7 +105,7 @@ export function advanceSociety(e: SimulationEngine, dt: number) {
         id,
         name: 'Cadet ' + id.split('-').at(-1),
         originId: l.id,
-        career: 'science',
+        career: 'logistics',
         experience: 0,
         skills: {
           battle: 25,

@@ -263,7 +263,12 @@ test('ordinary wormhole goes to a distinct remote region and overview fills view
   await run(p);
   await wait(p, (w) => w.ships.find((s) => s.id === ship.id)!.x === h.exit.x);
   await pause(p);
-  expect((await state(p)).wormholes.every((portal) => !('exit' in portal))).toBe(true);
+  expect(
+    (await state(p)).wormholes.every((portal) =>
+      portal.surveyed ? portal.exit !== null : portal.exit === null,
+    ),
+  ).toBe(true);
+  expect((await state(p)).wormholes.find((portal) => portal.id === h.id)?.exit).toEqual(h.exit);
   await expect
     .poll(async () => JSON.parse((await p.locator('.strategic-map').getAttribute('data-view'))!).x)
     .toBe(h.exit.x);

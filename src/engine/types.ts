@@ -16,6 +16,101 @@ export type ModuleId =
 export type UpgradeId = 'shipyard' | 'armory' | 'sensors' | 'logistics' | 'defense';
 export type FacilityKind = 'base' | 'colony' | 'mine' | 'outpost' | 'platform';
 export type RouteKind = 'safe' | 'direct' | 'risky';
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high';
+export type AgentCareer = 'battle' | 'logistics';
+export interface AgentMemory {
+  id: number;
+  time: number;
+  kind: 'chat' | 'decision' | 'outcome' | 'danger';
+  summary: string;
+  entityId: string | null;
+  salience: number;
+}
+export interface Agent {
+  /** The same stable actor ID is used by Operator and Assignment. */
+  id: string;
+  name: string;
+  career: AgentCareer;
+  personality: { riskTolerance: number; cooperation: number; discipline: number; ambition: number };
+  skills: { battle: number; logistics: number; navigation: number };
+  experience: number;
+  trust: number;
+  fatigue: number;
+  morale: number;
+  currentGoal: string;
+  memory: AgentMemory[];
+  relationships: Record<string, { trust: number; cooperation: number; lastInteraction: number }>;
+  assignedShipId: string | null;
+  originPersonnelId: string | null;
+  modelConfig: { model: string | null; reasoningEffort: ReasoningEffort | null };
+  enabled: boolean;
+  status: 'online' | 'waiting' | 'executing' | 'error' | 'unassigned' | 'admiral' | 'offline';
+  decision: {
+    revision: number;
+    pendingReasons: string[];
+    nextAt: number;
+    lastAt: number | null;
+    lastChatId: number;
+    failures: number;
+    lastError: string | null;
+  };
+}
+export interface ChatChannel {
+  id: string;
+  name: string;
+  kind: 'command' | 'private';
+  members: string[];
+  readThrough: number;
+}
+export interface ChatMessage {
+  id: number;
+  sender: string;
+  channelId: string;
+  time: number;
+  content: string;
+  mentions: string[];
+  kind: 'message' | 'request' | 'reply' | 'report' | 'danger' | 'error';
+}
+export interface EscortRequest {
+  id: string;
+  requesterId: string;
+  responderId: string;
+  targetShipId: string;
+  created: number;
+  deadline: number;
+  started: boolean;
+  status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'failed';
+}
+export interface AgentDecision {
+  goal: string;
+  rationale: string;
+  action: Action | null;
+  messages: { channelId: string; content: string; mentions: string[] }[];
+  memory: string | null;
+  waitMinutes: number;
+  coordination:
+    | { type: 'requestEscort'; agentId: string; targetShipId: string }
+    | { type: 'answerEscort'; requestId: string; accept: boolean }
+    | null;
+}
+export type JourneyLeg =
+  | { type: 'warp'; destination: Point; route: RouteKind; path: Point[] }
+  | { type: 'wormhole'; wormholeId: string; entrance: Point; destination: Point };
+export interface JourneyPlan {
+  destination: Point;
+  legs: JourneyLeg[];
+  eta: number;
+  risk: number;
+  score: number;
+  distance: number;
+  unknownDistance: number;
+}
+export interface JourneyProgress extends JourneyPlan {
+  legIndex: number;
+  transitWork: number;
+}
+/** Only a surveyed, discovered passage exposes its confirmed exit. */
+export type KnownWormhole = Omit<Wormhole, 'exit' | 'exitSector'> & { exit: Point | null };
 export type SectorCoord = { q: number; r: number };
 export interface Sector extends SectorCoord {
   id: string;
@@ -251,7 +346,9 @@ export interface Directive {
   paidCredits: number;
   search: number;
   note: string;
-  source: 'admiral' | 'standing';
+  source: 'admiral' | 'agent' | 'standing';
+  actorId: string;
+  journey: JourneyProgress | null;
   groupOrderId: string | null;
   groupSlot: number;
   groupTotal: number;
@@ -382,7 +479,7 @@ export interface IndustryJob {
 export interface Operator {
   id: string;
   name: string;
-  kind: 'rules';
+  kind: 'rules' | 'agent';
   availability: 'available' | 'vesselLost';
 }
 export interface Assignment {
@@ -472,7 +569,7 @@ export interface SiteIntel extends Point {
   lastSeen: number;
 }
 export interface WorldState {
-  version: 10;
+  version: 11;
   tick: number;
   time: number;
   seed: number;
@@ -484,6 +581,11 @@ export interface WorldState {
   commander: { id: string; name: string; rank: string };
   operators: Operator[];
   assignments: Assignment[];
+  agents: Agent[];
+  chatChannels: ChatChannel[];
+  chatMessages: ChatMessage[];
+  escortRequests: EscortRequest[];
+  nextChat: number;
   losses: LossRecord[];
   ships: Ship[];
   enemies: Enemy[];
@@ -528,7 +630,7 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 10;
+  version: 11;
   tick: number;
   time: number;
   paused: boolean;
@@ -538,6 +640,10 @@ interface SnapshotData {
   commander: WorldState['commander'];
   operators: Operator[];
   assignments: Assignment[];
+  agents: Agent[];
+  chatChannels: ChatChannel[];
+  chatMessages: ChatMessage[];
+  escortRequests: EscortRequest[];
   losses: LossRecord[];
   ships: Ship[];
   contacts: IntelRecord[];
@@ -570,11 +676,25 @@ interface SnapshotData {
   groups: TaskGroup[];
   personnel: Personnel[];
   events: (WorldEvent & { accidentResponse?: MineAccidentResponse })[];
-  wormholes: Omit<Wormhole, 'exit' | 'exitSector'>[];
+  wormholes: KnownWormhole[];
   civilians: CivilianShip[];
   trade: TradeState;
 }
 export type Command =
+  | { type: 'assignAgent'; agentId: string; shipId: string | null }
+  | { type: 'configureAgent'; agentId: string; modelConfig: Agent['modelConfig']; enabled: boolean }
+  | { type: 'retryAgent'; agentId: string }
+  | { type: 'sendChat'; channelId: string; content: string; mentions: string[] }
+  | { type: 'readChat'; channelId: string; throughId: number }
+  /** Main-process ports only; the Admiral/renderer cannot impersonate an Agent. */
+  | { type: 'agentDecision'; agentId: string; revision: number; decision: AgentDecision }
+  | {
+      type: 'agentDecisionState';
+      agentId: string;
+      revision: number;
+      state: 'waiting' | 'error' | 'offline' | 'ready';
+      error: string | null;
+    }
   | { type: 'dismissMapMarker'; entityId: string }
   | {
       type: 'issueDirective';
@@ -601,7 +721,7 @@ export type Command =
       mode: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
       action: Action;
     }
-  | { type: 'candidate'; personnelId: string; accept: boolean; career: Career }
+  | { type: 'candidate'; personnelId: string; accept: boolean; career: AgentCareer }
   | {
       type: 'assignPersonnel';
       personnelId: string;
@@ -643,12 +763,40 @@ export type CommandResult = { ok: boolean; reason: string };
 interface ObservationData {
   time: number;
   operatorId: string;
-  ship: Ship;
+  self: Agent | null;
+  ship: Ship | null;
+  fleet: {
+    id: string;
+    name: string;
+    career: AgentCareer;
+    assignedShipId: string | null;
+    status: Agent['status'];
+    currentGoal: string;
+  }[];
+  ownShips: Ship[];
+  currentTask: Directive | null;
   contacts: IntelRecord[];
+  sectors: Sector[];
   systems: StarSystem[];
   bodies: Body[];
+  locations: Location[];
+  projects: Construction[];
+  wormholes: KnownWormhole[];
+  journeys: { targetId: string; plans: JourneyPlan[] }[];
+  inventories: SnapshotData['inventories'];
+  logisticsNeeds: { targetId: string; cargoKind: CargoKind; amount: number; sourceIds: string[] }[];
+  company: {
+    credits: number;
+    upgrades: WorldState['upgrades'];
+    tension: number;
+    status: WorldState['status'];
+  };
+  recentChat: ChatMessage[];
+  channels: ChatChannel[];
+  escortRequests: EscortRequest[];
   opportunities: Opportunity[];
   legalActions: string[];
+  actionExamples: Action[];
 }
 export interface AgentControllerPort {
   getObservation(): Observation | null;

@@ -1,54 +1,38 @@
-import { z } from 'zod';
 import { agentDecisionSchema } from '../../src/engine/commands';
 import {
   decisionJsonSchema,
   decisionIssues,
   normalizeDecision,
+  actionFieldContracts,
 } from '../../src/engine/decision-protocol';
 import type { AgentDecision, Observation, ReasoningEffort } from '../../src/engine/types';
 import type { ConnectionConfig } from './config';
 import { RequestTracker, type RequestKind } from './runtime';
 import type { AgentRequestTiming } from '../../src/engine/agent-api';
 import { compactObservation } from './context';
+import { abortable, readCompletion, httpError, AgentApiError } from './transport';
+export { AgentApiError } from './transport';
 import {
   taskJudgmentSchema,
   taskJudgmentJsonSchema,
   taskJudgmentContext,
   TASK_JUDGMENT_PROMPT,
 } from './task-judgment';
-interface NetworkBudget {
-  remaining: number;
-  deadlineAt?: number;
+interface RequestContext {
+  startedAt: number;
   agentId: string;
   kind: RequestKind;
 }
 
-const completionSchema = z.object({
-  choices: z.array(z.object({ message: z.object({ content: z.string() }) })).min(1),
-});
 const SYSTEM_PROMPT = `你是 Frontier Command 的独立 Agent。依据公开上下文和自己的性格判断，只返回 JSON。
 格式：{"goal":"目标","rationale":"简短理由","action":null,"messages":[],"memory":null,"waitMinutes":30,"coordination":null}。
 玩家消息必须在原频道回复，messages 每条包含 channelId、content、mentions、replyTo。说明现在要做什么或真实拒绝原因，不反复道歉，不捏造执行结果、库存、舰船ID、ETA或引擎限制。当前任务随时可以修改；补充指令继承已有路线与货物。已接受的任务由引擎执行，不重复下令。
 action 使用 actionExamples 的格式，参数可按真实条件调整；HAUL 未指定数量使用 loadPolicy=auto 尽量满载。INTERCEPT 只负责截获，摧毁需要 ATTACK。自主行为遵守 ROE，明确 Admiral 任务使用 answerTask 接受或拒绝，action=null。普通聊天不擅自变成新任务。
 协作：coordination 可为 requestTask(kind,agentId,action,followUp,conditions)、answerRequest(requestId,version,response,conditions,reason)、answerTask(taskId,version,response,conditions,reason)；response=accept/reject/counter/withdraw，reason=risk/fatigue/damage/conflict/preference/relationship/promise。只回答轮到自己的请求。
-waitMinutes=5..180；memory=null 或简短记忆。无玩家新消息且无新事实时 messages=[]。不得使用隐藏情报或直接修改世界、属性。`;
+waitMinutes=5..180；memory=null 或简短记忆。无玩家新消息且无新事实时 messages=[]。不得使用隐藏情报或直接修改世界、属性。
+wrecks 是已发现残骸，RECOVER 使用真实残骸 ID，UNLOAD 才卸货；不能把残骸误当矿场。必须提供动作全部必填字段，不知道目标时 action=null 并说明缺少的事实。回复保持简短。
+动作字段契约（仅 optional 字段可省略，值为字段类型或合法枚举，不是实际参数）：${JSON.stringify(actionFieldContracts)}`;
 
-/** Release callers at the deadline even if a provider's fetch/body ignores abort. */
-function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const aborted = () => reject(signal.reason ?? Error('aborted'));
-    signal.addEventListener('abort', aborted, { once: true });
-    if (signal.aborted) aborted();
-    pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', aborted));
-  });
-}
-
-export class AgentApiError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'AgentApiError';
-  }
-}
 export interface CompletionResult {
   content: string;
   reasoningFallback: boolean;
@@ -57,11 +41,10 @@ export interface CompletionResult {
 export class ChatCompletionsClient {
   private readonly compatibility = new Map<
     string,
-    { format: 'schema' | 'object' | 'text'; reasoning: boolean }
+    { format: 'schema' | 'object' | 'text'; reasoning: boolean; stream: boolean }
   >();
   constructor(
     private readonly fetcher: typeof fetch = fetch,
-    private readonly timeoutMs = 20000,
     private readonly tracker?: RequestTracker,
   ) {}
   async complete(
@@ -71,23 +54,18 @@ export class ChatCompletionsClient {
     messages: { role: string; content: string }[],
     externalSignal?: AbortSignal,
     schema?: Record<string, unknown>,
-    networkBudget?: NetworkBudget,
+    requestContext?: RequestContext,
   ): Promise<CompletionResult> {
     if (!config.apiKey)
       throw new AgentApiError('Agent API 未配置 Key，请在控制台设置中配置后重试。');
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
     let timing: AgentRequestTiming | undefined;
     let release: (() => void) | undefined;
-    const network = networkBudget ?? {
-      remaining: this.timeoutMs,
+    const network = requestContext ?? {
+      startedAt: Date.now(),
       agentId: 'admiral:test',
       kind: 'test' as const,
     };
-    network.deadlineAt ??= Date.now() + network.remaining;
-    const signal = externalSignal
-      ? AbortSignal.any([externalSignal, controller.signal])
-      : controller.signal;
+    const signal = externalSignal ?? new AbortController().signal;
     const capabilityKey = config.baseUrl + '\n' + model;
     const cached = this.compatibility.get(capabilityKey);
     let reasoning = effort !== 'none' && cached?.reasoning !== false,
@@ -97,26 +75,25 @@ export class ChatCompletionsClient {
           ? 'text'
           : 'object',
       reasoningFallback = effort !== 'none' && cached?.reasoning === false,
-      formatFallback = format === 'text';
+      formatFallback = format === 'text',
+      stream = cached?.stream !== false;
     const endpoint = config.baseUrl.replace(/\/+$/, '').endsWith('/chat/completions')
       ? config.baseUrl.replace(/\/+$/, '')
       : config.baseUrl.replace(/\/+$/, '') + '/chat/completions';
     try {
       for (let attempt = 0; attempt < 5; attempt++) {
-        network.remaining = network.deadlineAt - Date.now();
-        if (network.remaining <= 0) throw new AgentApiError('模型调用超时，请稍后重试。');
+        signal.throwIfAborted();
         if (this.tracker)
           release = await this.tracker.acquire(
             network.agentId,
             attempt > 0 ? 'compatibility' : network.kind,
             signal,
           );
-        const started = Date.now();
-        timer = setTimeout(() => controller.abort(), network.remaining);
         const requestBody = JSON.stringify({
           model,
           messages,
-          stream: false,
+          stream,
+          max_tokens: schema === taskJudgmentJsonSchema ? 768 : schema ? 2048 : 256,
           ...(reasoning ? { reasoning_effort: effort } : {}),
           ...(format === 'schema' && schema
             ? {
@@ -133,131 +110,79 @@ export class ChatCompletionsClient {
           network.agentId,
           attempt ? 'compatibility' : network.kind,
           Buffer.byteLength(requestBody),
-          network.deadlineAt,
+          network.startedAt,
         );
-        const response = await abortable(
-          this.fetcher(endpoint, {
-            method: 'POST',
-            redirect: 'error',
-            signal,
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: 'Bearer ' + config.apiKey,
-            },
-            body: requestBody,
-          }),
+        const pending = this.fetcher(endpoint, {
+          method: 'POST',
+          redirect: 'error',
           signal,
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.apiKey },
+          body: requestBody,
+        });
+        // A late fetch result must close its body even if fetch ignored cancellation.
+        void pending.then(
+          (response) => {
+            if (signal.aborted) void response.body?.cancel().catch(() => {});
+          },
+          () => {},
         );
+        const response = await abortable(pending, signal);
         signal.throwIfAborted();
-        // Provider bodies may echo secrets. Never log/return them, including on HTTP errors.
-        const reader = response.body?.getReader();
-        let body = '',
-          size = 0;
-        if (reader) {
-          const decoder = new TextDecoder();
-          for (;;) {
-            const part = await abortable(reader.read(), signal);
-            signal.throwIfAborted();
-            if (part.done) break;
-            if (timing && timing.firstByteAt === null) {
-              timing.firstByteAt = Date.now();
-              timing.phase = 'receiving';
-            }
-            size += part.value.byteLength;
-            if (size > 128000) {
-              void reader.cancel().catch(() => {});
-              throw new AgentApiError('模型响应过大，已拒绝。');
-            }
-            body += decoder.decode(part.value, { stream: true });
-          }
-          body += decoder.decode();
-        }
-        network.remaining = network.deadlineAt - Date.now();
+        const result = await readCompletion(response, signal, config.apiKey, timing);
         if (timing) {
           timing.endedAt = Date.now();
           timing.phase = response.ok ? 'completed' : 'failed';
           timing.reason = response.ok ? null : 'HTTP ' + response.status;
+          timing.failureKind = response.ok ? null : httpError(response.status).kind;
         }
-        clearTimeout(timer);
-        timer = undefined;
         release?.();
         release = undefined;
-        if (!response.ok) {
-          const unsupported =
-            [400, 422].includes(response.status) &&
-            /unsupported|unknown|unrecognized|not supported|not permitted|not allowed|extra|does not support|无效|不支持/i.test(
-              body,
-            );
-          if (unsupported && reasoning && /reasoning[_ ]effort/i.test(body)) {
+        if (result.unsupported) {
+          if (result.unsupported.reasoning && reasoning) {
             reasoning = false;
             reasoningFallback = true;
-            this.compatibility.set(capabilityKey, { format, reasoning: false });
-            continue;
-          }
-          if (
-            unsupported &&
-            format !== 'text' &&
-            /response[_ ]format|json_object|json_schema/i.test(body)
-          ) {
+          } else if (result.unsupported.format && format !== 'text') {
             format = format === 'schema' ? 'object' : 'text';
             formatFallback = true;
-            this.compatibility.set(capabilityKey, {
-              format,
-              reasoning: cached?.reasoning !== false && !reasoningFallback,
-            });
-            continue;
-          }
-          throw new AgentApiError(
-            response.status === 401 || response.status === 403
-              ? 'API 认证失败，请检查 Key 与模型权限。'
-              : response.status === 429
-                ? 'API 额度或频率限制，请稍后重试。'
-                : 'API 请求失败（HTTP ' + response.status + '），请检查地址、模型和设置。',
-          );
+          } else if (result.unsupported.stream && stream) {
+            stream = false;
+          } else throw httpError(response.status);
+          this.compatibility.set(capabilityKey, {
+            format,
+            reasoning: !reasoningFallback && cached?.reasoning !== false,
+            stream,
+          });
+          continue;
         }
-        if (body.includes(config.apiKey))
-          throw new AgentApiError('Provider 响应包含凭据，已拒绝并保护记录。');
-        let data: unknown;
-        try {
-          data = JSON.parse(body);
-        } catch {
-          throw new AgentApiError('API 响应不是有效 JSON。');
-        }
-        const parsed = completionSchema.safeParse(data);
-        if (!parsed.success) throw new AgentApiError('API 响应缺少有效 choices/message/content。');
-        if (parsed.data.choices[0].message.content.includes(config.apiKey))
-          throw new AgentApiError('Provider 响应包含凭据，已拒绝并保护记录。');
-        this.tracker?.usage(
-          data && typeof data === 'object' && 'usage' in data ? data.usage : undefined,
-        );
+        this.tracker?.usage(result.usage);
+        this.compatibility.set(capabilityKey, {
+          format,
+          reasoning: !reasoningFallback && cached?.reasoning !== false,
+          stream,
+        });
         return {
-          content: parsed.data.choices[0].message.content,
+          content: result.content,
           reasoningFallback,
           formatFallback,
         };
       }
       throw new AgentApiError('Provider 不支持所请求参数，兼容重试失败。');
     } catch (error) {
+      const failure = signal.aborted
+        ? new AgentApiError('模型请求已取消。', 'cancelled')
+        : error instanceof AgentApiError
+          ? error
+          : new AgentApiError('无法连接 Agent API，请检查网络与 Base URL。', 'network');
       if (timing) {
         timing.endedAt = Date.now();
-        timing.phase = 'failed';
-        timing.reason =
-          error instanceof AgentApiError
-            ? error.message
-            : signal.aborted
-              ? '超时或取消'
-              : '网络失败';
+        timing.phase = failure.kind === 'cancelled' ? 'cancelled' : 'failed';
+        timing.reason = failure.message;
+        timing.failureKind = failure.kind;
       }
-      if (externalSignal?.aborted) this.tracker?.cancellation();
+      if (failure.kind === 'cancelled') this.tracker?.cancellation();
       else this.tracker?.failure();
-      if (error instanceof AgentApiError) throw error;
-      throw new AgentApiError(
-        signal.aborted
-          ? '模型调用超时或已取消，请稍后重试。'
-          : '无法连接 Agent API，请检查网络与 Base URL。',
-      );
+      throw failure;
     } finally {
-      clearTimeout(timer);
       release?.();
     }
   }
@@ -267,13 +192,11 @@ export class ChatCompletionsClient {
     signal?: AbortSignal,
     refresh?: () => Observation | null,
     validate?: (decision: AgentDecision) => { ok: boolean; reason: string },
-    deadlineAt?: number,
   ): Promise<AgentDecision> {
     const task = observation.admiralTask;
     if (!task || !observation.self) throw new AgentApiError('任务判断缺少有效任务。');
-    const network: NetworkBudget = {
-      remaining: this.timeoutMs,
-      deadlineAt: Math.min(deadlineAt ?? Infinity, Date.now() + this.timeoutMs),
+    const network: RequestContext = {
+      startedAt: Date.now(),
       agentId: observation.operatorId,
       kind: 'initial',
     };
@@ -333,8 +256,7 @@ export class ChatCompletionsClient {
         const validationStart = Date.now();
         const checked = validate?.(decision);
         this.tracker?.validation(observation.operatorId, Date.now() - validationStart);
-        if (Date.now() >= network.deadlineAt!)
-          throw new AgentApiError('模型调用超时，决策未执行，请重试。');
+        signal?.throwIfAborted();
         if (!checked || checked.ok) return decision;
         issue = checked.reason;
       } else issue = decisionIssues(parsed.error);
@@ -357,12 +279,10 @@ export class ChatCompletionsClient {
     signal?: AbortSignal,
     refresh?: () => Observation | null,
     validate?: (decision: AgentDecision) => { ok: boolean; reason: string },
-    deadlineAt?: number,
   ): Promise<AgentDecision> {
     const decisionSignal = signal;
-    const network: NetworkBudget = {
-      remaining: this.timeoutMs,
-      deadlineAt: Math.min(deadlineAt ?? Infinity, Date.now() + this.timeoutMs),
+    const network: RequestContext = {
+      startedAt: Date.now(),
       agentId: observation.operatorId,
       kind: 'initial',
     };
@@ -374,85 +294,90 @@ export class ChatCompletionsClient {
       { role: 'user', content: JSON.stringify(compactObservation(observation)) },
     ];
     let lastIssue = '';
-    try {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        network.kind = attempt ? 'repair' : 'initial';
-        const current = refresh?.() ?? observation;
-        const result = await this.complete(
-          config,
-          current.self?.modelConfig.model ?? config.defaultModel,
-          current.self?.modelConfig.reasoningEffort ?? config.reasoningEffort,
-          messages,
-          decisionSignal,
-          decisionJsonSchema,
-          network,
+    for (let attempt = 0; attempt < 2; attempt++) {
+      network.kind = attempt ? 'repair' : 'initial';
+      const current = refresh?.() ?? observation;
+      const result = await this.complete(
+        config,
+        current.self?.modelConfig.model ?? config.defaultModel,
+        current.self?.modelConfig.reasoningEffort ?? config.reasoningEffort,
+        messages,
+        decisionSignal,
+        decisionJsonSchema,
+        network,
+      );
+      let json: unknown;
+      try {
+        json = JSON.parse(
+          result.content
+            .trim()
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/\s*```$/, ''),
         );
-        let json: unknown;
-        try {
-          json = JSON.parse(
-            result.content
-              .trim()
-              .replace(/^```(?:json)?\s*/i, '')
-              .replace(/\s*```$/, ''),
-          );
-        } catch {
-          lastIssue = 'decision: 非法 JSON，请只返回一个 JSON 对象';
-        }
-        if (json !== undefined) {
-          if (JSON.stringify(json).includes(config.apiKey))
-            throw new AgentApiError('Provider 响应包含凭据，已拒绝并保护记录。');
-          const parsed = agentDecisionSchema.safeParse(normalizeDecision(json));
-          if (parsed.success) {
-            const parent = current.recentChat.find(
-              (m) => m.responses?.[current.operatorId] === 'pending',
-            );
-            if (parent) {
-              const reply = parsed.data.messages.find((m) => m.channelId === parent.channelId);
-              if (reply) reply.replyTo = parent.id;
-              else
-                parsed.data.messages.push({
-                  channelId: parent.channelId,
-                  content: parsed.data.rationale,
-                  mentions: [],
-                  replyTo: parent.id,
-                  purpose: 'information',
-                });
-            }
-            const validationStart = Date.now();
-            const validation = validate?.(parsed.data);
-            this.tracker?.validation(observation.operatorId, Date.now() - validationStart);
-            if (Date.now() >= network.deadlineAt!)
-              throw new AgentApiError('模型调用超时，决策未执行，请重试。');
-            if (!validation || validation.ok) return parsed.data;
-            lastIssue = '动作校验：' + validation.reason;
-          } else lastIssue = 'schema 校验：' + decisionIssues(parsed.error);
-        }
-        this.tracker?.rejected(observation.operatorId, lastIssue);
-        if (attempt < 1)
-          messages.splice(
-            0,
-            messages.length,
-            {
-              role: 'system',
-              content: SYSTEM_PROMPT + '\n上次决策未执行，请纠正：' + lastIssue.slice(0, 500),
-            },
-            {
-              role: 'user',
-              content: JSON.stringify(compactObservation(refresh?.() ?? observation)),
-            },
-          );
+      } catch {
+        lastIssue = 'decision: 非法 JSON，请只返回一个 JSON 对象';
       }
-      this.tracker?.failure();
-      throw new AgentApiError('决策纠错重试耗尽：' + lastIssue + '；未执行任何动作。');
-    } finally {
-      // Every HTTP attempt shares the same network deadline.
+      if (json !== undefined) {
+        if (JSON.stringify(json).includes(config.apiKey))
+          throw new AgentApiError('Provider 响应包含凭据，已拒绝并保护记录。');
+        const parsed = agentDecisionSchema.safeParse(normalizeDecision(json));
+        if (parsed.success) {
+          const parent = current.recentChat.find(
+            (m) => m.responses?.[current.operatorId] === 'pending',
+          );
+          if (parent) {
+            const reply = parsed.data.messages.find((m) => m.channelId === parent.channelId);
+            if (reply) reply.replyTo = parent.id;
+            else
+              parsed.data.messages.push({
+                channelId: parent.channelId,
+                content: parsed.data.rationale,
+                mentions: [],
+                replyTo: parent.id,
+                purpose: 'information',
+              });
+          }
+          const validationStart = Date.now();
+          const validation = validate?.(parsed.data);
+          this.tracker?.validation(observation.operatorId, Date.now() - validationStart);
+          signal?.throwIfAborted();
+          if (!validation || validation.ok) return parsed.data;
+          lastIssue = '动作校验：' + validation.reason;
+        } else lastIssue = 'schema 校验：' + decisionIssues(parsed.error);
+      }
+      this.tracker?.rejected(observation.operatorId, lastIssue);
+      if (attempt < 1)
+        messages.splice(
+          0,
+          messages.length,
+          {
+            role: 'system',
+            content: SYSTEM_PROMPT + '\n上次决策未执行，请纠正：' + lastIssue.slice(0, 500),
+          },
+          {
+            role: 'assistant',
+            content: result.content.slice(0, 8000),
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(compactObservation(refresh?.() ?? observation)),
+          },
+        );
     }
+    this.tracker?.failure();
+    throw new AgentApiError('决策纠错重试耗尽：' + lastIssue + '；未执行任何动作。');
   }
-  async test(config: ConnectionConfig) {
-    const result = await this.complete(config, config.defaultModel, config.reasoningEffort, [
-      { role: 'system', content: 'Reply only JSON: {"ok":true}' },
-      { role: 'user', content: 'API connectivity test. Reply JSON.' },
-    ]);
+  async test(config: ConnectionConfig, signal?: AbortSignal) {
+    const result = await this.complete(
+      config,
+      config.defaultModel,
+      config.reasoningEffort,
+      [
+        { role: 'system', content: 'Reply only JSON: {"ok":true}' },
+        { role: 'user', content: 'API connectivity test. Reply JSON.' },
+      ],
+      signal,
+    );
     try {
       if (JSON.parse(result.content).ok !== true) throw Error();
     } catch {

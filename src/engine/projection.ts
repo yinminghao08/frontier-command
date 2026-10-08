@@ -410,6 +410,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
     locations: snap.locations,
     projects: snap.projects,
     wormholes: snap.wormholes,
+    wrecks: snap.wrecks,
     journeys: ship
       ? [...locations, ...snap.projects.filter((p) => !p.complete)].slice(0, 24).map((l) => ({
           targetId: l.id,

@@ -17,14 +17,20 @@ export class RequestTracker {
   };
   private byAgent: Record<string, number> = {};
   private timings: AgentRequestTiming[] = [];
-  track(agentId: string, kind: string, requestBytes: number, deadlineAt: number) {
+  private nextTimingId = 1;
+  track(agentId: string, kind: string, requestBytes: number, decisionStartedAt: number) {
     const timing: AgentRequestTiming = {
-      id: this.counts.requests,
+      id: this.nextTimingId++,
       agentId,
       kind,
       phase: 'requesting',
       startedAt: this.now(),
-      deadlineAt,
+      decisionStartedAt,
+      httpStatus: null,
+      responseFormat: null,
+      choiceCount: null,
+      finishReason: null,
+      failureKind: null,
       requestBytes,
       firstByteAt: null,
       endedAt: null,
@@ -46,6 +52,7 @@ export class RequestTracker {
     const timing = [...this.timings].reverse().find((t) => t.agentId === agentId);
     if (timing) {
       timing.phase = 'failed';
+      timing.failureKind = 'validation';
       timing.reason = reason.slice(0, 400);
     }
   }

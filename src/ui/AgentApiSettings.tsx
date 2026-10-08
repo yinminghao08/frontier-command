@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentApiInput, AgentApiSettings } from '../engine/agent-api';
 import type { ReasoningEffort } from '../engine/types';
 import { LcarsButton, LcarsField, LcarsPanel } from './components/Lcars';
@@ -20,6 +20,7 @@ export function AgentApiSettingsPanel() {
     [clearKey, setClearKey] = useState(false),
     [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; reason: string } | null>(null);
+  const testRequest = useRef<string | null>(null);
   useEffect(() => {
     void window.frontier.agentSettings().then((settings) => {
       setStored(settings);
@@ -30,13 +31,21 @@ export function AgentApiSettingsPanel() {
       });
     });
   }, []);
+  useEffect(
+    () => () => {
+      if (testRequest.current) void window.frontier.cancelAgentApiTest(testRequest.current);
+    },
+    [],
+  );
   const input = (): AgentApiInput => ({ ...draft, ...(key ? { apiKey: key } : {}), clearKey });
   const run = async (test: boolean) => {
     setBusy(true);
     setResult(null);
+    const requestId = test ? crypto.randomUUID() : null;
+    testRequest.current = requestId;
     try {
       const r = await (test
-        ? window.frontier.testAgentApi(input())
+        ? window.frontier.testAgentApi(input(), requestId!)
         : window.frontier.configureAgentApi(input()));
       setResult(r);
       if (r.ok && !test) {
@@ -47,6 +56,7 @@ export function AgentApiSettingsPanel() {
     } catch {
       setResult({ ok: false, reason: 'API 设置服务不可用，请稍后重试。' });
     } finally {
+      testRequest.current = null;
       setBusy(false);
     }
   };
@@ -120,6 +130,16 @@ export function AgentApiSettingsPanel() {
         <LcarsButton disabled={busy || !stored} onClick={() => void run(false)}>
           保存 Agent API
         </LcarsButton>
+        {busy && testRequest.current && (
+          <LcarsButton
+            tone="secondary"
+            onClick={() => {
+              if (testRequest.current) void window.frontier.cancelAgentApiTest(testRequest.current);
+            }}
+          >
+            取消连接测试
+          </LcarsButton>
+        )}
         <LcarsButton tone="secondary" disabled={busy || !stored} onClick={() => void run(true)}>
           {busy ? 'CONNECTING / 测试中…' : '测试 API 连接'}
         </LcarsButton>

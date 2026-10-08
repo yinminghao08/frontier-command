@@ -616,14 +616,10 @@ describe('v15 actual commands and feedback', () => {
     const msg = [...e.state.chatMessages].reverse().find((m) => m.sender === e.state.commander.id)!;
     const svc = service(
       e,
-      new ChatCompletionsClient(
-        async (_url, init) => {
-          body = String(init?.body);
-          return response({ goal: '等待', rationale: '目前舰况良好', action: null });
-        },
-        20000,
-        tracker,
-      ),
+      new ChatCompletionsClient(async (_url, init) => {
+        body = String(init?.body);
+        return response({ goal: '等待', rationale: '目前舰况良好', action: null });
+      }, tracker),
     );
     svc.pump();
     await flush();
@@ -693,7 +689,7 @@ describe('v15 actual commands and feedback', () => {
     expect(() => parseSave(e.state)).not.toThrow();
     svc.dispose();
   });
-  it('a hung provider gets a terminal original-channel error and a retry can answer the same message', async () => {
+  it('a cancelled hung provider releases its request and a retry can answer the same message', async () => {
     const e = quietEngine();
     e.state.agents.find((a) => a.id === freight)!.enabled = false;
     e.dispatchCommand({
@@ -703,15 +699,20 @@ describe('v15 actual commands and feedback', () => {
       mentions: [],
     });
     const msg = [...e.state.chatMessages].reverse().find((m) => m.sender === e.state.commander.id)!;
-    const svc = service(e, new ChatCompletionsClient(async () => new Promise(() => {}), 20));
+    const svc = service(e, new ChatCompletionsClient(async () => new Promise(() => {})));
     svc.pump();
-    await new Promise((done) => setTimeout(done, 40));
+    await flush();
+    expect(msg.responses?.[battle]).toBe('pending');
+    e.dispatchCommand({ type: 'cancelAgentReply', agentId: battle, messageId: msg.id });
+    svc.pump();
     await flush();
     expect({
       responses: msg.responses,
       decision: e.state.agents.find((a) => a.id === battle)!.decision,
-    }).toMatchObject({ responses: { [battle]: 'failed' } });
-    expect(e.state.chatMessages.some((m) => m.replyTo === msg.id && m.kind === 'error')).toBe(true);
+    }).toMatchObject({ responses: { [battle]: 'cancelled' } });
+    expect(
+      e.state.chatMessages.some((m) => m.replyTo === msg.id && m.content.includes('取消')),
+    ).toBe(true);
     svc.dispose();
     e.dispatchCommand({ type: 'retryAgent', agentId: battle, messageId: msg.id });
     const next = service(

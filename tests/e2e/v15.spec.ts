@@ -276,7 +276,7 @@ test('v15 a voluntary full-hold amendment inherits the underway route, reports i
   await wait(p, (w) => w.admiralTasks.at(-1)?.status === 'completed');
   expect((await state(p)).ships.find((s) => s.id === 'meridian')?.cargo.materials).toBe(0);
 });
-test('v15 cancellation and the shared 20 second deadline produce original-channel outcomes and a working retry', async () => {
+test('v15 slow streaming replies exceed 25 seconds, remain cancellable and support real-error retry', async () => {
   test.setTimeout(60000);
   const e = quietEngine();
   const p = await launch(e.state);
@@ -286,14 +286,30 @@ test('v15 cancellation and the shared 20 second deadline produce original-channe
   await expect(comm.getByRole('button', { name: '取消等待', exact: true })).toBeVisible();
   await comm.getByRole('button', { name: '取消等待', exact: true }).click();
   await expect(comm.getByRole('log')).toContainText('模型请求已取消');
+  provider!.mode = 'cooperate';
+  provider!.delayMs = 25000;
   comm = await chat(p, 'ops-horizon', '再报告一次当前情况。');
   const start = Date.now();
-  await expect(comm.getByRole('button', { name: '重试回复', exact: true })).toBeVisible({
-    timeout: 24000,
-  });
-  expect(Date.now() - start).toBeLessThan(24000);
-  await expect(comm.getByRole('log')).toContainText('超时');
-  await p.screenshot({ path: join(output, 'timeout-retry.png') });
+  await p.waitForTimeout(21000);
+  await expect(comm.getByRole('button', { name: '取消等待', exact: true })).toBeVisible();
+  await expect(comm.getByRole('log')).not.toContainText('最多 20 秒');
+  await expect
+    .poll(
+      async () =>
+        (await state(p)).chatMessages.filter((m) => m.sender === 'commander').at(-1)?.responses?.[
+          'ops-horizon'
+        ],
+      { timeout: 15000 },
+    )
+    .toBe('replied');
+  expect(Date.now() - start).toBeGreaterThanOrEqual(25000);
+  await p.screenshot({ path: join(output, 'slow-stream-replied.png') });
+  provider!.delayMs = 0;
+  provider!.failHttp = true;
+  comm = await chat(p, 'ops-horizon', '网络错误后重试。');
+  await expect(comm.getByRole('button', { name: '重试回复', exact: true })).toBeVisible();
+  await expect(comm.getByRole('log')).toContainText('HTTP 503');
+  provider!.failHttp = false;
   provider!.mode = 'cooperate';
   await comm.getByRole('button', { name: '重试回复', exact: true }).click();
   await expect
@@ -306,10 +322,30 @@ test('v15 cancellation and the shared 20 second deadline produce original-channe
     .toBe('replied');
   const stats = await p.evaluate(() => window.frontier.agentRuntime());
   expect(
-    [...stats.activeRequests, ...stats.recentRequests].every(
-      (r) => r.deadlineAt - r.startedAt <= 20000,
-    ),
+    [...stats.activeRequests, ...stats.recentRequests].every((r) => !('deadlineAt' in r)),
   ).toBe(true);
   writeFileSync(join(output, 'isolated-provider-telemetry.json'), JSON.stringify(stats, null, 2));
   expect(JSON.stringify(stats)).not.toContain('local-v15-only');
+});
+
+test('API connection test can be cancelled and immediately tested again', async () => {
+  const e = quietEngine();
+  for (const agent of e.state.agents) agent.enabled = false;
+  const p = await launch(e.state);
+  await configure(p);
+  provider!.mode = 'hang';
+  await p
+    .getByRole('navigation', { name: '主导航' })
+    .getByRole('button', { name: /Console Settings/i })
+    .click();
+  await p.getByRole('button', { name: '测试 API 连接', exact: true }).click();
+  await p.getByRole('button', { name: '取消连接测试', exact: true }).click();
+  await expect(p.getByRole('status').filter({ hasText: '模型请求已取消' })).toBeVisible();
+  provider!.mode = 'cooperate';
+  await p.getByRole('button', { name: '测试 API 连接', exact: true }).click();
+  await expect(p.getByRole('status').filter({ hasText: 'API 可用' })).toBeVisible();
+  await expect
+    .poll(async () => (await p.evaluate(() => window.frontier.agentRuntime())).concurrency)
+    .toBe(0);
+  await p.screenshot({ path: join(output, 'api-test-cancel-retry.png') });
 });

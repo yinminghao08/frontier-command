@@ -54,7 +54,13 @@ let agentConfig: AgentConfigStore;
 let agentService: AgentDecisionService | undefined;
 let agentTracker: RequestTracker;
 let agentClient: ChatCompletionsClient;
+const apiTests = new Map<string, AbortController>();
+function cancelApiTests() {
+  for (const controller of apiTests.values()) controller.abort();
+  apiTests.clear();
+}
 function startAgentService() {
+  cancelApiTests();
   agentService?.dispose();
   agentService = new AgentDecisionService(
     {
@@ -116,7 +122,7 @@ app.whenReady().then(async () => {
   engine = new SimulationEngine(loaded.world ?? createWorld());
   agentConfig = new AgentConfigStore(app.getPath('userData'), safeStorage);
   agentTracker = new RequestTracker();
-  agentClient = new ChatCompletionsClient(fetch, 20000, agentTracker);
+  agentClient = new ChatCompletionsClient(fetch, agentTracker);
   startAgentService();
   if (engine.state.status === 'active') engine.state.paused = true;
   if (!loaded.world && !loaded.blocked) store.write(engine.state);
@@ -211,7 +217,6 @@ app.whenReady().then(async () => {
       return { ok: false, reason: '请关闭存档管理器后手动继续模拟' };
     const previousReasons = engine.state.pauseReasons.length;
     const result = engine.dispatchCommand(command);
-    if (result.ok) agentService?.received();
     if (
       result.ok &&
       typeof command === 'object' &&
@@ -342,22 +347,39 @@ app.whenReady().then(async () => {
       return { ok: false, reason: 'API 设置无法安全保存，请检查系统加密与磁盘。' };
     }
   });
-  ipcMain.handle('agent:test-api', async (event, input: unknown) => {
+  ipcMain.handle('agent:cancel-test', (event, requestId: unknown) => {
     trusted(event);
+    const parsed = z.string().uuid().safeParse(requestId);
+    if (!parsed.success) return { ok: false, reason: 'API 测试标识无效。' };
+    apiTests.get(parsed.data)?.abort();
+    return { ok: true, reason: 'API 连接测试已取消。' };
+  });
+  ipcMain.handle('agent:test-api', async (event, input: unknown, requestId: unknown) => {
+    trusted(event);
+    const id = requestId === undefined ? crypto.randomUUID() : requestId;
+    const parsedId = z.string().uuid().safeParse(id);
+    if (!parsedId.success || apiTests.has(parsedId.data))
+      return { ok: false, reason: 'API 测试标识无效或正在使用。' };
     const parsed = input === undefined ? undefined : apiInputSchema.safeParse(input);
     if (parsed && !parsed.success) return { ok: false, reason: 'API 测试参数无效。' };
+    const controller = new AbortController();
+    apiTests.set(parsedId.data, controller);
     try {
       return await agentClient.test(
         agentConfig.connection(parsed?.success ? parsed.data : undefined),
+        controller.signal,
       );
     } catch (error) {
       return {
         ok: false,
         reason: error instanceof AgentApiError ? error.message : 'API 测试失败，请检查配置。',
       };
+    } finally {
+      if (apiTests.get(parsedId.data) === controller) apiTests.delete(parsedId.data);
     }
   });
   window.on('close', () => {
+    cancelApiTests();
     agentService?.dispose();
     const result = save();
     if (!result.ok) console.error(result.reason);

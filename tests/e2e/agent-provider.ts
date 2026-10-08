@@ -5,6 +5,7 @@ import { COMMAND_CHANNEL, privateChannel } from '../../src/engine/chat';
 import { capabilities } from '../../src/engine/capabilities';
 export interface TestCompletionRequest {
   model: string;
+  stream?: boolean;
   reasoning_effort?: string;
   response_format?: unknown;
   messages: { role: string; content: string }[];
@@ -12,6 +13,8 @@ export interface TestCompletionRequest {
 /** A local protocol fixture, never used by the application as a decision fallback. */
 export class AgentTestProvider {
   server: Server;
+  delayMs = 0;
+  failHttp = false;
   requests: TestCompletionRequest[] = [];
   mode: 'cooperate' | 'refuse' | 'invalid' | 'negotiate' | 'piracy' | 'piracyRefuse' | 'hang' =
     'cooperate';
@@ -42,6 +45,11 @@ export class AgentTestProvider {
           );
           return;
         }
+        if (this.failHttp) {
+          response.writeHead(503);
+          response.end('{}');
+          return;
+        }
         let content: string;
         if (this.mode === 'hang') return; // Deliberately stalled local socket for deadline tests.
         if (input.messages[0].content.includes('Reply only JSON:')) content = '{"ok":true}';
@@ -57,9 +65,28 @@ export class AgentTestProvider {
           content = JSON.stringify(
             this.choose(JSON.parse(input.messages[1].content) as Observation),
           );
-        response.end(
-          JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 17 } }),
-        );
+        const send = () => {
+          if (input.stream) {
+            response.setHeader('Content-Type', 'text/event-stream');
+            response.end(
+              'data: ' +
+                JSON.stringify({
+                  choices: [{ index: 0, delta: { content }, finish_reason: 'stop' }],
+                }) +
+                '\n\n' +
+                'data: ' +
+                JSON.stringify({ choices: [], usage: { total_tokens: 17 } }) +
+                '\n\ndata: [DONE]\n\n',
+            );
+          } else
+            response.end(
+              JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 17 } }),
+            );
+        };
+        if (this.delayMs) {
+          const timer = setTimeout(send, this.delayMs);
+          response.on('close', () => clearTimeout(timer));
+        } else send();
       });
     });
   }

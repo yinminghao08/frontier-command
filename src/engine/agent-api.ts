@@ -30,13 +30,38 @@ export interface AgentRuntimeStats {
   windowRequests: number;
   byAgent: Record<string, number>;
 }
+export type AgentFailureKind =
+  | 'cancelled'
+  | 'network'
+  | 'disconnected'
+  | 'authentication'
+  | 'rate-limit'
+  | 'provider'
+  | 'protocol'
+  | 'empty'
+  | 'truncated'
+  | 'oversized'
+  | 'credentials'
+  | 'validation';
 export interface AgentRequestTiming {
   id: number;
   agentId: string;
   kind: string;
-  phase: 'requesting' | 'receiving' | 'completed' | 'failed';
+  phase: 'requesting' | 'receiving' | 'completed' | 'failed' | 'cancelled';
   startedAt: number;
-  deadlineAt: number;
+  decisionStartedAt: number;
+  httpStatus: number | null;
+  responseFormat: 'sse' | 'json' | null;
+  choiceCount: number | null;
+  finishReason:
+    | 'stop'
+    | 'length'
+    | 'content_filter'
+    | 'tool_calls'
+    | 'function_call'
+    | 'other'
+    | null;
+  failureKind: AgentFailureKind | null;
   requestBytes: number;
   firstByteAt: number | null;
   endedAt: number | null;

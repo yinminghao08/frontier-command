@@ -5,7 +5,7 @@
 | 验收行为                                                                                 | 自动验证                                                                                                                                                    |
 | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 原句清剿、实际火力/伤害、连续/新增公开目标、RETURN FIRE 授权、有序多目标与取消接管       | `tests/v15-command-feedback.test.ts`、`tests/e2e/v15.spec.ts`、`tests/e2e/admiral-chat.spec.ts`                                                             |
-| 原会话关联回复、失败/取消/替代/重试、短 JSON 协议、共享 20 秒截止及一次纠错              | `tests/v15-command-feedback.test.ts`、`tests/task-judgment.test.ts`、`tests/v13-budget.test.ts`、`tests/e2e/task-feedback.spec.ts`、`tests/e2e/v15.spec.ts` |
+| 原会话关联回复、失败/取消/替代/重试、短 JSON 协议、无自动时间截止、流式兼容及一次纠错              | `tests/v15-command-feedback.test.ts`、`tests/task-judgment.test.ts`、`tests/v13-budget.test.ts`、`tests/e2e/task-feedback.spec.ts`、`tests/e2e/v15.spec.ts` |
 | Ctrl 敌舰多选并保留己方、五种按钮共用指挥方式、记忆默认、真实拒绝和 Agent 缺失反馈       | `tests/e2e/v15.spec.ts`                                                                                                                                     |
 | 当前趟继承路线/改单补装、600 满载、明确数量、库存/仓位/需求/在途约束、循环重算及预留守恒 | `tests/v15-command-feedback.test.ts`、`tests/v13-contracts.test.ts`、`tests/e2e/v15.spec.ts`                                                                |
 | 实际活动速率、受击/舰体阈值去重、过劳不满、意愿变化、暂停、等时速度及状态界面            | `tests/v15-command-feedback.test.ts`、`tests/v13-contracts.test.ts`、`tests/e2e/v15.spec.ts`                                                                |
@@ -55,7 +55,7 @@ E2E 只使用隔离 userData 和本地 HTTP Chat Completions provider，不读�
 
 # Frontier Command v11 Agent 验收
 
-当前 v11 使用新世界与独立存档目录，不迁移 v10。`tests/agents.test.ts` 验证独立 Agent、完整公开 observation、Admiral 优先级、原子拒绝非法决策、真实攻击/护航/运输、聊天与有限记忆、培养、经验及关系变化。`tests/agent-api.test.ts` 验证 main-only 协议、独立模型/NONE、兼容重试、超时、加密配置、凭据不进入记录、决策节点与过期响应。
+当前 v11 使用新世界与独立存档目录，不迁移 v10。`tests/agents.test.ts` 验证独立 Agent、完整公开 observation、Admiral 优先级、原子拒绝非法决策、真实攻击/护航/运输、聊天与有限记忆、培养、经验及关系变化。`tests/agent-api.test.ts` 验证 main-only 协议、独立模型/NONE、兼容重试、显式取消、加密配置、凭据不进入记录、决策节点与过期响应。
 
 `tests/e2e/agents.spec.ts` 实际启动 Electron：使用隔离存档和本地 Chat Completions 协议服务完成群聊/私聊/@ → 模型决策 → 校验 → 实际 HAUL/ESCORT → 已确认虫洞 → 真实卸货 → 经验/关系/记忆，以及拒绝、错误恢复、培养、分配、重启、拖动通讯和大字号布局。外部 provider 需玩家自行配置凭据；测试服务不在应用运行路径中。
 
@@ -117,3 +117,6 @@ Demo 的规则与确定性验收见 `tests/agent-demo.test.ts`；Electron 从随
 必跑 `npm test`、`npm run build`、`npm run test:e2e`。Electron E2E 启动生产主进程与页面，隔离存档和合法场景夹具只用于测试；公开 API 没有测试专用世界修改接口。
 
 `node scripts/acceptance-v9.mjs 236807` 使用未修改资产的正常新世界和可见 Electron，通过真实按钮/表单下令、确认警报和手动继续，验证待命、固定通道、调查接管与隐形。多 seed 规则使用 42、1701、236807。真实截图和机器结果存于 `docs/verification/v9/`，已运行的检查见 [验证记录](verification.md)。历史 v8 证据保留于原目录。本轮不推送远程或重新发布 EXE/ZIP。
+
+
+Agent transport regression: `tests/agent-transport.test.ts` covers delayed first responses beyond 20 seconds, cancellable indefinite waits, byte-split SSE/UTF-8/CRLF, reasoning isolation, usage, non-streaming compatibility, protocol/empty/truncated/credential failures, HTTP authentication/rate limits and stale authority. `tests/v13-budget.test.ts` covers a 32-second initial-plus-repair sequence without a deadline. `tests/e2e/v15.spec.ts` starts real Electron with isolated userData: a 25-second streaming reply completes in its original channel, cancellation and HTTP-error retry work, and the API test can be cancelled and restarted. These local protocol fixtures do not verify actual external provider availability.

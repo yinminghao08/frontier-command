@@ -786,6 +786,12 @@ export const worldSchema = z
         (task.kind === 'construction' && (!task.targetId || !task.facilityKind)) ||
         (task.kind === 'surveyRoute' && !task.sectors.length) ||
         (task.kind === 'factionAssault' && task.factionId !== 'orion') ||
+        (task.kind === 'salvage' &&
+          (!task.salvage ||
+            new Set(task.salvage.wreckIds).size !== task.salvage.wreckIds.length ||
+            task.salvage.wreckIds.some((id) => !w.wrecks.some((x) => x.id === id && x.discovered)) ||
+            (task.salvage.destinationId !== null && !w.locations.some((l) => l.id === task.salvage!.destinationId)))) ||
+        (task.kind !== 'salvage' && task.salvage !== undefined) ||
         Object.values(task.searchedTargets ?? {}).some((time) => time > w.time)
       )
         bad('Invalid Admiral task authority');

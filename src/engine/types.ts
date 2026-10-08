@@ -152,7 +152,8 @@ export interface AdmiralTask {
   agentId: string;
   messageId: number;
   channelId: string;
-  kind: 'action' | 'assign' | 'construction' | 'surveyRoute' | 'cancel' | 'factionAssault';
+  kind: 'action' | 'assign' | 'construction' | 'surveyRoute' | 'cancel' | 'factionAssault' | 'salvage';
+  salvage?: { wreckIds: string[]; destinationId: string | null };
   factionId?: 'orion';
   searchedTargets?: Record<string, number>;
   directiveMode?: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
@@ -1149,6 +1150,7 @@ interface ObservationData {
   projects: Construction[];
   wormholes: KnownWormhole[];
   journeys: { targetId: string; plans: JourneyPlan[] }[];
+  wrecks: Wreck[];
   inventories: SnapshotData['inventories'];
   logisticsNeeds: { targetId: string; cargoKind: CargoKind; amount: number; sourceIds: string[] }[];
   company: {

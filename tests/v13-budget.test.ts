@@ -106,13 +106,13 @@ describe('unlimited HTTP telemetry', () => {
       if (calls === 3) return reply('not-json');
       return reply(undefined, 7);
     };
-    const client = new ChatCompletionsClient(fetcher, 45000, b);
+    const client = new ChatCompletionsClient(fetcher, b);
     await client.decide(
       { ...config, reasoningEffort: 'high' },
       quietEngine().getObservation('ops-meridian')!,
     );
     expect(b.stats()).toMatchObject({ requests: 4, repairs: 1, tokens: null });
-    const testing = new ChatCompletionsClient(async () => reply('{"ok":true}', 3), 45000, b);
+    const testing = new ChatCompletionsClient(async () => reply('{"ok":true}', 3), b);
     await testing.test(config);
     expect(b.stats().requests).toBe(5);
     expect(b.stats().byAgent['admiral:test']).toBe(1);
@@ -121,15 +121,11 @@ describe('unlimited HTTP telemetry', () => {
     const b = budget();
     let calls = 0;
     const resolve: (() => void)[] = [];
-    const client = new ChatCompletionsClient(
-      async () => {
-        calls++;
-        await new Promise<void>((done) => resolve.push(done));
-        return reply();
-      },
-      45000,
-      b,
-    );
+    const client = new ChatCompletionsClient(async () => {
+      calls++;
+      await new Promise<void>((done) => resolve.push(done));
+      return reply();
+    }, b);
     const requests = Array.from({ length: 3 }, () =>
       client.decide(config, quietEngine().getObservation('ops-meridian')!),
     );
@@ -140,14 +136,17 @@ describe('unlimited HTTP telemetry', () => {
     await Promise.all(requests);
     expect(b.stats().concurrency).toBe(0);
   });
-  it('one repair shares the same 20 second network deadline and releases its slot', async () => {
+  it('one slow repair exceeds 20 seconds and shares its logical start without a deadline', async () => {
     fakeClock();
     const b = budget();
     let calls = 0;
     const fetcher: typeof fetch = (_url, init) =>
       new Promise((resolve, reject) => {
         calls++;
-        const timer = setTimeout(() => resolve(reply('bad-json')), calls === 1 ? 12000 : 20000);
+        const timer = setTimeout(
+          () => resolve(calls === 1 ? reply('bad-json') : reply()),
+          calls === 1 ? 12000 : 20000,
+        );
         init?.signal?.addEventListener(
           'abort',
           () => {
@@ -157,14 +156,17 @@ describe('unlimited HTTP telemetry', () => {
           { once: true },
         );
       });
-    const result = new ChatCompletionsClient(fetcher, 20000, b)
+    const result = new ChatCompletionsClient(fetcher, b)
       .decide(config, quietEngine().getObservation('ops-meridian')!)
       .catch((error) => error as Error);
     await flush();
-    await vi.advanceTimersByTimeAsync(20000);
-    const error = await result;
-    expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toContain('超时');
+    await vi.advanceTimersByTimeAsync(32000);
+    const decision = await result;
+    expect(decision).toHaveProperty('action', null);
+    expect(b.stats().recentRequests.map((r) => r.decisionStartedAt)).toEqual([
+      Date.now() - 32000,
+      Date.now() - 32000,
+    ]);
     expect(calls).toBe(2);
     expect(b.stats().concurrency).toBe(0);
   });
@@ -177,14 +179,10 @@ describe('unlimited HTTP telemetry', () => {
       e.state.speed = speed;
       e.state.paused = false;
       let calls = 0;
-      const client = new ChatCompletionsClient(
-        async () => {
-          calls++;
-          return reply();
-        },
-        45000,
-        b,
-      );
+      const client = new ChatCompletionsClient(async () => {
+        calls++;
+        return reply();
+      }, b);
       const service = new AgentDecisionService(
         {
           snapshot: () => e.snapshot(),
@@ -336,19 +334,15 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     e.state.paused = false;
     let calls = 0,
       release: (() => void) | undefined;
-    const client = new ChatCompletionsClient(
-      async () => {
-        calls++;
-        await new Promise<void>((r) => {
-          release = r;
-        });
-        return reply(
-          '{"goal":"过期动作","rationale":"旧观察","action":{"type":"MOVE","point":{"x":0,"y":0}}}',
-        );
-      },
-      45000,
-      b,
-    );
+    const client = new ChatCompletionsClient(async () => {
+      calls++;
+      await new Promise<void>((r) => {
+        release = r;
+      });
+      return reply(
+        '{"goal":"过期动作","rationale":"旧观察","action":{"type":"MOVE","point":{"x":0,"y":0}}}',
+      );
+    }, b);
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
@@ -386,14 +380,10 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     e.state.agents[0].enabled = false;
     e.state.paused = false;
     let calls = 0;
-    const client = new ChatCompletionsClient(
-      async () => {
-        calls++;
-        throw Error('network test');
-      },
-      45000,
-      b,
-    );
+    const client = new ChatCompletionsClient(async () => {
+      calls++;
+      throw Error('network test');
+    }, b);
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
@@ -438,14 +428,10 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,
-      new ChatCompletionsClient(
-        async () => {
-          calls++;
-          return new Response('unauthorized', { status: 401 });
-        },
-        45000,
-        b,
-      ),
+      new ChatCompletionsClient(async () => {
+        calls++;
+        return new Response('unauthorized', { status: 401 });
+      }, b),
     );
     service.pump();
     await flush();

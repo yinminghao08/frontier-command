@@ -22,7 +22,7 @@ export function AgentCallStatus({ status, agentId }: { agentId: string; status: 
     <span role="status">
       {current?.phase === 'receiving' ? '正在接收回复' : '正在等待模型回复'}
       {current
-        ? ` · 已用 ${Math.max(0, (Date.now() - Math.min(current.startedAt, current.deadlineAt - 20000)) / 1000).toFixed(1)} 秒 / 最多 20 秒`
+        ? ` · 已用 ${Math.max(0, (Date.now() - current.decisionStartedAt) / 1000).toFixed(1)} 秒`
         : ''}
     </span>
   ) : null;
@@ -55,10 +55,12 @@ export function AgentRuntime() {
       )}
       {stats?.recentRequests.slice(-3).map((r) => (
         <p key={r.id}>
-          #{r.id} · {r.requestBytes} bytes · 响应{' '}
+          #{r.id} · {r.kind} · {r.responseFormat ?? '—'} · HTTP {r.httpStatus ?? '—'} · {r.phase} ·{' '}
+          {r.requestBytes} bytes · 响应{' '}
           {r.firstByteAt ? ((r.firstByteAt - r.startedAt) / 1000).toFixed(2) : '—'} 秒 · 总耗时{' '}
           {r.endedAt ? ((r.endedAt - r.startedAt) / 1000).toFixed(2) : '—'} 秒 · 校验{' '}
-          {r.validationMs} ms{r.reason ? ' · ' + r.reason : ''}
+          {r.validationMs} ms{r.failureKind ? ' · ' + r.failureKind : ''}
+          {r.reason ? ' · ' + r.reason : ''}
         </p>
       ))}
     </section>

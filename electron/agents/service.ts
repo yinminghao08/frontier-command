@@ -12,24 +12,11 @@ export class AgentDecisionService {
   private readonly flights = new Map<string, { controller: AbortController; revision: number }>();
   private disposed = false;
   private retries = new Map<string, { at: number; attempts: number }>();
-  private readonly messageDeadlines = new Map<string, number>();
   constructor(
     private readonly host: DecisionHost,
     private readonly config: () => ConnectionConfig,
     private readonly client = new ChatCompletionsClient(),
   ) {}
-  received() {
-    const pending = this.host.snapshot().chatMessages.flatMap((m) =>
-      Object.entries(m.responses ?? {})
-        .filter(([, status]) => status === 'pending')
-        .map(([id]) => `${m.id}:${id}`),
-    );
-    const keys = new Set(pending);
-    for (const key of this.messageDeadlines.keys())
-      if (!keys.has(key)) this.messageDeadlines.delete(key);
-    for (const key of pending)
-      if (!this.messageDeadlines.has(key)) this.messageDeadlines.set(key, Date.now() + 20000);
-  }
   dispose() {
     this.disposed = true;
     for (const flight of this.flights.values()) flight.controller.abort();
@@ -37,7 +24,6 @@ export class AgentDecisionService {
   }
   pump() {
     if (this.disposed) return;
-    this.received();
     const snapshot = this.host.snapshot();
     for (const [id, flight] of this.flights) {
       if (snapshot.agents.find((a) => a.id === id)?.decision.revision !== flight.revision) {
@@ -148,10 +134,6 @@ export class AgentDecisionService {
       if (!observation?.self) continue;
       const revision = observation.self.decision.revision;
       const message = latest.chatMessages.find((m) => m.responses?.[a.id] === 'pending');
-      const messageKey = message ? `${message.id}:${a.id}` : null;
-      if (messageKey && !this.messageDeadlines.has(messageKey))
-        this.messageDeadlines.set(messageKey, Date.now() + 20000);
-      const deadlineAt = messageKey ? this.messageDeadlines.get(messageKey) : undefined;
       if (!config.apiKey) {
         if (a.status !== 'offline' || awaitingMessage)
           this.host.command(
@@ -194,7 +176,6 @@ export class AgentDecisionService {
                 a.id,
               )
           : undefined,
-        deadlineAt,
       )
         .then((decision) => {
           if (this.disposed || controller.signal.aborted) return;
@@ -212,7 +193,6 @@ export class AgentDecisionService {
           );
           if (result.ok) {
             this.retries.delete(a.id);
-            if (messageKey) this.messageDeadlines.delete(messageKey);
           }
           if (!result.ok)
             this.host.command(
@@ -253,7 +233,6 @@ export class AgentDecisionService {
               },
               a.id,
             );
-            if (messageKey) this.messageDeadlines.delete(messageKey);
           }
         })
         .finally(() => {

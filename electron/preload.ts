@@ -14,7 +14,9 @@ contextBridge.exposeInMainWorld('frontier', {
   agentRuntime: () => ipcRenderer.invoke('agent:runtime'),
   configureAgentApi: (settings: AgentApiInput) =>
     ipcRenderer.invoke('agent:configure-api', settings),
-  testAgentApi: (settings?: AgentApiInput) => ipcRenderer.invoke('agent:test-api', settings),
+  testAgentApi: (settings?: AgentApiInput, requestId?: string) =>
+    ipcRenderer.invoke('agent:test-api', settings, requestId),
+  cancelAgentApiTest: (requestId: string) => ipcRenderer.invoke('agent:cancel-test', requestId),
   onEvents: (callback: (events: PublicSimulationEvent[]) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, events: PublicSimulationEvent[]) =>
       callback(events);

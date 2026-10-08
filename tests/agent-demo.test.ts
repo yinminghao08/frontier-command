@@ -54,7 +54,7 @@ describe('fixed-seed v13 autonomous collaboration demo', () => {
         reasoningEffort: 'none',
         apiKey: 'isolated-demo-key',
       }),
-      new ChatCompletionsClient(fetch, 45000, budget),
+      new ChatCompletionsClient(fetch, budget),
     );
     try {
       for (

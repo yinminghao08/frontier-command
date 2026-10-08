@@ -116,7 +116,7 @@ describe('Chat Completions compatible transport and protected credentials', () =
       escapedEcho.decide(config, quietEngine().getObservation('ops-meridian')!),
     ).rejects.toThrow('凭据');
   });
-  it('rejects illegal JSON/schema/oversized responses and bounds a hung provider by timeout', async () => {
+  it('rejects illegal JSON/schema/oversized responses and permits explicit cancellation of a hung provider', async () => {
     const obs = quietEngine().getObservation('ops-meridian')!;
     for (const output of [
       'not-json',
@@ -134,7 +134,10 @@ describe('Chat Completions compatible transport and protected credentials', () =
       new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(Error('aborted')), { once: true });
       });
-    await expect(new ChatCompletionsClient(hung, 25).decide(config, obs)).rejects.toThrow('超时');
+    const controller = new AbortController();
+    const pending = new ChatCompletionsClient(hung).decide(config, obs, controller.signal);
+    controller.abort();
+    await expect(pending).rejects.toThrow('取消');
   });
   it('persists only encrypted Key outside saves and returns only public API metadata', () => {
     const dir = mkdtempSync(join(tmpdir(), 'frontier-agent-config-'));

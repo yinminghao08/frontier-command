@@ -1,4 +1,8 @@
-# Frontier Command / v9 验证记录
+# Frontier Command / v13 验证记录
+
+当前版本的规则、生产构建、隔离 Electron 回归及新截图见 [v13 验证记录](verification/v13/README.md)。以下保留各历史版本的实际记录，不作为 v13 的测试数量或存档路径说明。
+
+# 历史 Frontier Command / v9 验证记录
 
 验证日期：2026-10-06。基线为本地提交 `49f5660`，保持主进程引擎、固定步、现有指令、事件和 LCARS 26 Classic 架构。新建严格 v9 世界；原 v8 世界文件没有读取、迁移或修改。所有检查的汇总见 [验收结果](verification/v9/checks-summary.json)。
 

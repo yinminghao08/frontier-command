@@ -12,6 +12,7 @@ import { capabilities, cargoUsed } from './capabilities';
 import { journeyOptions } from './journey';
 import { AGENT_RULES } from './definitions/agents';
 import { FACILITIES } from './definitions/progression';
+import { decisionContext } from './personality';
 export function opportunities(e: SimulationEngine): Opportunity[] {
   const w = e.state,
     result: Opportunity[] = [];
@@ -89,6 +90,7 @@ export function snapshot(this: SimulationEngine): Snapshot {
     chatMessages: w.chatMessages,
     admiralTasks: w.admiralTasks,
     escortRequests: w.escortRequests,
+    commitments: w.commitments,
     losses: w.losses,
     ships: w.ships,
     contacts: visibleIntel(w),
@@ -250,6 +252,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
       examples.push({ type: 'ESCORT', targetId: t.id });
     for (const l of locations) {
       examples.push({ type: 'PATROL', targetId: l.id, duration: 30 });
+      examples.push({ type: 'REST', targetId: l.id, duration: 30 });
       for (const type of ['RETREAT', 'DOCK', 'REPAIR', 'UNLOAD'] as const)
         examples.push({ type, targetId: l.id });
       const stock = snap.inventories.find((i) => i.locationId === l.id)?.available;
@@ -300,10 +303,23 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
   const sources = snap.inventories
     .filter((i) => i.available.materials >= 10)
     .map((i) => i.locationId);
+  const taskProposals = snap.admiralTasks.filter(
+    (t) =>
+      t.agentId === operatorId &&
+      t.controlMode === 'voluntary' &&
+      ['active', 'blocked'].includes(t.status) &&
+      ['proposed', 'negotiating'].includes(t.consent),
+  );
   const admiralTask =
+    [...taskProposals].reverse().find((t) => t.turnAgentId === operatorId) ??
     [...snap.admiralTasks]
       .reverse()
-      .find((t) => t.agentId === operatorId || t.carrierAgentId === operatorId) ?? null;
+      .find(
+        (t) =>
+          (t.agentId === operatorId || t.carrierAgentId === operatorId) &&
+          ['active', 'blocked'].includes(t.status),
+      ) ??
+    null;
   const constructionOptions = snap.bodies
     .filter((b) => b.kind === 'resource' || b.kind === 'planet')
     .map((b) => {
@@ -318,8 +334,12 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
         reason: result.reason,
       };
     });
-  const readableChat = snap.chatMessages.filter((m) =>
-    snap.chatChannels.some((ch) => ch.id === m.channelId && ch.members.includes(operatorId)),
+  const readableChat = snap.chatMessages.filter(
+    (m) =>
+      m.kind !== 'report' &&
+      snap.chatChannels.some(
+        (ch) => ch.kind !== 'reports' && ch.id === m.channelId && ch.members.includes(operatorId),
+      ),
   );
   const selectedChat = new Map<number, Snapshot['chatMessages'][number]>();
   const candidates = [
@@ -347,6 +367,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
     ship,
     currentTask: ship?.current ?? null,
     admiralTask,
+    taskProposals,
     constructionOptions,
     actionAvailability: ship
       ? examples.map((action) => {
@@ -408,7 +429,21 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
       status: snap.status,
     },
     recentChat: [...selectedChat.values()].sort((a, b) => a.id - b.id),
-    channels: snap.chatChannels.filter((ch) => ch.members.includes(operatorId)),
+    channels: snap.chatChannels.filter(
+      (ch) => ch.kind !== 'reports' && ch.members.includes(operatorId),
+    ),
+    commitments: snap.commitments.filter((c) => c.agentId === operatorId),
+    decisionContext: self
+      ? decisionContext(self, this.state)
+      : {
+          willingness: 0,
+          riskLimit: 0,
+          conflicts: [],
+          preferredActivities: [],
+          preferredPeers: [],
+          growthModules: [],
+          preparation: null,
+        },
     escortRequests: snap.escortRequests
       .filter((r) => r.requesterId === operatorId || r.responderId === operatorId)
       .slice(-16),

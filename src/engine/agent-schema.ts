@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { activitySchema, conditionsSchema } from './condition-schema';
+import { actionSchema } from './action-schema';
 export const agentCareerSchema = z.enum(['battle', 'logistics']);
 export const reasoningSchema = z.enum(['none', 'low', 'medium', 'high']);
 const id = z.string().min(1).max(160),
@@ -23,6 +25,32 @@ export const agentSchema = z
         ambition: percent,
       })
       .strict(),
+    profile: z
+      .object({
+        patience: percent,
+        assertiveness: percent,
+        sociability: percent,
+        motivations: z
+          .object({
+            safety: percent,
+            duty: percent,
+            profit: percent,
+            growth: percent,
+            belonging: percent,
+          })
+          .strict(),
+        style: z.enum(['concise', 'warm', 'formal', 'direct']),
+      })
+      .strict(),
+    psychology: z.object({ stress: percent, confidence: percent, resentment: percent }).strict(),
+    longTermGoal: z
+      .object({ activity: activitySchema, summary: z.string().min(1).max(240) })
+      .strict(),
+    taskPreferences: z
+      .object({ security: percent, logistics: percent, exploration: percent, growth: percent })
+      .strict(),
+    rewardCredits: n,
+    feedbackEvents: z.array(id),
     skills: z.object({ battle: percent, logistics: percent, navigation: percent }).strict(),
     experience: n,
     trust: percent,
@@ -62,6 +90,27 @@ export const agentSchema = z
         lastAdmiralMessageId: n.int(),
         failures: n.int(),
         lastError: z.string().max(400).nullable(),
+        contextKey: z.string().max(20000),
+        dangerKey: z.string().max(500),
+        events: z
+          .array(
+            z
+              .object({
+                id,
+                kind: z.enum([
+                  'chat',
+                  'request',
+                  'danger',
+                  'opportunity',
+                  'manual',
+                  'configuration',
+                  'recovery',
+                ]),
+                time: n,
+              })
+              .strict(),
+          )
+          .max(8),
       })
       .strict(),
   })
@@ -70,7 +119,7 @@ export const chatChannelSchema = z
   .object({
     id,
     name: id,
-    kind: z.enum(['command', 'private']),
+    kind: z.enum(['command', 'private', 'reports']),
     members: z.array(id),
     readThrough: n.int(),
   })
@@ -86,6 +135,10 @@ export const chatMessageSchema = z
     kind: z.enum(['message', 'request', 'reply', 'report', 'danger', 'error']),
     purpose: z.enum(['information', 'acknowledgement', 'request']).default('information'),
     replyTo: n.int().positive().nullable().default(null),
+    origin: z.enum(['admiral', 'agent', 'engine', 'legacy']).default('legacy'),
+    eventId: id.nullable().default(null),
+    requestId: id.nullable().default(null),
+    controlMode: z.enum(['voluntary', 'direct']).default('voluntary'),
   })
   .strict();
 export const escortRequestSchema = z
@@ -97,6 +150,27 @@ export const escortRequestSchema = z
     created: n,
     deadline: n,
     started: z.boolean(),
-    status: z.enum(['pending', 'accepted', 'rejected', 'completed', 'failed']),
+    executionStarted: z.boolean(),
+    status: z.enum([
+      'pending',
+      'negotiating',
+      'awaitingApproval',
+      'accepted',
+      'rejected',
+      'completed',
+      'failed',
+      'cancelled',
+    ]),
+    kind: z.enum(['escort', 'team', 'reinforce', 'logistics', 'handoff']),
+    action: z.lazy(() => actionSchema).nullable(),
+    followUp: z.lazy(() => actionSchema).nullable(),
+    parentTaskId: id.nullable(),
+    conditions: conditionsSchema,
+    conditionVersion: n.int().positive(),
+    rounds: n.int().max(2),
+    turnAgentId: id,
+    creditsApproved: z.boolean(),
+    explicitDeadline: z.boolean(),
+    reason: z.string().max(600).nullable(),
   })
   .strict();

@@ -1,9 +1,9 @@
 {
   "name": "frontier-command",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Frontier Command — v12 scoped Admiral chat tasks and resilient decisions",
+  "description": "Frontier Command — v13 autonomous cooperation, enforceable commitments and short task judgments",
   "author": "Frontier Command Project",
   "main": "dist-electron/electron/main.js",
   "scripts": {

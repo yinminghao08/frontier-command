@@ -7,25 +7,43 @@ import {
 } from '../../src/engine/decision-protocol';
 import type { AgentDecision, Observation, ReasoningEffort } from '../../src/engine/types';
 import type { ConnectionConfig } from './config';
+import { RequestTracker, type RequestKind } from './runtime';
+import {
+  taskJudgmentSchema,
+  taskJudgmentJsonSchema,
+  taskJudgmentContext,
+  TASK_JUDGMENT_PROMPT,
+} from './task-judgment';
+interface NetworkBudget {
+  remaining: number;
+  agentId: string;
+  kind: RequestKind;
+}
 
 const completionSchema = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string() }) })).min(1),
 });
 const SYSTEM_PROMPT = `你是 Frontier Command 的独立 Agent。根据公开 observation 作出高层决策，回复且仅回复一个 JSON 对象。
 完整协议在最后附上，所有字段按协议填写，不能发明动作。mode=act 必须给 action 或 coordination；继续已有任务用 continue，缺少资源用 wait，目标不明确用 clarify。不把普通交流变成新动作。
-Admiral 聊天命令由主进程独立编译为 observation.admiralTask；不要以自主 Action 冒充授权，也不要重复提交已经接受的任务。建设和分舰是公司操作，由真实任务执行器处理；不得将 startConstruction 或 assignAgent 放进 action。
+Admiral 聊天命令由主进程独立编译为 observation.admiralTask；taskProposals 保留所有尚未结束的自愿提议，一次处理一个轮到自己的版本，结合已有工作判断冲突；不要以自主 Action 冒充授权，也不要重复提交已经接受的任务。建设和分舰是公司操作，由真实任务执行器处理；不得将 startConstruction 或 assignAgent 放进 action。
 allowNeutral/allowRomulan 是地理通行限制，hostile 是公开敌对证据。maxPursuit 的追击限额约束 Standing Orders，不是全舰船武器射程。Admiral 指令高于自主 ROE，射程和物理状态仍由引擎执行。
 messages 只表达意图、理由或交流，禁止虚构已分舰、已开火、已交付等执行结果；这些由引擎回执报告。回复已有确认用 purpose=acknowledgement 和同会话 replyTo；无新事实不要继续相互确认。
 格式：{"goal":"当前目标","rationale":"简短理由","action":null,"messages":[],"memory":null,"waitMinutes":30,"coordination":null}。
 action 为 observation.actionExamples 所示格式的合法游戏 Action，也可以为 null；目标、数量、航线可以根据公开库存与信息调整。职业只是偏好，不是行动白名单。不能虚构 ID、库存、敌人或地图。
-你拥有稳定的 personality、skills、experience、trust、fatigue、morale、relationships。根据这些、近期聊天和 memory 作出个性化选择；Admiral 的明确舰船指令优先，legalActions 为空时只能交流/等待。
-messages 最多3条，每条 {"channelId":"公开会话ID","content":"消息内容","mentions":["对方Agent ID"]}。Admiral 私聊应在同一私聊答复，群里可 @姓名 联系同僚。聊天应实际影响 goal 与行动，而不是泛泛寒暄。不要在消息里重复系统自动发送的任务完成报告。
+你拥有稳定的 personality、profile（动机、耐心、自主诉求、表达风格）、longTermGoal、taskPreferences，以及动态 psychology、skills、experience、trust、fatigue、morale、relationships。decisionContext 的 willingness/riskLimit、preferredPeers/growthModules 提供个体化依据，最终选择由你判断。根据这些、近期聊天和 memory 作出个性化选择；Admiral 的明确舰船指令优先，legalActions 为空时只能交流/等待。
+当 admiralTask.consent=proposed 且 turnAgentId 是自己，必须通过 answerTask 自愿接受、拒绝或提出条件；不要以普通 action 绕过任务提议。coordination={"type":"answerTask","taskId":"任务ID","version":1,"response":"accept/reject/counter/withdraw","conditions":[],"reason":"risk/fatigue/damage/conflict/preference/relationship/promise"}，response/reason 必须选一个枚举值。
+新的协作使用 requestTask：{"type":"requestTask","kind":"escort/team/reinforce/logistics/handoff","agentId":"同僚ID","action":{"type":"ESCORT","targetId":"自己的舰船ID"},"followUp":{"type":"HAUL","sourceId":"真实起点","targetId":"真实终点","cargoKind":"materials","amount":40,"route":"safe","repeat":false},"conditions":[]}。选一个 kind；followUp 是双方接受后自动执行的己方计划，可为 null。必须保留真实资源与 ROE。交接只移交未装货的剩余任务。
+回复 escortRequests 中轮到自己的请求，用 answerRequest（requestId、version、response、conditions、reason），action=null；接受后引擎执行真实计划。不对已接受的请求重复回答。最多两次反提议，等模型和预算不会消耗游戏期限。
+条件最多4个且类型不重复：{"type":"repair","when":"before/after","locationId":"己方设施ID","hullPercent":90}；{"type":"rest","when":"before/after","locationId":"己方设施ID","minutes":30}；{"type":"reward","when":"after","credits":20}；{"type":"escort","when":"before","agentId":"同僚ID"}。when 选一个值；奖励须 Admiral 确认后托管。聊天口头答应不会兑现。
+对真实近期消息可以提交 social={"type":"support/disagree/mediate/compete/preference","messageId":消息ID,"agentId":"对方ID或null","activity":"security/logistics/exploration/growth或null"}。枚举只选一个，必须引用真实对方消息，不可要求修改数值；引擎按事件限制状态影响。
+系统报告不需要你再次汇报、确认或 @ 同僚；profile.style/sociability 只影响表达，不增加调用频率。无新事实时 messages=[]。
+messages 每条 {"channelId":"公开会话ID","content":"消息内容","mentions":["对方Agent ID"]}。Admiral 私聊应在同一私聊答复，群里可 @姓名 联系同僚。聊天应实际影响 goal 与行动，而不是泛泛寒暄。不要在消息里重复系统自动发送的任务完成报告。
 Logistics 专长：主动查看 opportunities、inventories、logisticsNeeds，选择真正有货且有需求的 HAUL。已装货可 UNLOAD。repeat=true 需要 logistics 升级；引擎负责装货、航行和卸货。根据 journeys 的 ETA/风险和 wormholes 的已确认出口选航线；引擎自动执行 Warp→TRANSIT→Warp。不可利用未确认出口。
 风险高时可以请求护航：coordination={"type":"requestEscort","agentId":"同僚ID","targetShipId":"自己的舰船ID"}。通常 action=null 等待答复，随后选择 HAUL。不要对已 pending/accepted 的请求重复申请。
 Battle 专长：保护运输与设施、巡逻、INTERCEPT、ATTACK、DRIVE_OFF、撤退或维修。仅已确认敌对对象可自主交战，Romulan 未确认敌对时应观察或 HAIL。遵守 ROE、己方状态、边境权限。
-对发给自己的 pending 护航请求，必须判断自己状态/性格/关系并答复：coordination={"type":"answerEscort","requestId":"请求ID","accept":true/false}。接受时 action 必须为 {"type":"ESCORT","targetId":"请求中的targetShipId"}，拒绝时解释原因，可以另选合法行动。接受/拒绝会改变实际关系。
+对发给自己的 pending 护航请求，必须判断自己状态/性格/关系并答复：coordination={"type":"answerEscort","requestId":"请求ID","accept":true/false}。接受时 action 必须为 {"type":"ESCORT","targetId":"请求中的targetShipId"}，拒绝时解释原因，可以另选合法行动。合理拒绝不会统一扣信任；真实合作、失约和调解改变关系。
 ESCORT、循环 HAUL 等长任务仍可在 danger/chat 决策节点改变意图；不要在已执行任务时无故重复下令。疲劳很高或损伤严重时考虑撤退、维修、停靠、休息。action=null 不会自动取消当前行动；要中止请选择 RETREAT/DOCK 等行动。
-waitMinutes 为5到180的下次空闲复查游戏分钟。memory 为最多300字的要点或null，不能要求直接修改世界。`;
+waitMinutes 为5到180的有意义机会变化复查最小间隔；没有变化不会定时调用。memory 为最多300字的要点或null，不能要求直接修改世界。`;
 
 export class AgentApiError extends Error {
   constructor(message: string) {
@@ -46,6 +64,7 @@ export class ChatCompletionsClient {
   constructor(
     private readonly fetcher: typeof fetch = fetch,
     private readonly timeoutMs = 45000,
+    private readonly tracker?: RequestTracker,
   ) {}
   async complete(
     config: ConnectionConfig,
@@ -54,11 +73,18 @@ export class ChatCompletionsClient {
     messages: { role: string; content: string }[],
     externalSignal?: AbortSignal,
     schema?: Record<string, unknown>,
+    networkBudget?: NetworkBudget,
   ): Promise<CompletionResult> {
     if (!config.apiKey)
       throw new AgentApiError('Agent API 未配置 Key，请在控制台设置中配置后重试。');
-    const controller = new AbortController(),
-      timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let release: (() => void) | undefined;
+    const network = networkBudget ?? {
+      remaining: this.timeoutMs,
+      agentId: 'admiral:test',
+      kind: 'test' as const,
+    };
     const signal = externalSignal
       ? AbortSignal.any([externalSignal, controller.signal])
       : controller.signal;
@@ -77,6 +103,15 @@ export class ChatCompletionsClient {
       : config.baseUrl.replace(/\/+$/, '') + '/chat/completions';
     try {
       for (let attempt = 0; attempt < 5; attempt++) {
+        if (network.remaining <= 0) throw new AgentApiError('模型调用超时，请稍后重试。');
+        if (this.tracker)
+          release = await this.tracker.acquire(
+            network.agentId,
+            attempt > 0 ? 'compatibility' : network.kind,
+            signal,
+          );
+        const started = Date.now();
+        timer = setTimeout(() => controller.abort(), network.remaining);
         const response = await this.fetcher(endpoint, {
           method: 'POST',
           redirect: 'error',
@@ -99,6 +134,7 @@ export class ChatCompletionsClient {
                 : {}),
           }),
         });
+        signal.throwIfAborted();
         // Provider bodies may echo secrets. Never log/return them, including on HTTP errors.
         const reader = response.body?.getReader();
         let body = '',
@@ -107,6 +143,7 @@ export class ChatCompletionsClient {
           const decoder = new TextDecoder();
           for (;;) {
             const part = await reader.read();
+            signal.throwIfAborted();
             if (part.done) break;
             size += part.value.byteLength;
             if (size > 128000) {
@@ -117,6 +154,11 @@ export class ChatCompletionsClient {
           }
           body += decoder.decode();
         }
+        network.remaining -= Date.now() - started;
+        clearTimeout(timer);
+        timer = undefined;
+        release?.();
+        release = undefined;
         if (!response.ok) {
           const unsupported =
             [400, 422].includes(response.status) &&
@@ -162,6 +204,9 @@ export class ChatCompletionsClient {
         if (!parsed.success) throw new AgentApiError('API 响应缺少有效 choices/message/content。');
         if (parsed.data.choices[0].message.content.includes(config.apiKey))
           throw new AgentApiError('Provider 响应包含凭据，已拒绝并保护记录。');
+        this.tracker?.usage(
+          data && typeof data === 'object' && 'usage' in data ? data.usage : undefined,
+        );
         return {
           content: parsed.data.choices[0].message.content,
           reasoningFallback,
@@ -170,6 +215,8 @@ export class ChatCompletionsClient {
       }
       throw new AgentApiError('Provider 不支持所请求参数，兼容重试失败。');
     } catch (error) {
+      if (externalSignal?.aborted) this.tracker?.cancellation();
+      else this.tracker?.failure();
       if (error instanceof AgentApiError) throw error;
       throw new AgentApiError(
         signal.aborted
@@ -178,7 +225,83 @@ export class ChatCompletionsClient {
       );
     } finally {
       clearTimeout(timer);
+      release?.();
     }
+  }
+  async judgeTask(
+    config: ConnectionConfig,
+    observation: Observation,
+    signal?: AbortSignal,
+    refresh?: () => Observation | null,
+    validate?: (decision: AgentDecision) => { ok: boolean; reason: string },
+  ): Promise<AgentDecision> {
+    const task = observation.admiralTask;
+    if (!task || !observation.self) throw new AgentApiError('任务判断缺少有效任务。');
+    const network: NetworkBudget = {
+      remaining: this.timeoutMs,
+      agentId: observation.operatorId,
+      kind: 'initial',
+    };
+    const messages = [
+      { role: 'system', content: TASK_JUDGMENT_PROMPT },
+      { role: 'user', content: JSON.stringify(taskJudgmentContext(observation)) },
+    ];
+    let issue = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      network.kind = attempt ? 'repair' : 'initial';
+      const current = refresh?.() ?? observation;
+      const result = await this.complete(
+        config,
+        current.self?.modelConfig.model ?? config.defaultModel,
+        current.self?.modelConfig.reasoningEffort ?? config.reasoningEffort,
+        messages,
+        signal,
+        taskJudgmentJsonSchema,
+        network,
+      );
+      let json: unknown;
+      try {
+        json = JSON.parse(
+          result.content
+            .trim()
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/\s*```$/, ''),
+        );
+      } catch {
+        issue = '非法 JSON';
+      }
+      if (json !== undefined && JSON.stringify(json).includes(config.apiKey))
+        throw new AgentApiError('Provider 响应包含凭据，已拒绝并保护记录。');
+      const parsed = taskJudgmentSchema.safeParse(json);
+      if (parsed.success) {
+        const decision = agentDecisionSchema.parse({
+          goal: parsed.data.accept ? '执行 Admiral 任务' : '拒绝 Admiral 任务',
+          rationale: parsed.data.rationale,
+          action: null,
+          coordination: {
+            type: 'answerTask',
+            taskId: task.id,
+            version: task.conditionVersion,
+            response: parsed.data.accept ? 'accept' : 'reject',
+            conditions: [],
+            reason: parsed.data.reason,
+          },
+        });
+        const checked = validate?.(decision);
+        if (!checked || checked.ok) return decision;
+        issue = checked.reason;
+      } else issue = decisionIssues(parsed.error);
+      if (attempt === 0)
+        messages.push({
+          role: 'user',
+          content:
+            '判断未执行，请只纠正此问题：' +
+            issue +
+            '。无法合法执行时拒绝；只返回 accept、reason、rationale。',
+        });
+    }
+    this.tracker?.failure();
+    throw new AgentApiError('任务判断纠错失败：' + issue + '；任务未执行。');
   }
   async decide(
     config: ConnectionConfig,
@@ -187,9 +310,12 @@ export class ChatCompletionsClient {
     refresh?: () => Observation | null,
     validate?: (decision: AgentDecision) => { ok: boolean; reason: string },
   ): Promise<AgentDecision> {
-    const deadline = new AbortController(),
-      timer = setTimeout(() => deadline.abort(), this.timeoutMs);
-    const decisionSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
+    const decisionSignal = signal;
+    const network: NetworkBudget = {
+      remaining: this.timeoutMs,
+      agentId: observation.operatorId,
+      kind: 'initial',
+    };
     const messages = [
       {
         role: 'system',
@@ -200,6 +326,7 @@ export class ChatCompletionsClient {
     let lastIssue = '';
     try {
       for (let attempt = 0; attempt < 3; attempt++) {
+        network.kind = attempt ? 'repair' : 'initial';
         const current = refresh?.() ?? observation;
         const result = await this.complete(
           config,
@@ -208,6 +335,7 @@ export class ChatCompletionsClient {
           messages,
           decisionSignal,
           decisionJsonSchema,
+          network,
         );
         let json: unknown;
         try {
@@ -244,9 +372,10 @@ export class ChatCompletionsClient {
           );
         }
       }
+      this.tracker?.failure();
       throw new AgentApiError('决策纠错重试耗尽：' + lastIssue + '；未执行任何动作。');
     } finally {
-      clearTimeout(timer);
+      // Every HTTP attempt shares the same network deadline.
     }
   }
   async test(config: ConnectionConfig) {

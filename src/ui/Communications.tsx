@@ -6,6 +6,7 @@ import { gameCalendar } from '../engine/clock';
 import { LcarsButton, LcarsFrame } from './components/Lcars';
 import { AGENT_STATUS } from './AgentsView';
 import { useLcars } from './lcars/LcarsProvider';
+import { AgentRequests } from './AgentRequests';
 const POSITION_KEY = 'frontier.comms.position.v1';
 const clamp = (p: Point): Point => {
   const box = document.querySelector('.communications-launcher')?.getBoundingClientRect();
@@ -39,6 +40,8 @@ export function Communications({
   const [drafts, setDrafts] = useState<Record<string, string>>({}),
     [sending, setSending] = useState(false),
     [limit, setLimit] = useState(100);
+  const [showRequests, setShowRequests] = useState(false),
+    [controlMode, setControlMode] = useState<'voluntary' | 'direct'>('voluntary');
   const [toast, setToast] = useState<Snapshot['chatMessages'][number] | null>(null);
   const drag = useRef<{ origin: Point; position: Point; moved: boolean } | null>(null),
     dragged = useRef(false);
@@ -50,6 +53,7 @@ export function Communications({
   useEffect(() => {
     if (requested) {
       setChannelId(requested.channelId);
+      setShowRequests(false);
       setOpen(true);
     }
   }, [requested]);
@@ -98,7 +102,9 @@ export function Communications({
   useEffect(() => {
     const latest = [...world.chatMessages]
       .reverse()
-      .find((m) => m.id > lastMessage.current && m.sender !== world.commander.id);
+      .find(
+        (m) => m.id > lastMessage.current && m.sender !== world.commander.id && m.kind !== 'report',
+      );
     lastMessage.current = world.chatMessages.at(-1)?.id ?? lastMessage.current;
     if (!latest) return;
     audio.play(latest.kind === 'danger' ? 'alert' : 'action', 'chat:' + latest.id);
@@ -123,7 +129,7 @@ export function Communications({
     const sentChannel = channel.id;
     try {
       const result = await command(
-        { type: 'sendChat', channelId: sentChannel, content, mentions: [] },
+        { type: 'sendChat', channelId: sentChannel, content, mentions: [], controlMode },
         true,
       );
       if (result.ok) setDrafts((d) => ({ ...d, [sentChannel]: '' }));
@@ -132,7 +138,11 @@ export function Communications({
     }
   };
   const name = (id: string) =>
-    id === world.commander.id ? 'ADMIRAL' : (world.agents.find((a) => a.id === id)?.name ?? id);
+    id === 'system'
+      ? 'SYSTEM / 引擎报告'
+      : id === world.commander.id
+        ? 'ADMIRAL'
+        : (world.agents.find((a) => a.id === id)?.name ?? id);
   const waiting = world.agents.filter(
     (a) => channel.members.includes(a.id) && a.status === 'waiting',
   );
@@ -215,6 +225,13 @@ export function Communications({
           >
             <div className={'chat-workspace' + (panelWidth / textUnit < 38 ? ' compact' : '')}>
               <nav className="chat-channels" aria-label="通讯会话">
+                <LcarsButton
+                  shape="rail"
+                  aria-pressed={showRequests}
+                  onClick={() => setShowRequests(true)}
+                >
+                  REQUESTS / 待处理请求
+                </LcarsButton>
                 {world.chatChannels.map((ch) => {
                   const recent = [...world.chatMessages]
                       .reverse()
@@ -228,10 +245,17 @@ export function Communications({
                       shape="rail"
                       aria-pressed={channel.id === ch.id}
                       data-channel-id={ch.id}
-                      onClick={() => setChannelId(ch.id)}
+                      onClick={() => {
+                        setChannelId(ch.id);
+                        setShowRequests(false);
+                      }}
                     >
                       <strong>
-                        {ch.kind === 'command' ? 'FRONTIER COMMAND' : 'Admiral ↔ ' + agent?.name}
+                        {ch.kind === 'reports'
+                          ? 'SYSTEM REPORTS / 系统报告'
+                          : ch.kind === 'command'
+                            ? 'FRONTIER COMMAND'
+                            : 'Admiral ↔ ' + agent?.name}
                       </strong>
                       {ch.kind === 'private' && agent && (
                         <small>{AGENT_STATUS[agent.status]}</small>
@@ -244,117 +268,152 @@ export function Communications({
                   );
                 })}
               </nav>
-              <section
-                className="chat-conversation"
-                aria-label={
-                  channel.kind === 'command' ? channel.name : 'Admiral ↔ ' + channel.name
-                }
-              >
-                <header className="chat-conversation-heading">
-                  <strong>
-                    {channel.kind === 'command' ? 'FRONTIER COMMAND' : 'Admiral ↔ ' + channel.name}
-                  </strong>
-                  <small>
-                    {channel.members.length} MEMBERS / {messages.length} TRANSMISSIONS
-                  </small>
-                </header>
-                <div
-                  className="chat-transcript"
-                  role="log"
-                  aria-label="聊天记录"
-                  aria-live="polite"
+              {showRequests ? (
+                <div className="chat-conversation chat-request-scroll">
+                  <AgentRequests world={world} command={command} />
+                </div>
+              ) : (
+                <section
+                  className="chat-conversation"
+                  aria-label={
+                    channel.kind !== 'private' ? channel.name : 'Admiral ↔ ' + channel.name
+                  }
                 >
-                  {messages.length > limit && (
-                    <LcarsButton tone="secondary" onClick={() => setLimit((n) => n + 100)}>
-                      加载更早消息
-                    </LcarsButton>
-                  )}
-                  {!messages.length && (
-                    <p className="muted">频道已建立。可以向 Agent 下达意图、讨论风险或请求协作。</p>
-                  )}
-                  {messages.slice(-limit).map((m) => {
-                    const cal = gameCalendar(Math.round(m.time * 10));
-                    return (
-                      <article
-                        className={'chat-message ' + m.kind}
-                        key={m.id}
-                        data-message-id={m.id}
-                        data-sender={m.sender}
-                      >
-                        <header>
-                          <b>{name(m.sender)}</b>
-                          <time>
-                            DAY {cal.day} / {String(cal.hour).padStart(2, '0')}:
-                            {String(cal.minute).padStart(2, '0')}
-                          </time>
-                          <small>{m.kind.toUpperCase()}</small>
-                          {m.replyTo && (
+                  <header className="chat-conversation-heading">
+                    <strong>
+                      {channel.kind === 'reports'
+                        ? 'SYSTEM REPORTS / 系统报告'
+                        : channel.kind === 'command'
+                          ? 'FRONTIER COMMAND'
+                          : 'Admiral ↔ ' + channel.name}
+                    </strong>
+                    <small>
+                      {channel.members.length} MEMBERS / {messages.length} TRANSMISSIONS
+                    </small>
+                  </header>
+                  <div
+                    className="chat-transcript"
+                    role="log"
+                    aria-label="聊天记录"
+                    aria-live="polite"
+                  >
+                    {messages.length > limit && (
+                      <LcarsButton tone="secondary" onClick={() => setLimit((n) => n + 100)}>
+                        加载更早消息
+                      </LcarsButton>
+                    )}
+                    {!messages.length && (
+                      <p className="muted">
+                        频道已建立。可以向 Agent 下达意图、讨论风险或请求协作。
+                      </p>
+                    )}
+                    {messages.slice(-limit).map((m) => {
+                      const cal = gameCalendar(Math.round(m.time * 10));
+                      return (
+                        <article
+                          className={'chat-message ' + m.kind}
+                          key={m.id}
+                          data-message-id={m.id}
+                          data-sender={m.sender}
+                        >
+                          <header>
+                            <b>{name(m.sender)}</b>
+                            <time>
+                              DAY {cal.day} / {String(cal.hour).padStart(2, '0')}:
+                              {String(cal.minute).padStart(2, '0')}
+                            </time>
+                            <small>{m.kind.toUpperCase()}</small>
                             <small>
-                              RE #{m.replyTo}
-                              {m.purpose === 'acknowledgement' ? ' / ACK' : ''}
+                              {m.origin === 'engine'
+                                ? 'SYSTEM'
+                                : m.origin === 'agent'
+                                  ? 'AGENT'
+                                  : m.origin === 'admiral'
+                                    ? 'ADMIRAL'
+                                    : 'ARCHIVE'}
                             </small>
-                          )}
-                        </header>
-                        <p>{highlightMentions(m.content, world)}</p>
-                      </article>
-                    );
-                  })}
-                  <div ref={end} />
-                </div>
-                <div className="chat-typing" role="status">
-                  {waiting.length
-                    ? waiting.map((a) => a.name).join(' / ') + ' 正在等待模型、输入中…'
-                    : 'SUBSPACE LINK / 频道在线'}
-                </div>
-                <form
-                  className="chat-composer"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void send();
-                  }}
-                >
-                  <textarea
-                    ref={input}
-                    aria-label="通讯消息"
-                    rows={panelWidth / textUnit < 38 ? 1 : 2}
-                    maxLength={1200}
-                    value={draft}
-                    disabled={sending || world.status !== 'active'}
-                    placeholder="发送意图、询问任务，或 @AgentName…"
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                            {m.replyTo && (
+                              <small>
+                                RE #{m.replyTo}
+                                {m.purpose === 'acknowledgement' ? ' / ACK' : ''}
+                              </small>
+                            )}
+                          </header>
+                          <p>{highlightMentions(m.content, world)}</p>
+                        </article>
+                      );
+                    })}
+                    <div ref={end} />
+                  </div>
+                  <div className={'chat-typing' + (waiting.length ? '' : ' idle')} role="status">
+                    {waiting.length
+                      ? waiting.map((a) => a.name).join(' / ') + ' 正在处理模型决策…'
+                      : 'SUBSPACE LINK / 频道在线'}
+                  </div>
+                  {channel.kind === 'reports' ? (
+                    <p className="muted">引擎自动报告 · 不调用模型 · 此频道只读</p>
+                  ) : (
+                    <form
+                      className="chat-composer"
+                      onSubmit={(e) => {
                         e.preventDefault();
                         void send();
-                      }
-                    }}
-                  />
-                  <LcarsButton
-                    disabled={!draft.trim() || sending || world.status !== 'active'}
-                    onClick={() => void send()}
-                  >
-                    SEND / 发送
-                  </LcarsButton>
-                  {draft.includes('@') && (
-                    <div className="chat-mentions" aria-label="提及 Agent">
-                      {world.agents
-                        .filter((a) => channel.members.includes(a.id))
-                        .map((a) => (
-                          <LcarsButton
-                            key={a.id}
-                            tone="secondary"
-                            onClick={() => {
-                              setDraft(draft.replace(/@[^@\s]*$/, '@' + a.name + ' '));
-                              input.current?.focus();
-                            }}
-                          >
-                            @{a.name}
-                          </LcarsButton>
-                        ))}
-                    </div>
+                      }}
+                    >
+                      <select
+                        aria-label="通讯任务模式"
+                        value={controlMode}
+                        onChange={(event) =>
+                          setControlMode(event.target.value as typeof controlMode)
+                        }
+                      >
+                        <option value="voluntary">Agent 判断后执行</option>
+                        <option value="direct">Admiral 直接接管</option>
+                      </select>
+                      <textarea
+                        ref={input}
+                        aria-label="通讯消息"
+                        rows={panelWidth / textUnit < 38 ? 1 : 2}
+                        maxLength={1200}
+                        value={draft}
+                        disabled={sending || world.status !== 'active'}
+                        placeholder="发送意图、询问任务，或 @AgentName…"
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                            e.preventDefault();
+                            void send();
+                          }
+                        }}
+                      />
+                      <LcarsButton
+                        disabled={!draft.trim() || sending || world.status !== 'active'}
+                        onClick={() => void send()}
+                      >
+                        SEND / 发送
+                      </LcarsButton>
+                      {draft.includes('@') && (
+                        <div className="chat-mentions" aria-label="提及 Agent">
+                          {world.agents
+                            .filter((a) => channel.members.includes(a.id))
+                            .map((a) => (
+                              <LcarsButton
+                                key={a.id}
+                                tone="secondary"
+                                onClick={() => {
+                                  setDraft(draft.replace(/@[^@\s]*$/, '@' + a.name + ' '));
+                                  input.current?.focus();
+                                }}
+                              >
+                                @{a.name}
+                              </LcarsButton>
+                            ))}
+                        </div>
+                      )}
+                    </form>
                   )}
-                </form>
-              </section>
+                </section>
+              )}
             </div>
           </LcarsFrame>
         </div>
@@ -365,6 +424,7 @@ export function Communications({
             shape="rail"
             onClick={() => {
               setChannelId(toast.channelId);
+              setShowRequests(false);
               setOpen(true);
               setToast(null);
             }}

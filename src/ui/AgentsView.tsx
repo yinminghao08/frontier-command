@@ -7,9 +7,12 @@ import { AgentTraining } from './AgentTraining';
 import { EFFORT_LABELS } from './AgentApiSettings';
 import { privateChannel } from '../engine/chat';
 import { ACTION_LABELS } from './format';
+import { AgentRequests } from './AgentRequests';
+import { workWillingness } from '../engine/personality';
+import { AgentCallStatus } from './AgentRuntime';
 export const AGENT_STATUS: Record<Agent['status'], string> = {
   online: 'ONLINE / 在线',
-  waiting: 'WAITING / 等待模型',
+  waiting: 'WAITING / 正在处理模型决策',
   executing: 'EXECUTING / 执行中',
   error: 'COMMS ERROR / 通讯错误',
   unassigned: 'UNASSIGNED / 待分配',
@@ -147,7 +150,25 @@ function AgentDetail({
       <p className="agent-status-line">
         <b>{AGENT_STATUS[agent.status]}</b> · {agent.id}
       </p>
+      <AgentCallStatus agentId={agent.id} status={agent.status} />
       <p>CURRENT GOAL / {agent.currentGoal}</p>
+      <p>LONG TERM / {agent.longTermGoal.summary}</p>
+      <p>
+        任务意愿 {workWillingness(agent).toFixed(0)} / 100 · 偏好：
+        {Object.entries(agent.taskPreferences)
+          .sort(([, l], [, r]) => r - l)
+          .map(([activity, value]) => `${activity} ${value.toFixed(0)}`)
+          .join(' / ')}
+      </p>
+      <p>
+        表达：{agent.profile.style} · 已获奖励 {agent.rewardCredits.toFixed(0)} Credits
+      </p>
+      <p>
+        动机：安全 {agent.profile.motivations.safety} / 责任 {agent.profile.motivations.duty} / 收益{' '}
+        {agent.profile.motivations.profit} / 成长 {agent.profile.motivations.growth} / 归属{' '}
+        {agent.profile.motivations.belonging}
+      </p>
+      <AgentRequests world={world} command={command} agentId={agent.id} />
       {admiralTask && (
         <p className="agent-status-line">
           ADMIRAL CHAT / #{admiralTask.messageId} · {admiralTask.status.toUpperCase()} ·{' '}
@@ -178,6 +199,12 @@ function AgentDetail({
           ['Trust / 信任', agent.trust],
           ['Fatigue / 疲劳', agent.fatigue],
           ['Morale / 士气', agent.morale],
+          ['Stress / 压力', agent.psychology.stress],
+          ['Confidence / 信心', agent.psychology.confidence],
+          ['Resentment / 不满', agent.psychology.resentment],
+          ['Patience / 耐心', agent.profile.patience],
+          ['Autonomy / 自主诉求', agent.profile.assertiveness],
+          ['Sociability / 社交倾向', agent.profile.sociability],
           ['Risk Tolerance / 风险偏好', agent.personality.riskTolerance],
           ['Cooperation / 合作', agent.personality.cooperation],
           ['Discipline / 纪律', agent.personality.discipline],
@@ -265,6 +292,9 @@ function AgentDetail({
         <p key={id}>
           {world.agents.find((a) => a.id === id)?.name ?? id} · TRUST {r.trust.toFixed(0)} ·
           COOPERATION {r.cooperation.toFixed(0)}
+          {' · '}
+          {[...agent.memory].reverse().find((m) => m.entityId === id && m.kind === 'outcome')
+            ?.summary ?? '尚无共同履约记录'}
         </p>
       ))}
       <LcarsTextBar literal>MEMORY / 有限记忆摘要</LcarsTextBar>

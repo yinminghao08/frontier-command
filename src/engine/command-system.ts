@@ -22,6 +22,8 @@ import {
 import { hasAdmiralWork } from './fleet';
 import { wakeAgent } from './chat';
 import { addressedAdmiralMessage, cancelAdmiralTasks, receiveAdmiralTask } from './admiral-tasks';
+import { applyResolution, cancelContracts, validateResolution } from './contracts';
+import { personalFeedback } from './personality';
 export const ok = (reason = '命令已接受'): CommandResult => ({ ok: true, reason });
 export const no = (reason: string): CommandResult => ({ ok: false, reason });
 export { inventory, available } from './inventory';
@@ -175,6 +177,10 @@ export function validate(
       ? ok()
       : no('聊天授权必须来自尚未处理的、定向发送的真实 Admiral 消息');
   }
+  if (c.type === 'resolveProposal')
+    return actorId === w.commander.id
+      ? validateResolution(this, c)
+      : no('仅 Admiral 可以确认预算或接管');
   if (actorId === w.commander.id && ['agentDecision', 'agentDecisionState'].includes(c.type))
     return no('此命令仅允许主进程 Agent port 调用');
   if (
@@ -202,6 +208,20 @@ export function validate(
         if (agent && !agent.enabled) return no('Agent 自主控制已关闭');
         const autonomous = validateAutonomousAction(this, s, c.action);
         if (!autonomous.ok) return autonomous;
+        if (agent && c.action.type === 'HAUL') {
+          const action = c.action;
+          const ownReservation =
+            c.mode === 'REPLACE' &&
+            s.current?.action.type === 'HAUL' &&
+            s.current.action.sourceId === action.sourceId
+              ? s.current.reserved[action.cargoKind]
+              : 0;
+          if (
+            available(w, action.sourceId, action.cargoKind) + ownReservation < action.amount ||
+            cargoUsed(s) + action.amount > capabilities(s).cargo
+          )
+            return no('自主运输需要足够可用库存及货舱空间');
+        }
       }
       if (
         (c.mode === 'QUEUE' && s.queue.length >= 32) ||
@@ -361,6 +381,9 @@ export function makeDirective(e: SimulationEngine, action: Action): Directive {
     delivered: 0,
     reserved: emptyStock(),
     paidCredits: 0,
+    contractId: null,
+    cycle: 0,
+    controlMode: 'direct',
     search: 0,
     note: '',
     source: 'admiral',
@@ -390,6 +413,7 @@ export function dispatchCommand(
     receiveAdmiralTask(this, c.agentId, c.messageId);
     return ok('Admiral 消息已解析');
   }
+  if (c.type === 'resolveProposal') return applyResolution(this, c);
   const agentApplied = applyAgentCommand(this, c, actorId);
   if (agentApplied) return agentApplied;
   const applied = applyFrontierCommand(this, c);
@@ -421,12 +445,23 @@ export function dispatchCommand(
     for (const id of c.shipIds) {
       const s = w.ships.find((s) => s.id === id)!,
         d = makeDirective(this, c.action);
-      if (actorId === w.commander.id) cancelAdmiralTasks(this, s.id, undefined, c.mode !== 'QUEUE');
-      if (c.mode !== 'QUEUE' && s.current?.source === 'agent')
+      if (actorId === w.commander.id) {
+        if (c.mode !== 'INTERRUPT') cancelAdmiralTasks(this, s.id, undefined, c.mode !== 'QUEUE');
+        if (!this.executingAdmiralTaskId && c.mode === 'REPLACE') cancelContracts(this, s.id);
+      } else if (
+        c.mode === 'REPLACE' &&
+        s.current?.contractId &&
+        s.current.contractId !== this.executingContractId
+      )
+        cancelContracts(this, s.id, '主动放弃已接受的支援', 'failure');
+      if (c.mode === 'REPLACE' && s.current?.source === 'agent')
         agentOutcome(this, s, s.current, '新指令接管', true);
       if (c.mode === 'QUEUE' && s.current?.source === 'admiral') s.queue.push(d);
       else {
-        if (c.mode === 'INTERRUPT' && s.current) s.suspended.push(s.current);
+        if (c.mode === 'INTERRUPT' && s.current) {
+          if (s.current.action.type === 'REST') s.current.work = 0;
+          s.suspended.push(s.current);
+        }
         if (c.mode === 'REPLACE') {
           s.current = null;
           s.queue = [];
@@ -446,15 +481,20 @@ export function dispatchCommand(
             ? 'agent'
             : 'standing';
       d.actorId = actorId;
+      d.controlMode = d.source === 'admiral' ? 'direct' : 'autonomous';
+      d.contractId = this.executingContractId;
       const chatTask = w.admiralTasks.find((t) => t.id === this.executingAdmiralTaskId);
       if (chatTask) {
         d.taskId = chatTask.id;
+        d.controlMode = chatTask.controlMode;
         d.executorAgentId = w.agents.find((a) => a.assignedShipId === s.id)?.id ?? null;
         d.sourceMessageId = chatTask.messageId;
         d.allowWormholes = chatTask.allowWormholes;
       }
       const agent = w.agents.find((a) => a.assignedShipId === s.id);
-      if (agent && d.source === 'admiral') {
+      if (agent && d.source === 'admiral' && d.controlMode !== 'voluntary') {
+        if (!this.executingAdmiralTaskId)
+          personalFeedback(agent, d.id + ':takeover', { trust: -3, morale: -3, resentment: 4 });
         wakeAgent(agent, 'admiralDirective', w.time, true);
         agent.status = 'admiral';
       }
@@ -462,6 +502,10 @@ export function dispatchCommand(
         d.reserved.photon = d.action.load.photon;
         d.reserved.quantum = d.action.load.quantum;
         d.phase = 'reserved';
+      }
+      if (s.current === d && d.source === 'agent' && d.action.type === 'HAUL') {
+        d.reserved[d.action.cargoKind] = d.action.amount;
+        d.phase = 'loading';
       }
       this.record(
         'directive',
@@ -488,6 +532,7 @@ export function dispatchCommand(
   if (c.type === 'cancelDirective') {
     const s = w.ships.find((s) => s.id === c.shipId)!;
     cancelAdmiralTasks(this, s.id);
+    cancelContracts(this, s.id);
     if (s.current?.source === 'agent') agentOutcome(this, s, s.current, 'Admiral 取消指令', true);
     s.current = null;
     s.queue = [];
@@ -640,8 +685,7 @@ export function submitAction(this: SimulationEngine, operatorId: string, input: 
   const a = this.state.assignments.find((a) => a.operatorId === operatorId),
     s = this.state.ships.find((s) => s.id === a?.shipId);
   if (!s) return no('执行主体不可用');
-  if ([s.current, ...s.queue, ...s.suspended].some((d) => d?.source === 'admiral'))
-    return no('Admiral 当前、队列和挂起指令优先');
+  if (hasAdmiralWork(s)) return no('Admiral 当前、队列和挂起指令优先');
   const agent = this.state.agents.find((a) => a.id === operatorId);
   if (!agent && (s.current || s.queue.length || s.suspended.length))
     return no('执行主体正在完成既有行动');

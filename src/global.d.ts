@@ -25,6 +25,7 @@ declare global {
       onEvents(callback: (events: PublicSimulationEvent[]) => void): () => void;
       setDisplayZoom(factor: number): Promise<number>;
       agentSettings(): Promise<AgentApiSettings>;
+      agentRuntime(): Promise<import('./engine/agent-api').AgentRuntimeStats>;
       configureAgentApi(settings: AgentApiInput): Promise<AgentApiResult>;
       testAgentApi(settings?: AgentApiInput): Promise<AgentApiResult>;
     };

@@ -18,6 +18,33 @@ export type FacilityKind = 'base' | 'colony' | 'mine' | 'outpost' | 'platform';
 export type RouteKind = 'safe' | 'direct' | 'risky';
 export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high';
 export type AgentCareer = 'battle' | 'logistics';
+export type Activity = 'security' | 'logistics' | 'exploration' | 'growth';
+export interface AgentProfile {
+  patience: number;
+  assertiveness: number;
+  sociability: number;
+  motivations: { safety: number; duty: number; profit: number; growth: number; belonging: number };
+  style: 'concise' | 'warm' | 'formal' | 'direct';
+}
+export type TaskCondition =
+  | { type: 'repair'; when: 'before' | 'after'; locationId: string; hullPercent: number }
+  | { type: 'rest'; when: 'before' | 'after'; locationId: string; minutes: number }
+  | { type: 'reward'; when: 'after'; credits: number }
+  | { type: 'escort'; when: 'before'; agentId: string };
+export interface Commitment {
+  id: string;
+  contractId: string;
+  agentId: string;
+  condition: TaskCondition;
+  status: 'pending' | 'fulfilled' | 'broken' | 'refunded';
+  escrow: number;
+  directiveId: string | null;
+}
+export type DecisionEvent = {
+  id: string;
+  kind: 'chat' | 'request' | 'danger' | 'opportunity' | 'manual' | 'configuration' | 'recovery';
+  time: number;
+};
 export interface AgentMemory {
   id: number;
   time: number;
@@ -32,6 +59,12 @@ export interface Agent {
   name: string;
   career: AgentCareer;
   personality: { riskTolerance: number; cooperation: number; discipline: number; ambition: number };
+  profile: AgentProfile;
+  psychology: { stress: number; confidence: number; resentment: number };
+  longTermGoal: { activity: Activity; summary: string };
+  taskPreferences: Record<Activity, number>;
+  rewardCredits: number;
+  feedbackEvents: string[];
   skills: { battle: number; logistics: number; navigation: number };
   experience: number;
   trust: number;
@@ -54,12 +87,15 @@ export interface Agent {
     lastAdmiralMessageId: number;
     failures: number;
     lastError: string | null;
+    contextKey: string;
+    dangerKey: string;
+    events: DecisionEvent[];
   };
 }
 export interface ChatChannel {
   id: string;
   name: string;
-  kind: 'command' | 'private';
+  kind: 'command' | 'private' | 'reports';
   members: string[];
   readThrough: number;
 }
@@ -73,6 +109,10 @@ export interface ChatMessage {
   kind: 'message' | 'request' | 'reply' | 'report' | 'danger' | 'error';
   purpose?: 'information' | 'acknowledgement' | 'request';
   replyTo?: number | null;
+  origin?: 'admiral' | 'agent' | 'engine' | 'legacy';
+  eventId?: string | null;
+  requestId?: string | null;
+  controlMode?: 'voluntary' | 'direct';
 }
 export interface AdmiralTask {
   id: string;
@@ -80,7 +120,7 @@ export interface AdmiralTask {
   messageId: number;
   channelId: string;
   kind: 'action' | 'assign' | 'construction' | 'surveyRoute' | 'cancel';
-  status: 'active' | 'blocked' | 'completed' | 'cancelled';
+  status: 'active' | 'blocked' | 'completed' | 'cancelled' | 'failed';
   action: Action | null;
   targetId: string | null;
   shipId: string | null;
@@ -92,7 +132,15 @@ export interface AdmiralTask {
   projectId: string | null;
   carrierAgentId: string | null;
   reason: string | null;
+  controlMode: 'voluntary' | 'direct';
+  consent: 'proposed' | 'accepted' | 'rejected' | 'negotiating' | 'withdrawn';
+  conditions: TaskCondition[];
+  conditionVersion: number;
+  rounds: number;
+  turnAgentId: string;
+  creditsApproved: boolean;
 }
+export type TaskProposal = AdmiralTask;
 export interface EscortRequest {
   id: string;
   requesterId: string;
@@ -101,8 +149,29 @@ export interface EscortRequest {
   created: number;
   deadline: number;
   started: boolean;
-  status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'failed';
+  executionStarted: boolean;
+  status:
+    | 'pending'
+    | 'negotiating'
+    | 'awaitingApproval'
+    | 'accepted'
+    | 'rejected'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
+  kind: 'escort' | 'team' | 'reinforce' | 'logistics' | 'handoff';
+  action: Action | null;
+  followUp: Action | null;
+  parentTaskId: string | null;
+  conditions: TaskCondition[];
+  conditionVersion: number;
+  rounds: number;
+  turnAgentId: string;
+  creditsApproved: boolean;
+  explicitDeadline: boolean;
+  reason: string | null;
 }
+export type CollaborationRequest = EscortRequest;
 export interface AgentDecision {
   mode?: 'act' | 'continue' | 'wait' | 'clarify';
   goal: string;
@@ -120,7 +189,51 @@ export interface AgentDecision {
   coordination:
     | { type: 'requestEscort'; agentId: string; targetShipId: string }
     | { type: 'answerEscort'; requestId: string; accept: boolean }
+    | {
+        type: 'requestTask';
+        kind: CollaborationRequest['kind'];
+        agentId: string;
+        action: Action;
+        followUp: Action | null;
+        conditions: TaskCondition[];
+      }
+    | {
+        type: 'answerRequest';
+        requestId: string;
+        version: number;
+        response: 'accept' | 'reject' | 'counter' | 'withdraw';
+        conditions: TaskCondition[];
+        reason:
+          | 'risk'
+          | 'fatigue'
+          | 'damage'
+          | 'conflict'
+          | 'preference'
+          | 'relationship'
+          | 'promise';
+      }
+    | {
+        type: 'answerTask';
+        taskId: string;
+        version: number;
+        response: 'accept' | 'reject' | 'counter' | 'withdraw';
+        conditions: TaskCondition[];
+        reason:
+          | 'risk'
+          | 'fatigue'
+          | 'damage'
+          | 'conflict'
+          | 'preference'
+          | 'relationship'
+          | 'promise';
+      }
     | null;
+  social?: {
+    type: 'support' | 'disagree' | 'mediate' | 'compete' | 'preference';
+    messageId: number;
+    agentId: string | null;
+    activity: Activity | null;
+  } | null;
 }
 export type JourneyLeg =
   | { type: 'warp'; destination: Point; route: RouteKind; path: Point[] }
@@ -356,6 +469,7 @@ export type Action =
     }
   | { type: 'ESCORT'; targetId: string }
   | { type: 'PATROL'; targetId: string; duration: number }
+  | { type: 'REST'; targetId: string; duration: number }
   | { type: 'RETREAT' | 'DOCK'; targetId: string }
   | { type: 'REPAIR'; targetId: string }
   | { type: 'REARM'; targetId: string; load: Ammunition }
@@ -380,6 +494,9 @@ export interface Directive {
   executorAgentId: string | null;
   sourceMessageId: number | null;
   taskId: string | null;
+  contractId: string | null;
+  cycle: number;
+  controlMode: 'direct' | 'voluntary' | 'autonomous';
   allowWormholes: boolean;
   journey: JourneyProgress | null;
   groupOrderId: string | null;
@@ -411,6 +528,7 @@ export interface Ship extends Point {
   cargo: Stock;
   passengers: number;
   cooldowns: Record<string, number>;
+  ammoAlertActive?: boolean;
   lastAttackerId: string | null;
   attackedAt: number;
   scanUntil: number;
@@ -602,7 +720,7 @@ export interface SiteIntel extends Point {
   lastSeen: number;
 }
 export interface WorldState {
-  version: 12;
+  version: 13;
   tick: number;
   time: number;
   seed: number;
@@ -619,6 +737,8 @@ export interface WorldState {
   chatMessages: ChatMessage[];
   admiralTasks: AdmiralTask[];
   escortRequests: EscortRequest[];
+  commitments: Commitment[];
+  settledOutcomes: string[];
   nextChat: number;
   losses: LossRecord[];
   ships: Ship[];
@@ -664,7 +784,7 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 12;
+  version: 13;
   tick: number;
   time: number;
   paused: boolean;
@@ -679,6 +799,7 @@ interface SnapshotData {
   chatMessages: ChatMessage[];
   admiralTasks: AdmiralTask[];
   escortRequests: EscortRequest[];
+  commitments: Commitment[];
   losses: LossRecord[];
   ships: Ship[];
   contacts: IntelRecord[];
@@ -720,7 +841,19 @@ export type Command =
   | { type: 'assignAgent'; agentId: string; shipId: string | null }
   | { type: 'configureAgent'; agentId: string; modelConfig: Agent['modelConfig']; enabled: boolean }
   | { type: 'retryAgent'; agentId: string }
-  | { type: 'sendChat'; channelId: string; content: string; mentions: string[] }
+  | {
+      type: 'sendChat';
+      channelId: string;
+      content: string;
+      mentions: string[];
+      controlMode?: 'voluntary' | 'direct';
+    }
+  | {
+      type: 'resolveProposal';
+      contractId: string;
+      version: number;
+      response: 'approve' | 'reject' | 'cancel' | 'takeover';
+    }
   | { type: 'readChat'; channelId: string; throughId: number }
   /** Main-process ports only; the Admiral/renderer cannot impersonate an Agent. */
   | { type: 'agentDecision'; agentId: string; revision: number; decision: AgentDecision }
@@ -812,6 +945,7 @@ interface ObservationData {
   ownShips: Ship[];
   currentTask: Directive | null;
   admiralTask: AdmiralTask | null;
+  taskProposals: AdmiralTask[];
   actionAvailability: { action: Action; autonomous: boolean; reason: string | null }[];
   constructionOptions: {
     siteId: string;
@@ -840,6 +974,21 @@ interface ObservationData {
   recentChat: ChatMessage[];
   channels: ChatChannel[];
   escortRequests: EscortRequest[];
+  commitments: Commitment[];
+  decisionContext: {
+    willingness: number;
+    riskLimit: number;
+    conflicts: string[];
+    preferredActivities: Activity[];
+    preferredPeers: string[];
+    growthModules: ModuleId[];
+    preparation: {
+      hullPercent: number;
+      freeCargo: number;
+      repairMaterials: number;
+      facilities: { id: string; distance: number; materialsAvailable: number }[];
+    } | null;
+  };
   opportunities: Opportunity[];
   legalActions: string[];
   actionExamples: Action[];

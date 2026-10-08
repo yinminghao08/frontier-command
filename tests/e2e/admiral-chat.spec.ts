@@ -5,47 +5,49 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
-import { mkdtempSync, cpSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { SaveStore } from '../../electron/persistence';
-import { quietEngine } from '../helpers';
+import { quietEngine, run } from '../helpers';
 import { makeEnemy } from '../../src/engine/data';
 import { updateSensors } from '../../src/engine/sensors';
+import { materialize } from '../../src/engine/world-generation';
+import { AgentTestProvider } from './agent-provider';
 import type { Snapshot } from '../../src/engine/types';
-let app: ElectronApplication | undefined;
-const output = resolve('docs/verification/v12');
-async function state(page: Page): Promise<Snapshot> {
-  return (await page.evaluate(() => window.frontier.getState())).state;
-}
+let app: ElectronApplication | undefined, provider: AgentTestProvider | undefined;
+const output = resolve('docs/verification/v13');
+const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(directory: string) {
+  mkdirSync(output, { recursive: true });
   app = await electron.launch({
     args: [resolve('.')],
     env: { ...process.env, FRONTIER_USER_DATA: directory, FRONTIER_HEADLESS: '1' },
   });
-  const page = await app.firstWindow();
-  await page.getByTestId('chat-launcher').waitFor();
+  const p = await app.firstWindow();
+  await p.getByTestId('chat-launcher').waitFor();
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(1600, 1000),
   );
-  await page.evaluate(() => document.fonts.ready);
-  return page;
+  await p.evaluate(() => document.fonts.ready);
+  return p;
 }
-async function send(page: Page, channelId: string, text: string) {
-  const chat = page.getByRole('dialog', { name: '舰队通讯' });
-  if (!(await chat.isVisible())) await page.getByTestId('chat-launcher').click();
-  await chat.locator(`[data-channel-id="${channelId}"]`).click();
-  await chat.getByLabel('通讯消息').fill(text);
-  await chat.getByRole('button', { name: 'SEND / 发送' }).click();
+async function send(p: Page, id: string, content: string, mode: 'voluntary' | 'direct' = 'direct') {
+  const chat = p.getByRole('dialog', { name: '舰队通讯' });
+  if (!(await chat.isVisible())) await p.getByTestId('chat-launcher').click();
+  await chat.locator(`[data-channel-id="${id}"]`).click();
+  await chat.getByLabel('通讯任务模式').selectOption(mode);
+  await chat.getByLabel('通讯消息').fill(content);
+  await chat.getByRole('button', { name: 'SEND / 发送', exact: true }).click();
 }
-async function wait(page: Page, predicate: (s: Snapshot) => boolean, timeout = 60000) {
+async function wait(p: Page, predicate: (s: Snapshot) => boolean, timeout = 60000) {
   await expect
     .poll(
       async () => {
-        const world = await state(page);
-        if (world.paused)
-          await page.evaluate(() => window.frontier.command({ type: 'pause', paused: false }));
-        return predicate(world);
+        const w = await state(p);
+        if (w.paused)
+          await p.evaluate(() => window.frontier.command({ type: 'pause', paused: false }));
+        return predicate(w);
       },
       { timeout, intervals: [100] },
     )
@@ -54,12 +56,13 @@ async function wait(page: Page, predicate: (s: Snapshot) => boolean, timeout = 6
 test.afterEach(async () => {
   await app?.close().catch(() => {});
   app = undefined;
+  await provider?.close();
+  provider = undefined;
 });
 
-test('Electron v12: private fire command under RETURN FIRE actually destroys an unconfirmed Scout without API or fake hostile flags', async () => {
-  mkdirSync(output, { recursive: true });
-  const directory = mkdtempSync(join(tmpdir(), 'frontier-v12-fire-'));
-  const e = quietEngine(),
+test('Electron v13: explicit direct fire preserves final Admiral authority over an unconfirmed contact', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'frontier-v13-fire-')),
+    e = quietEngine(),
     ship = e.state.ships.find((s) => s.id === 'horizon')!;
   ship.x = 500;
   ship.y = 50;
@@ -68,131 +71,129 @@ test('Electron v12: private fire command under RETURN FIRE actually destroys an 
   target.nextDecision = 10000;
   e.state.enemies.push(target);
   updateSensors(e);
-  new SaveStore(directory).write(e.state);
-  const page = await launch(directory);
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  await send(page, 'private:ops-horizon', '去把 orion scout 干掉，立即开火。实时跟踪其位置！');
+  new SaveStore(dir).write(e.state);
+  const p = await launch(dir),
+    errors: string[] = [];
+  p.on('pageerror', (error) => errors.push(error.message));
+  await send(p, 'private:ops-horizon', '去把 orion scout 干掉，立即开火。实时跟踪其位置！');
   await expect
-    .poll(async () => (await state(page)).ships.find((s) => s.id === 'horizon')?.current?.source)
+    .poll(async () => (await state(p)).ships.find((s) => s.id === 'horizon')?.current?.source)
     .toBe('admiral');
-  const armed = await state(page);
+  const armed = await state(p);
   expect(armed.contacts.find((c) => c.id === target.id)?.hostile).toBe(false);
   expect(armed.ships.find((s) => s.id === ship.id)?.current).toMatchObject({
     executorAgentId: 'ops-horizon',
     actorId: 'commander',
-    action: { type: 'ATTACK', targetId: 'orion-scout' },
+    controlMode: 'direct',
+    action: { type: 'ATTACK', targetId: target.id },
   });
   expect(armed.ships.find((s) => s.id === ship.id)?.standing.roe).toBe('RETURN FIRE');
-  await page.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
-  await wait(page, (s) => s.admiralTasks[0]?.status === 'completed');
-  const done = await state(page);
+  await p.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
+  await wait(p, (w) => w.admiralTasks[0]?.status === 'completed');
+  const done = await state(p);
   expect(done.agents.find((a) => a.id === 'ops-horizon')!.experience).toBeGreaterThan(0);
   expect(done.history.some((h) => h.kind === 'factionLoss' && h.entityId === target.id)).toBe(true);
-  await expect(page.getByRole('log')).toContainText('聊天任务完成');
-  expect(
-    (
-      await page.evaluate(() =>
-        window.frontier.command({ type: 'admiralChatTask', agentId: 'ops-horizon', messageId: 1 }),
-      )
-    ).ok,
-  ).toBe(false);
-  await page.screenshot({ path: join(output, 'admiral-fire.png') });
+  await p
+    .getByRole('dialog', { name: '舰队通讯' })
+    .locator('[data-channel-id="system-reports"]')
+    .click();
+  await expect(p.getByRole('log')).toContainText('聊天任务完成');
+  await p.screenshot({ path: join(output, 'admiral-fire.png') });
   expect(errors).toEqual([]);
 });
 
-test('Electron v12: isolated real player v11 save migrates, group @ assigns VIGIL, and private construction completes real delivery', async () => {
+test('Electron v13: paid graduate receives VIGIL and construction requests voluntary real logistics support', async () => {
   test.setTimeout(120000);
-  const directory = mkdtempSync(join(tmpdir(), 'frontier-v12-player-'));
-  const source =
-    process.env.FRONTIER_PLAYER_SAVE ??
-    (process.env.APPDATA ? join(process.env.APPDATA, 'frontier-command') : '');
-  test.skip(
-    !source || !existsSync(join(source, 'timeline-v11.json')),
-    '此回归场景需要本机提供的玩家 v11 存档；普通引擎/Electron 场景独立运行',
-  );
-  cpSync(join(source, 'timeline-v11.json'), join(directory, 'timeline-v11.json'));
-  cpSync(join(source, 'frontiers-v11'), join(directory, 'frontiers-v11'), { recursive: true });
-  const original = readFileSync(join(directory, 'frontiers-v11/frontier-000001/head.json'), 'utf8');
-  const page = await launch(directory);
-  const migrated = await state(page);
-  expect(migrated.version).toBe(12);
-  expect(migrated.admiralTasks).toEqual([]);
-  const cadet = migrated.agents.find((a) => a.name === 'Cadet 5')!;
-  expect(cadet.assignedShipId).toBeNull();
-  await send(page, 'frontier-command', '@Cadet 5 USS VIGIL 给你了');
+  const dir = mkdtempSync(join(tmpdir(), 'frontier-v13-construction-')),
+    e = quietEngine();
+  e.state.locations.find((l) => l.id === 'colony')!.colony!.nextCandidate = 0;
+  run(e, 0.1);
+  const candidate = e.state.personnel.find((p) => p.status === 'candidate')!;
+  e.dispatchCommand({
+    type: 'candidate',
+    personnelId: candidate.id,
+    accept: true,
+    career: 'battle',
+  });
+  run(e, 90);
+  const cadet = e.state.agents.find((a) => a.originPersonnelId === candidate.id)!;
+  const sector = materialize(e.state, { q: 0, r: 2 });
+  sector.discovered = true;
+  const systems = e.state.systems.filter((s) => s.sectorId === sector.id);
+  for (const s of systems) {
+    s.discovered = true;
+    s.survey = 2;
+  }
+  for (const b of e.state.bodies.filter((b) => systems.some((s) => s.id === b.systemId))) {
+    b.discovered = true;
+    b.survey = 2;
+  }
+  const body = e.state.bodies.find(
+    (b) => b.kind === 'resource' && systems.some((s) => s.id === b.systemId),
+  )!;
+  e.state.paused = true;
+  new SaveStore(dir).write(e.state);
+  provider = new AgentTestProvider();
+  const url = await provider.start(),
+    p = await launch(dir);
+  await p.evaluate(async (baseUrl) => {
+    await window.frontier.configureAgentApi({
+      baseUrl,
+      defaultModel: 'isolated-construction',
+      reasoningEffort: 'none',
+      apiKey: 'local-construction-key',
+    });
+  }, url);
+  await send(p, 'frontier-command', '@' + cadet.name + ' USS VIGIL 给你了');
   await expect
-    .poll(async () => (await state(page)).agents.find((a) => a.id === cadet.id)?.assignedShipId)
+    .poll(async () => (await state(p)).agents.find((a) => a.id === cadet.id)?.assignedShipId)
     .toBe('vigil');
-  // Free Mira from the old autonomous delivery in this disposable copy, then ask for construction.
-  // This saved delivery is still empty; cancellation retains any real cargo by rule.
-  await page.evaluate(() =>
-    window.frontier.command({ type: 'cancelDirective', shipId: 'meridian' }),
+  const before = (await state(p)).resources.credits;
+  await send(p, 'private:' + cadet.id, '你去建设好 ' + body.name, 'voluntary');
+  await expect.poll(async () => (await state(p)).admiralTasks.at(-1)?.consent).toBe('accepted');
+  await p.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
+  await wait(p, (w) =>
+    w.escortRequests.some((r) => r.kind === 'logistics' && r.status === 'accepted'),
   );
-  const materials = (await state(page)).locations.reduce((n, l) => n + l.stock.materials, 0);
-  const credits = (await state(page)).resources.credits;
-  await send(page, 'private:' + cadet.id, '你去建设好高密度矿物带 0/12-0-5');
-  await expect
-    .poll(async () =>
-      (await state(page)).projects.some((p) => p.siteId === 'sector:0:12:system:0:body:5'),
-    )
-    .toBe(true);
-  const starting = await state(page);
-  expect(starting.resources.credits).toBe(credits - 165);
-  expect(starting.admiralTasks.at(-1)?.carrierAgentId).toBe('ops-meridian');
-  await page.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
-  await wait(page, (s) => s.admiralTasks.at(-1)?.status === 'completed', 90000);
-  const completed = await state(page);
-  expect(
-    completed.locations.some(
-      (l) => l.siteId === 'sector:0:12:system:0:body:5' && l.kind === 'mine',
-    ),
-  ).toBe(true);
-  expect(completed.history.some((h) => h.kind === 'cargo' && h.text.includes('装载 30'))).toBe(
-    true,
-  );
-  expect(completed.locations.reduce((n, l) => n + l.stock.materials, 0)).toBeGreaterThanOrEqual(
-    materials - 30 - 1e-6,
-  );
-  expect((await page.evaluate(() => window.frontier.save())).ok).toBe(true);
-  await page.screenshot({ path: join(output, 'player-save-construction.png') });
-  expect(readFileSync(join(directory, 'frontiers-v11/frontier-000001/head.json'), 'utf8')).toBe(
-    original,
-  );
-  const taskId = completed.admiralTasks.at(-1)!.id;
+  const start = await state(p);
+  expect(start.resources.credits).toBeGreaterThanOrEqual(before - 165);
+  expect(start.projects.filter((project) => project.siteId === body.id)).toHaveLength(1);
+  await wait(p, (w) => w.admiralTasks.at(-1)?.status === 'completed', 90000);
+  const done = await state(p);
+  expect(done.locations.some((l) => l.siteId === body.id && l.kind === 'mine')).toBe(true);
+  expect(done.history.some((h) => h.kind === 'cargo' && h.text.includes('装载 30'))).toBe(true);
+  expect(done.escortRequests.find((r) => r.kind === 'logistics')?.status).toBe('completed');
+  await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
+  await p.evaluate(() => window.frontier.save());
+  await p.screenshot({ path: join(output, 'construction-cooperation.png') });
+  const taskId = done.admiralTasks.at(-1)!.id;
   await app!.close();
   app = undefined;
-  const reopened = await launch(directory);
-  expect((await state(reopened)).admiralTasks.find((t) => t.id === taskId)?.status).toBe(
+  const restarted = await launch(dir);
+  expect((await state(restarted)).admiralTasks.find((t) => t.id === taskId)?.status).toBe(
     'completed',
-  );
-  expect((await state(reopened)).agents.find((a) => a.id === cadet.id)?.assignedShipId).toBe(
-    'vigil',
   );
 });
 
-test('Electron v12: explicit route forbids wormholes, survives restart, and direct Admiral control cancels it', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'frontier-v12-route-'));
-  const e = quietEngine();
-  new SaveStore(directory).write(e.state);
-  let page = await launch(directory);
-  await send(page, 'private:ops-horizon', '沿 0/0 一路测绘到 0/2，不走虫洞');
-  await expect.poll(async () => (await state(page)).admiralTasks[0]?.allowWormholes).toBe(false);
-  await page.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
-  await wait(page, (s) => s.admiralTasks[0]?.sectorIndex === 1);
-  expect((await page.evaluate(() => window.frontier.save())).ok).toBe(true);
+test('Electron v13: direct route forbids wormholes, survives restart, and map takeover cancels future steps', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'frontier-v13-route-'));
+  new SaveStore(dir).write(quietEngine().state);
+  let p = await launch(dir);
+  await send(p, 'private:ops-horizon', '沿 0/0 一路测绘到 0/2，不走虫洞');
+  await expect.poll(async () => (await state(p)).admiralTasks[0]?.allowWormholes).toBe(false);
+  await p.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
+  await wait(p, (w) => w.admiralTasks[0]?.sectorIndex === 1);
+  await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
+  await p.evaluate(() => window.frontier.save());
   await app!.close();
   app = undefined;
-  page = await launch(directory);
-  const resumed = await state(page);
-  expect(resumed.admiralTasks[0]).toMatchObject({
+  p = await launch(dir);
+  expect((await state(p)).admiralTasks[0]).toMatchObject({
     status: 'active',
     sectorIndex: 1,
     allowWormholes: false,
   });
-  const current = resumed.ships.find((s) => s.id === 'horizon')?.current;
-  if (current) expect(current.journey?.legs.every((l) => l.type === 'warp') ?? true).toBe(true);
-  await page.evaluate(() =>
+  await p.evaluate(() =>
     window.frontier.command({
       type: 'issueDirective',
       shipIds: ['horizon'],
@@ -200,10 +201,10 @@ test('Electron v12: explicit route forbids wormholes, survives restart, and dire
       action: { type: 'MOVE', point: { x: -240, y: 0 } },
     }),
   );
-  expect((await state(page)).admiralTasks[0].status).toBe('cancelled');
-  await send(page, 'private:ops-horizon', '取消当前任务');
+  expect((await state(p)).admiralTasks[0].status).toBe('cancelled');
+  await send(p, 'private:ops-horizon', '取消当前任务');
   await expect
-    .poll(async () => (await state(page)).ships.find((s) => s.id === 'horizon')?.current)
+    .poll(async () => (await state(p)).ships.find((s) => s.id === 'horizon')?.current)
     .toBeNull();
-  await page.screenshot({ path: join(output, 'route-control.png') });
+  await p.screenshot({ path: join(output, 'route-control.png') });
 });

@@ -10,7 +10,8 @@ import { advanceEconomy } from './services';
 import { updateSensors } from './sensors';
 import { applyDamage, fire } from './combat';
 import { advanceAgents, agentOutcome } from './agents';
-import { wakeAgent } from './chat';
+import { appendChat, REPORT_CHANNEL, SYSTEM_ACTOR, wakeAgent } from './chat';
+import { advanceContracts, contractDirectiveOutcome } from './contracts';
 import { advanceAdmiralTasks, admiralTaskOutcome } from './admiral-tasks';
 import type {
   Action,
@@ -30,6 +31,7 @@ export class SimulationEngine {
   pendingEvents: SimulationEvent[] = [];
   /** Engine-internal dispatch context. Never exposed through observation or IPC. */
   executingAdmiralTaskId: string | null = null;
+  executingContractId: string | null = null;
   constructor(world = createWorld()) {
     this.state = structuredClone(world);
     for (const a of this.state.agents)
@@ -63,6 +65,19 @@ export class SimulationEngine {
       category,
       read: false,
     });
+    appendChat(
+      this,
+      SYSTEM_ACTOR,
+      REPORT_CHANNEL,
+      text,
+      [],
+      priority === 'urgent' || category === 'threat'
+        ? 'danger'
+        : category === 'request' || category === 'decision'
+          ? 'request'
+          : 'report',
+      { origin: 'engine', eventId: 'comms:' + (w.nextComms - 1) },
+    );
     if (w.communications.length > 100) w.communications.shift();
     this.log(text, priority === 'urgent' ? 'danger' : priority === 'high' ? 'warning' : 'info');
   }
@@ -119,6 +134,7 @@ export class SimulationEngine {
   complete(s: Ship, text: string, failed = false) {
     const old = s.current;
     if (old) agentOutcome(this, s, old, text, failed);
+    if (old) contractDirectiveOutcome(this, old.id, old.contractId, failed);
     if (old?.taskId) admiralTaskOutcome(this, old, text, failed);
     s.current = null;
     s.tracking = null;
@@ -169,6 +185,7 @@ export class SimulationEngine {
       return [...events, ...this.pendingEvents.splice(0), ...this.finishCritical()];
     advanceEconomy(this, fixedDelta);
     advanceAdmiralTasks(this);
+    advanceContracts(this);
     for (const s of [...w.ships]) {
       if (this.isCommandLost()) break;
       advanceShip(this, s, fixedDelta);

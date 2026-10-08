@@ -14,7 +14,7 @@ import { makeEnemy } from '../../src/engine/data';
 import type { Snapshot } from '../../src/engine/types';
 import { inspectTypography, inspectTitleBars } from './typography';
 let app: ElectronApplication | undefined;
-const output = resolve('docs/verification/v9');
+const output = resolve('docs/verification/v13/regression-v9');
 mkdirSync(output, { recursive: true });
 async function launch(
   world = quietEngine().state,

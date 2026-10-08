@@ -1,4 +1,22 @@
-## v12 decision/chat regression acceptance
+# Frontier Command v13 验收
+
+本轮保持 v12 模拟、经济、职业、API 和 LCARS 架构。当前规则和 Electron 验证记录见 [v13 验证记录](verification/v13/README.md)，完整可重复链路见 [演示说明](../demo/README.md)。
+
+| 验收行为                                                                                   | 自动验证                                                                                    |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| 短任务判断不发送完整协议、不协商条件、接受即执行                                           | `tests/task-judgment.test.ts`、`tests/v13-budget.test.ts`                                   |
+| 缺弹每次持续状态仅提醒一次、补弹恢复、重启及确定性                                         | `tests/ammo-alerts.test.ts`                                                                 |
+| 系统报告零唤醒、零旁观记忆、消息/决策/结算去重，无变化空闲零调用                           | `tests/v13-contracts.test.ts`、`tests/v13-budget.test.ts`                                   |
+| 1×/4×/16× 无调用额度、无全局并发上限、兼容/纠错计数、45 秒超时、取消、退避与认证恢复       | `tests/v13-budget.test.ts`、`tests/e2e/v13.spec.ts`                                         |
+| 同职业个体差异、真实拒绝/协商、两轮上限、真实消息反馈及关系影响下一次选择                  | `tests/v13-contracts.test.ts`、`tests/agent-demo.test.ts`                                   |
+| 维修、连续休息、真实护航会合/运输/建设支援、交接货物守恒、托管/兑现/退款、双人履约         | `tests/v13-contracts.test.ts`、`tests/agent-demo.test.ts`、`tests/e2e/admiral-chat.spec.ts` |
+| 短 LLM 判断接受/拒绝、即时任务指令、显式直接接管、旧响应失效、任务失败/取消/中断的独立结果 | `tests/v13-contracts.test.ts`、`tests/e2e/v13.spec.ts`                                      |
+| 严格 v11/v12→v13、终局/备份/每日档/分支、损坏保护、不重放、不重复支付、确定性恢复          | `tests/v13-migration.test.ts`、`tests/v13-contracts.test.ts`、`tests/agent-demo.test.ts`    |
+| 仓库内隔离 v12 fixture、完整协作链重启、旧调用额度失效、1024/1366 和 100%/200% 布局        | `tests/e2e/v13.spec.ts`                                                                     |
+
+E2E 只使用隔离 userData 和本地 HTTP Chat Completions provider，不读取玩家 APPDATA 或外部 API 凭据。测试 provider 的选择用于复现验收分支；正常应用依赖玩家配置的真实模型，不替模型预先同意任务。
+
+## 历史 v12 decision/chat regression acceptance
 
 - Admiral private/group fire orders execute real ATTACK under RETURN FIRE against publicly observed unconfirmed targets, without changing hostile evidence. Autonomous attacks retain ROE restrictions; real outcomes grant executor XP.
 - Group @ assignment modifies Assignment; another formal Agent is not displaced. Forged and cross-private authorization fails, and renderer cannot invoke the internal task grant.

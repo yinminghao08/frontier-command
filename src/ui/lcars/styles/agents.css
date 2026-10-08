@@ -119,6 +119,16 @@ html[data-console-layout='compact'] .agent-attributes {
 .chat-workspace.compact .chat-preview {
   display: none !important;
 }
+.chat-workspace.compact .chat-typing.idle {
+  display: none;
+}
+.chat-workspace.compact .chat-conversation-heading {
+  padding: 0.15em 0 0.25em;
+  border-bottom-width: 0.2em;
+}
+.chat-workspace.compact .chat-conversation-heading small {
+  display: none;
+}
 .chat-workspace.compact .chat-composer > .lcars-button {
   min-height: 2em;
 }
@@ -386,4 +396,24 @@ html[data-console-layout='compact'] .agent-attributes {
   .chat-composer > .lcars-button {
     min-height: 2em;
   }
+}
+.agent-request-row {
+  border-bottom: 2px solid var(--lcars-peach, #fc9);
+  padding: 1rem 0;
+}
+.agent-requests {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-request-scroll {
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+.agent-runtime input {
+  max-width: 8rem;
+}
+.chat-composer select {
+  grid-column: 1 / -1;
+  max-width: 100%;
+  min-width: 0;
 }

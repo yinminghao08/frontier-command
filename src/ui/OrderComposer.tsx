@@ -108,6 +108,12 @@ export function defaultAction(
         targetId: facility?.owner === 'starfleet' ? facility.id : 'colony',
         duration: 60,
       };
+    case 'REST':
+      return {
+        type,
+        targetId: facility?.owner === 'starfleet' ? facility.id : 'base',
+        duration: 30,
+      };
     case 'REARM':
       return { type, targetId: 'base', load: { photon: 4, quantum: 0 } };
     case 'REFIT':

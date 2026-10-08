@@ -1,82 +1,27 @@
 import { z } from 'zod';
 import { agentCareerSchema, modelConfigSchema } from './agent-schema';
+import { activitySchema, conditionsSchema, responseFields } from './condition-schema';
+import {
+  actionSchema,
+  pointSchema,
+  stockSchema,
+  ammoSchema,
+  moduleSchema,
+  upgradeSchema,
+  goodsSchema,
+} from './action-schema';
+export {
+  actionSchema,
+  pointSchema,
+  stockSchema,
+  ammoSchema,
+  moduleSchema,
+  upgradeSchema,
+  goodsSchema,
+} from './action-schema';
 const id = z.string().min(1).max(160),
   n = z.number().finite(),
   count = n.int().min(1).max(10000);
-export const pointSchema = z.object({ x: n, y: n }).strict();
-export const stockSchema = z
-  .object({
-    materials: n.min(0),
-
-    photon: n.int().min(0),
-    quantum: n.int().min(0),
-    specialFinds: n.int().min(0),
-  })
-  .strict();
-export const ammoSchema = z.object({ photon: n.int().min(0), quantum: n.int().min(0) }).strict();
-export const moduleSchema = z.enum([
-  'deepScan',
-  'longRangeSensors',
-  'precisionTargeting',
-  'reinforcedShields',
-  'expandedCargo',
-]);
-export const upgradeSchema = z.enum(['shipyard', 'armory', 'sensors', 'logistics', 'defense']);
-export const goodsSchema = z.enum(['materials', 'photon', 'quantum', 'specialFinds']);
-export const actionSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('MOVE'), point: pointSchema }).strict(),
-  z
-    .object({
-      type: z.literal('EXPLORE'),
-      sector: z.object({ q: n.int().safe(), r: n.int().safe() }).strict(),
-      approach: z.enum(['remote', 'close']),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('SURVEY'),
-      targetId: id,
-      approach: z.enum(['remote', 'close']),
-      deep: z.boolean(),
-    })
-    .strict(),
-  z.object({ type: z.literal('RETURN') }).strict(),
-  z.object({ type: z.enum(['ASSIST_EVENT', 'TRANSIT', 'CAPTURE']), targetId: id }).strict(),
-  z
-    .object({
-      type: z.literal('HAIL'),
-      targetId: id,
-      message: z.enum(['greeting', 'withdraw', 'deescalate']),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('HAUL'),
-      sourceId: id,
-      targetId: id,
-      cargoKind: goodsSchema,
-      amount: count,
-      route: z.enum(['safe', 'direct', 'risky']),
-      repeat: z.boolean(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.enum(['ATTACK', 'DISABLE', 'DRIVE_OFF', 'INTERCEPT', 'SHADOW']),
-      targetId: id,
-      subsystem: z.enum(['engines', 'weapons']).optional(),
-    })
-    .strict(),
-  z.object({ type: z.literal('ESCORT'), targetId: id }).strict(),
-  z.object({ type: z.literal('PATROL'), targetId: id, duration: n.min(1).max(1440) }).strict(),
-  z
-    .object({ type: z.enum(['RETREAT', 'DOCK', 'REPAIR', 'UNLOAD', 'RECOVER']), targetId: id })
-    .strict(),
-  z.object({ type: z.literal('REARM'), targetId: id, load: ammoSchema }).strict(),
-  z
-    .object({ type: z.literal('REFIT'), targetId: id, moduleId: moduleSchema, remove: z.boolean() })
-    .strict(),
-]);
 export const agentDecisionSchema = z
   .object({
     mode: z.enum(['act', 'continue', 'wait', 'clarify']).optional(),
@@ -95,7 +40,6 @@ export const agentDecisionSchema = z
           })
           .strict(),
       )
-      .max(3)
       .default([]),
     memory: z.string().trim().min(1).max(300).nullable().default(null),
     waitMinutes: n.min(5).max(180).default(30),
@@ -103,9 +47,31 @@ export const agentDecisionSchema = z
       .discriminatedUnion('type', [
         z.object({ type: z.literal('requestEscort'), agentId: id, targetShipId: id }).strict(),
         z.object({ type: z.literal('answerEscort'), requestId: id, accept: z.boolean() }).strict(),
+        z
+          .object({
+            type: z.literal('requestTask'),
+            kind: z.enum(['escort', 'team', 'reinforce', 'logistics', 'handoff']),
+            agentId: id,
+            action: actionSchema,
+            followUp: actionSchema.nullable(),
+            conditions: conditionsSchema,
+          })
+          .strict(),
+        z.object({ type: z.literal('answerRequest'), requestId: id, ...responseFields }).strict(),
+        z.object({ type: z.literal('answerTask'), taskId: id, ...responseFields }).strict(),
       ])
       .nullable()
       .default(null),
+    social: z
+      .object({
+        type: z.enum(['support', 'disagree', 'mediate', 'compete', 'preference']),
+        messageId: n.int().positive(),
+        agentId: id.nullable(),
+        activity: activitySchema.nullable(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 export const careerSchema = z.enum([
@@ -166,6 +132,15 @@ export const commandSchema = z.discriminatedUnion('type', [
       channelId: id,
       content: z.string().trim().min(1).max(1200),
       mentions: z.array(id).max(12),
+      controlMode: z.enum(['voluntary', 'direct']).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('resolveProposal'),
+      contractId: id,
+      version: n.int().positive(),
+      response: z.enum(['approve', 'reject', 'cancel', 'takeover']),
     })
     .strict(),
   z.object({ type: z.literal('readChat'), channelId: id, throughId: n.int().min(0) }).strict(),

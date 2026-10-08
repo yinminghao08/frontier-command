@@ -18,3 +18,13 @@ export interface AgentApiResult {
   ok: boolean;
   reason: string;
 }
+export interface AgentRuntimeStats {
+  concurrency: number;
+  requests: number;
+  repairs: number;
+  cancellations: number;
+  failures: number;
+  tokens: number | null;
+  windowRequests: number;
+  byAgent: Record<string, number>;
+}

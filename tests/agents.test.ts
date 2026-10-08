@@ -79,7 +79,7 @@ describe('v11 independent Agents, chat and real commands', () => {
       true,
     );
     expect(
-      e.state.chatMessages.some((m) => m.sender === battleId && m.content.includes('ATTACK 完成')),
+      e.state.chatMessages.some((m) => m.origin === 'engine' && m.content.includes('ATTACK 完成')),
     ).toBe(true);
     expect(() => parseSave(e.state)).not.toThrow();
   });
@@ -356,7 +356,7 @@ describe('Journey Planner and complete cooperative logistics loop', () => {
     expect(e.state.agents[0].relationships[logisticsId].trust).toBeGreaterThan(50);
     expect(
       e.state.chatMessages.some(
-        (m) => m.sender === logisticsId && m.kind === 'report' && m.content.includes('HAUL 完成'),
+        (m) => m.origin === 'engine' && m.kind === 'report' && m.content.includes('HAUL 完成'),
       ),
     ).toBe(true);
     expect(() => parseSave(e.state)).not.toThrow();
@@ -379,11 +379,13 @@ describe('Journey Planner and complete cooperative logistics loop', () => {
       }).ok,
     ).toBe(true);
     expect(e.state.escortRequests[0].status).toBe('rejected');
-    expect(e.state.agents[0].relationships[logisticsId].trust).toBeLessThan(50);
+    expect(e.state.agents[0].relationships[logisticsId].trust).toBe(50);
     expect(
       e.state.chatMessages.some((m) => m.kind === 'reply' && m.content.includes('拒绝护航')),
     ).toBe(true);
-    expect(e.state.agents[1].decision.pendingReasons.some((r) => r.startsWith('chat:'))).toBe(true);
+    expect(e.state.agents[1].decision.pendingReasons.some((r) => r.startsWith('request:'))).toBe(
+      true,
+    );
     expect(e.state.ships.find((s) => s.id === 'horizon')!.current).toBeNull();
   });
   it('MOVE and HAUL share wormhole navigation; repeating shipments earn experience per actual delivery', () => {

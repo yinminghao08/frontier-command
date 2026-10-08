@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { actionSchema } from './commands';
+import { conditionsSchema } from './condition-schema';
 const id = z.string().min(1).max(160),
   n = z.number().finite(),
   integer = n.int().min(0);
@@ -10,7 +11,7 @@ export const admiralTaskSchema = z
     messageId: integer.positive(),
     channelId: id,
     kind: z.enum(['action', 'assign', 'construction', 'surveyRoute', 'cancel']),
-    status: z.enum(['active', 'blocked', 'completed', 'cancelled']),
+    status: z.enum(['active', 'blocked', 'completed', 'cancelled', 'failed']),
     action: actionSchema.nullable(),
     targetId: id.nullable(),
     shipId: id.nullable(),
@@ -22,5 +23,12 @@ export const admiralTaskSchema = z
     projectId: id.nullable(),
     carrierAgentId: id.nullable(),
     reason: z.string().max(2000).nullable(),
+    controlMode: z.enum(['voluntary', 'direct']),
+    consent: z.enum(['proposed', 'accepted', 'rejected', 'negotiating', 'withdrawn']),
+    conditions: conditionsSchema,
+    conditionVersion: integer.positive(),
+    rounds: integer.max(2),
+    turnAgentId: id,
+    creditsApproved: z.boolean(),
   })
   .strict();

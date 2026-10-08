@@ -11,6 +11,8 @@ import { AGENT_RULES } from './definitions/agents';
 import { cancelAdmiralTasks } from './admiral-tasks';
 import { agentOutcome } from './agents';
 import { wakeAgent } from './chat';
+import { cancelContracts } from './contracts';
+import { personalFeedback } from './personality';
 export function validateFrontierCommand(e: SimulationEngine, c: Command): CommandResult | null {
   const w = e.state;
   if (c.type === 'createGroup' || c.type === 'updateGroup') {
@@ -157,8 +159,9 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
         (id) => w.ships.find((s) => s.id === id)!,
       );
     for (const [slot, s] of members.entries()) {
-      cancelAdmiralTasks(e, s.id, undefined, c.mode !== 'QUEUE');
-      if (c.mode !== 'QUEUE' && s.current?.source === 'agent')
+      if (c.mode !== 'INTERRUPT') cancelAdmiralTasks(e, s.id, undefined, c.mode !== 'QUEUE');
+      if (c.mode === 'REPLACE') cancelContracts(e, s.id);
+      if (c.mode === 'REPLACE' && s.current?.source === 'agent')
         agentOutcome(e, s, s.current, 'Admiral 编队指令接管', true);
       const a =
           c.action.type === 'HAUL'
@@ -172,7 +175,10 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
       d.origin = { x: s.x, y: s.y };
       if (c.mode === 'QUEUE' && s.current?.source === 'admiral') s.queue.push(d);
       else {
-        if (c.mode === 'INTERRUPT' && s.current) s.suspended.push(s.current);
+        if (c.mode === 'INTERRUPT' && s.current) {
+          if (s.current.action.type === 'REST') s.current.work = 0;
+          s.suspended.push(s.current);
+        }
         if (c.mode === 'REPLACE') {
           s.queue = [];
           s.suspended = [];
@@ -185,6 +191,7 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
       }
       const agent = w.agents.find((a) => a.assignedShipId === s.id);
       if (agent) {
+        personalFeedback(agent, d.id + ':takeover', { trust: -3, morale: -3, resentment: 4 });
         wakeAgent(agent, 'admiralDirective', w.time, true);
         agent.status = 'admiral';
       }

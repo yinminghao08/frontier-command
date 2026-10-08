@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { quietEngine, issue, run, until } from './helpers';
+import { quietEngine, issue, run, until, v11Fixture } from './helpers';
 import { SimulationEngine } from '../src/engine/engine';
 import { makeAgent, registerAgent } from '../src/engine/agents';
 import { makeEnemy } from '../src/engine/data';
@@ -34,6 +34,7 @@ function order(
       channelId: channel,
       content,
       mentions: channel === COMMAND_CHANNEL ? [agentId] : [],
+      controlMode: 'direct',
     }).ok,
   ).toBe(true);
   const messageId = e.state.chatMessages.at(-1)!.id;
@@ -152,7 +153,36 @@ describe('Admiral chat becomes scoped real engine commands', () => {
     const extracted = e.state.locations.reduce((sum, l) => sum + l.extracted, 0);
     const task = order(e, cadet.id, '你去建设好' + body.name);
     expect(e.state.resources.credits).toBe(beforeCredits - 165);
-    expect(task.carrierAgentId).toBe(freight);
+    const request = e.state.escortRequests.find((r) => r.parentTaskId === task.id)!;
+    expect(request.status).toBe('pending');
+    const peer = e.state.agents.find((a) => a.id === freight)!;
+    expect(
+      e.dispatchCommand(
+        {
+          type: 'agentDecision',
+          agentId: freight,
+          revision: peer.decision.revision,
+          decision: {
+            goal: '运输建设物资',
+            rationale: '当前舰船和库存可用，愿意支援',
+            action: null,
+            messages: [],
+            memory: null,
+            waitMinutes: 30,
+            coordination: {
+              type: 'answerRequest',
+              requestId: request.id,
+              version: 1,
+              response: 'accept',
+              conditions: [],
+              reason: 'preference',
+            },
+          },
+        },
+        freight,
+      ).ok,
+    ).toBe(true);
+    run(e, 1);
     expect(e.state.ships.find((s) => s.id === 'meridian')?.current?.action.type).toBe('HAUL');
     run(e, 25);
     const resumed = new SimulationEngine(parseSave(e.state));
@@ -380,8 +410,7 @@ describe('v11 migration seals historical chat and retains original timeline file
     directories.push(dir);
     const e = quietEngine();
     appendChat(e, 'commander', privateChannel(battle), '立即开火');
-    const legacy = { ...e.state, version: 11 } as Record<string, unknown>;
-    delete legacy.admiralTasks;
+    const legacy = v11Fixture(e.state);
     const index = JSON.stringify({
       version: 11,
       activeId: 'frontier-000001',
@@ -401,7 +430,7 @@ describe('v11 migration seals historical chat and retains original timeline file
     const store = new SaveStore(dir),
       read = store.read();
     expect(read.blocked).toBe(false);
-    expect(read.world?.version).toBe(12);
+    expect(read.world?.version).toBe(13);
     expect(read.world?.ships).toEqual(e.state.ships);
     expect(read.world?.admiralTasks).toEqual([]);
     expect(
@@ -413,8 +442,8 @@ describe('v11 migration seals historical chat and retains original timeline file
       original,
     );
     expect(
-      JSON.parse(readFileSync(join(dir, 'frontiers-v12', 'frontier-000002', 'day-1.json'), 'utf8'))
+      JSON.parse(readFileSync(join(dir, 'frontiers-v13', 'frontier-000002', 'day-1.json'), 'utf8'))
         .version,
-    ).toBe(12);
+    ).toBe(13);
   });
 });

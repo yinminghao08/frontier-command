@@ -1,0 +1,57 @@
+{
+  "version": 13,
+  "baseline": "32c7ee70e42f5f11f1ba1236836e4ed7bb04dc8a",
+  "verifiedAt": "2026-10-08",
+  "unit": {
+    "files": 21,
+    "total": 296,
+    "passed": 296,
+    "failed": 0,
+    "artifact": "unit-last-run.json"
+  },
+  "build": {
+    "command": "npm run build",
+    "exitCode": 0,
+    "artifact": "build-last-run.txt"
+  },
+  "electronFullRun": {
+    "total": 55,
+    "passed": 53,
+    "failed": 2,
+    "durationMinutes": 22.7,
+    "failures": [
+      "pause-regression.spec.ts: scouted capture autosave (file I/O protective pause)",
+      "v13.spec.ts: layout (compact MENU not opened by test)"
+    ]
+  },
+  "electronFinalRelated": {
+    "startTime": "2026-10-08T04:56:32.001Z",
+    "duration": 376722.65499999997,
+    "expected": 14,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0,
+    "artifact": "electron-final-related.json"
+  },
+  "electronCoverage": {
+    "totalDistinctCases": 55,
+    "allCasesVerifiedAfterRelevantRetests": true
+  },
+  "layout": {
+    "windowSizes": [
+      "1366x900",
+      "1024x768"
+    ],
+    "textPercent": [
+      100,
+      200
+    ],
+    "screenshotsInspected": true
+  },
+  "provider": "Isolated local HTTP Chat Completions test provider; no external model or player credentials used",
+  "demo": {
+    "seed": 236807,
+    "file": "demo/agent-demo-v13.json",
+    "noPreacceptedRequests": true
+  }
+}

@@ -26,6 +26,7 @@ import { sectorCenter, materialize } from './world-generation';
 import { regionAt } from './definitions/locations';
 import { SHIP_CLASSES } from './definitions/ships';
 import { TRACKING_RULES } from './tracking';
+import { appendChat, COMMAND_CHANNEL } from './chat';
 function borderCrossing(e: SimulationEngine, s: Ship, previous: Point) {
   const from = regionAt(previous.x, previous.y),
     to = regionAt(s.x, s.y);
@@ -195,6 +196,12 @@ function arrivedService(e: SimulationEngine, s: Ship, d: Directive, dt: number) 
 export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
   const w = e.state;
   regenerate(s, w.time, dt);
+  if (s.current?.action.type === 'REST') {
+    const site = w.locations.find(
+      (l) => l.id === (s.current?.action.type === 'REST' ? s.current.action.targetId : ''),
+    );
+    if (!site || dist(s, site) > 12) s.current.work = 0;
+  }
   advanceStanding(e, s);
   if (s.emergencyRetreat) {
     if (move(s, s.emergencyRetreat.point, dt)) {
@@ -434,9 +441,34 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         d.journey = null;
         d.work = 0;
         s.path = [];
-        e.record('cargo', s.name + ' 装载 ' + n + ' ' + a.cargoKind + '；真实航线启用', s.id);
+        const text = s.name + ' 装载 ' + n + ' ' + a.cargoKind + '；真实航线启用';
+        e.record('cargo', text, s.id, false);
+        appendChat(e, d.actorId, COMMAND_CHANNEL, text, [], 'report', {
+          eventId: `${d.id}:${d.cycle}:loaded`,
+        });
       }
     } else if (d.phase === 'delivering') {
+      const escortRequests = w.escortRequests.filter(
+        (r) =>
+          r.targetShipId === s.id && r.kind === 'escort' && r.status === 'accepted' && !r.started,
+      );
+      if (
+        escortRequests.some((r) => {
+          const peer = w.ships.find(
+            (p) => p.id === w.agents.find((a) => a.id === r.responderId)?.assignedShipId,
+          );
+          return (
+            !peer ||
+            peer.current?.action.type !== 'ESCORT' ||
+            peer.current.action.targetId !== s.id ||
+            dist(peer, s) >= 60
+          );
+        })
+      ) {
+        d.note = '等待已承诺护航会合';
+        return;
+      }
+      for (const request of escortRequests) request.started = true;
       if (d.groupOrderId && groupPeers(e, d).some((p) => p.current?.phase === 'loading')) {
         d.note = '等待编队共同出发';
         return;
@@ -449,12 +481,23 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         const n = deposit(dest, a.cargoKind, Math.min(remaining, s.cargo[a.cargoKind]));
         s.cargo[a.cargoKind] -= n;
         d.delivered += n;
-        if (n > 0)
+        if (n > 0) {
+          appendChat(
+            e,
+            d.actorId,
+            COMMAND_CHANNEL,
+            s.name + ' 实际卸货 ' + n + ' ' + a.cargoKind + ' 至 ' + dest.name,
+            [],
+            'report',
+            { eventId: `${d.id}:${d.cycle}:unloaded:${d.delivered}` },
+          );
           e.record(
             'cargo',
             s.name + ' 实际交付 ' + n + ' / ' + d.carried + ' ' + a.cargoKind + ' 至 ' + dest.name,
             dest.id,
+            false,
           );
+        }
         if (s.cargo[a.cargoKind] > 0 && d.delivered < d.carried) {
           d.note = '目的仓库已满，余货保留，等待仓位或改令';
           d.work = 0;
@@ -462,6 +505,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         }
         if (a.repeat) {
           agentOutcome(e, s, d, '实际交付 ' + d.delivered + ' ' + a.cargoKind, false, true);
+          d.cycle++;
           d.journey = null;
           d.phase = 'starting';
           d.work = 0;
@@ -639,7 +683,14 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       e.complete(s, '真实货物已卸入建设项目');
     }
   } else if (arrivedService(e, s, d, dt)) {
-    if (a.type === 'RETREAT' || a.type === 'DOCK') {
+    if (a.type === 'REST') {
+      d.work += dt;
+      d.note = '休息 / ' + d.work.toFixed(1) + ' / ' + a.duration;
+      if (d.work + 1e-8 >= a.duration) {
+        e.complete(s, '连续休息完成');
+        if (!s.current) s.status = 'docked';
+      }
+    } else if (a.type === 'RETREAT' || a.type === 'DOCK') {
       e.complete(s, '停靠；货物保留');
       if (!s.current) s.status = 'docked';
     } else if (a.type === 'UNLOAD') {

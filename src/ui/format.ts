@@ -19,6 +19,7 @@ export const ACTION_LABELS: Record<Action['type'], string> = {
   SHADOW: '跟踪',
   ESCORT: '护航',
   PATROL: '巡逻',
+  REST: '休息',
   RETREAT: '撤退',
   DOCK: '停靠',
   REPAIR: '维修',

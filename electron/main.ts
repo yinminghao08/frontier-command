@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { AgentConfigStore, apiInputSchema } from './agents/config';
 import { AgentDecisionService } from './agents/service';
 import { ChatCompletionsClient, AgentApiError } from './agents/client';
+import { RequestTracker } from './agents/runtime';
 function failureReason(error: unknown) {
   if (error instanceof z.ZodError || error instanceof SyntaxError)
     return '存档内容无法读取或未通过校验；原文件已保留。';
@@ -51,7 +52,8 @@ let saveMessage = '';
 let managerOpen = false;
 let agentConfig: AgentConfigStore;
 let agentService: AgentDecisionService | undefined;
-const agentClient = new ChatCompletionsClient();
+let agentTracker: RequestTracker;
+let agentClient: ChatCompletionsClient;
 function startAgentService() {
   agentService?.dispose();
   agentService = new AgentDecisionService(
@@ -113,6 +115,8 @@ app.whenReady().then(async () => {
   saveBlocked = loaded.blocked;
   engine = new SimulationEngine(loaded.world ?? createWorld());
   agentConfig = new AgentConfigStore(app.getPath('userData'), safeStorage);
+  agentTracker = new RequestTracker();
+  agentClient = new ChatCompletionsClient(fetch, 45000, agentTracker);
   startAgentService();
   if (engine.state.status === 'active') engine.state.paused = true;
   if (!loaded.world && !loaded.blocked) store.write(engine.state);
@@ -315,6 +319,10 @@ app.whenReady().then(async () => {
     trusted(event);
     return agentConfig.publicSettings();
   });
+  ipcMain.handle('agent:runtime', (event) => {
+    trusted(event);
+    return agentTracker.stats();
+  });
   ipcMain.handle('agent:configure-api', (event, input: unknown) => {
     trusted(event);
     const parsed = apiInputSchema.safeParse(input);
@@ -397,6 +405,7 @@ app.on('second-instance', () => {
 });
 app.on('window-all-closed', () => {
   agentService?.dispose();
+  agentTracker?.dispose();
   if (timer) clearInterval(timer);
   app.quit();
 });

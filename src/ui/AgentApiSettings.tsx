@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AgentApiInput, AgentApiSettings } from '../engine/agent-api';
 import type { ReasoningEffort } from '../engine/types';
 import { LcarsButton, LcarsField, LcarsPanel } from './components/Lcars';
+import { AgentRuntime } from './AgentRuntime';
 export const EFFORT_LABELS: Record<ReasoningEffort, string> = {
   none: 'NONE / 非推理参数模式',
   low: 'LOW / 低',
@@ -128,6 +129,7 @@ export function AgentApiSettingsPanel() {
           {result.reason}
         </p>
       )}
+      <AgentRuntime />
     </LcarsPanel>
   );
 }

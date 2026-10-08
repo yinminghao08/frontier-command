@@ -37,7 +37,9 @@ export function prepareGroupHaul(e: SimulationEngine, d: Directive) {
   }
 }
 export function hasAdmiralWork(s: Ship) {
-  return [s.current, ...s.queue, ...s.suspended].some((d) => d?.source === 'admiral');
+  return [s.current, ...s.queue, ...s.suspended].some(
+    (d) => d?.source === 'admiral' && d.controlMode !== 'voluntary',
+  );
 }
 export function autonomousAllowed(s: Ship, p: { x: number; y: number }) {
   const region = regionAt(p.x, p.y);
@@ -47,39 +49,46 @@ export function autonomousAllowed(s: Ship, p: { x: number; y: number }) {
   );
 }
 export function advanceStanding(e: SimulationEngine, s: Ship) {
+  const c = capabilities(s),
+    o = s.standing,
+    ammo =
+      (c.photon > 0 && (s.photon / c.photon) * 100 < o.photonThreshold) ||
+      (c.quantum > 0 && (s.quantum / c.quantum) * 100 < o.quantumThreshold);
+  // Legacy cooldowns remain in old saves even after reaching zero. A prior report
+  // during a continuing shortage must not become a new notification on upgrade.
+  if (s.ammoAlertActive === undefined)
+    s.ammoAlertActive = ammo && s.cooldowns.ammoReport !== undefined;
+  if (!ammo) s.ammoAlertActive = false;
+  delete s.cooldowns.ammoReport;
   if (hasAdmiralWork(s)) {
     s.emergencyRetreat = null;
     return;
   }
   // An assigned Agent owns autonomous high-level choices. ROE still governs automatic fire.
   if (e.state.agents.some((a) => a.assignedShipId === s.id && a.enabled)) return;
-  const c = capabilities(s),
-    o = s.standing,
-    low =
-      (s.hull / c.hull) * 100 < o.retreatHull ||
-      (s.shield / c.shield) * 100 < o.retreatShield ||
-      (s.core / c.core) * 100 < o.retreatCore;
-  const ammo =
-    (c.photon > 0 && (s.photon / c.photon) * 100 < o.photonThreshold) ||
-    (c.quantum > 0 && (s.quantum / c.quantum) * 100 < o.quantumThreshold);
+  const low =
+    (s.hull / c.hull) * 100 < o.retreatHull ||
+    (s.shield / c.shield) * 100 < o.retreatShield ||
+    (s.core / c.core) * 100 < o.retreatCore;
   const start = (action: Directive['action']) => {
     if (!validateAction(e, s, action).ok) return;
     const d = makeDirective(e, action);
     d.source = 'standing';
+    d.controlMode = 'autonomous';
     d.actorId = 'standing:' + s.id;
     d.origin = { x: s.x, y: s.y };
     s.current = d;
     s.path = [];
     s.status = 'active';
   };
-  if (ammo && !(s.cooldowns.ammoReport > 0)) {
+  if (ammo && !s.ammoAlertActive) {
     e.report(
       s.name + ' 弹药不足，原地或继续既有指令；请由 Admiral 安排装弹',
       s.id,
       'normal',
       'request',
     );
-    s.cooldowns.ammoReport = 60;
+    s.ammoAlertActive = true;
   }
   if (low && e.state.time - s.attackedAt < 12 && !s.emergencyRetreat) {
     const threat = e.state.intel.find((i) => i.id === s.lastAttackerId && i.live);

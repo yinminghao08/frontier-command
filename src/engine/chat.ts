@@ -2,6 +2,8 @@ import type { SimulationEngine } from './engine';
 import type { Agent, AgentMemory, ChatMessage, WorldState } from './types';
 import { AGENT_RULES } from './definitions/agents';
 export const COMMAND_CHANNEL = 'frontier-command';
+export const REPORT_CHANNEL = 'system-reports';
+export const SYSTEM_ACTOR = 'system';
 export const privateChannel = (agentId: string) => 'private:' + agentId;
 export function remember(
   w: WorldState,
@@ -28,6 +30,22 @@ export function remember(
 }
 export function wakeAgent(agent: Agent, reason: string, now: number, invalidate = false) {
   if (!agent.decision.pendingReasons.includes(reason)) agent.decision.pendingReasons.push(reason);
+  const kind = reason.startsWith('chat:')
+    ? 'chat'
+    : /request|escort|proposal/i.test(reason)
+      ? 'request'
+      : /danger/.test(reason)
+        ? 'danger'
+        : /manual|retry/.test(reason)
+          ? 'manual'
+          : /configuration/.test(reason)
+            ? 'configuration'
+            : reason === 'recovery'
+              ? 'recovery'
+              : 'opportunity';
+  if (!agent.decision.events.some((event) => event.id === reason))
+    agent.decision.events.push({ id: reason.slice(0, 160), kind, time: now });
+  agent.decision.events = agent.decision.events.slice(-8);
   agent.decision.pendingReasons = agent.decision.pendingReasons.slice(-8);
   if (invalidate) {
     agent.decision.revision++;
@@ -58,6 +76,7 @@ export function chatReason(
 ) {
   const channel = w.chatChannels.find((c) => c.id === channelId);
   if (!channel || !channel.members.includes(sender)) return '无此会话权限';
+  if (channel.kind === 'reports') return '系统报告频道仅允许引擎写入';
   const resolved = [...new Set([...mentions, ...mentionsIn(w, content)])];
   if (resolved.length > 12 || resolved.some((id) => !channel.members.includes(id)))
     return '@ 对象不在当前会话';
@@ -70,11 +89,29 @@ export function appendChat(
   content: string,
   mentions: string[] = [],
   kind: ChatMessage['kind'] = 'message',
-  metadata: Pick<ChatMessage, 'purpose' | 'replyTo'> = {},
+  metadata: Pick<
+    ChatMessage,
+    'purpose' | 'replyTo' | 'origin' | 'eventId' | 'requestId' | 'controlMode'
+  > = {},
 ) {
+  if (metadata.eventId) {
+    const existing = e.state.chatMessages.find((m) => m.eventId === metadata.eventId);
+    if (existing) return existing;
+  }
+  const origin =
+    metadata.origin ??
+    (kind === 'message' ? (sender === e.state.commander.id ? 'admiral' : 'agent') : 'engine');
+  if (kind === 'report' && origin === 'engine') {
+    channelId = REPORT_CHANNEL;
+    sender = SYSTEM_ACTOR;
+    mentions = [];
+  }
   const w = e.state,
     channel = w.chatChannels.find((c) => c.id === channelId)!;
-  const ids = [...new Set([...mentions, ...mentionsIn(w, content)])];
+  const ids =
+    origin === 'engine' && kind === 'report'
+      ? []
+      : [...new Set([...mentions, ...mentionsIn(w, content)])];
   const message: ChatMessage = {
     id: w.nextChat++,
     sender,
@@ -85,8 +122,13 @@ export function appendChat(
     kind,
     purpose: metadata.purpose ?? (kind === 'request' ? 'request' : 'information'),
     replyTo: metadata.replyTo ?? null,
+    origin,
+    eventId: metadata.eventId ?? null,
+    requestId: metadata.requestId ?? null,
+    controlMode: metadata.controlMode ?? 'voluntary',
   };
   w.chatMessages.push(message);
+  if (origin === 'engine' || channel.kind === 'reports') return message;
   // The saved transcript is persistent; observations/memory are separately bounded.
   const name = w.agents.find((a) => a.id === sender)?.name ?? 'Admiral';
   for (const agent of w.agents.filter((a) => channel.members.includes(a.id) && a.id !== sender)) {
@@ -101,7 +143,8 @@ export function appendChat(
     if (
       kind !== 'error' &&
       message.purpose !== 'acknowledgement' &&
-      (sender === w.commander.id || ids.includes(agent.id))
+      sender === w.commander.id &&
+      (channel.kind === 'private' || ids.includes(agent.id))
     )
       wakeAgent(agent, 'chat:' + message.id, w.time, true);
   }
@@ -110,6 +153,8 @@ export function appendChat(
 export function addAgentChannels(w: WorldState, agent: Agent) {
   const group = w.chatChannels.find((c) => c.id === COMMAND_CHANNEL)!;
   if (!group.members.includes(agent.id)) group.members.push(agent.id);
+  const reports = w.chatChannels.find((c) => c.id === REPORT_CHANNEL)!;
+  if (!reports.members.includes(agent.id)) reports.members.push(agent.id);
   w.chatChannels.push({
     id: privateChannel(agent.id),
     name: agent.name,

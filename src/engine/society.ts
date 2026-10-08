@@ -53,7 +53,7 @@ export function advanceSociety(e: SimulationEngine, dt: number) {
         p.training = 90;
         p.status = 'available';
         if (p.career === 'battle' || p.career === 'logistics') {
-          const a = makeAgent('agent-' + p.id, p.name, p.career, null, p.id);
+          const a = makeAgent('agent-' + p.id, p.name, p.career, null, p.id, w.initialSeed);
           registerAgent(w, a);
           appendChat(
             e,

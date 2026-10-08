@@ -15,7 +15,7 @@ import { COMMAND_CHANNEL, privateChannel } from '../../src/engine/chat';
 import type { Snapshot, WorldState } from '../../src/engine/types';
 import { AgentTestProvider } from './agent-provider';
 let app: ElectronApplication | undefined, provider: AgentTestProvider | undefined;
-const output = resolve('docs/verification/v12');
+const output = resolve('docs/verification/v13');
 const testKey = 'isolated-e2e-test-key';
 const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(directory: string) {
@@ -71,6 +71,9 @@ function fixture(): WorldState {
 async function configureApi(p: Page, url: string) {
   await p.getByRole('button', { name: 'Console Settings', exact: true }).click();
   const settings = p.getByRole('dialog', { name: '控制台设置' });
+  await settings.getByLabel('全局请求上限').fill('120');
+  await settings.getByLabel('Agent 请求上限').fill('60');
+  await settings.getByRole('button', { name: '保存调用上限', exact: true }).click();
   await settings.getByLabel('Agent API Base URL').fill(url);
   await settings.getByLabel('Agent API Key').fill(testKey);
   await settings.getByLabel('Agent 默认模型').fill('base-model');
@@ -134,8 +137,11 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
     p,
     (w) =>
       w.escortRequests.some((r) => r.status === 'accepted') &&
-      w.ships.find((s) => s.id === 'meridian')?.current?.action.type === 'HAUL',
+      !w.escortRequests.some((r) => r.status === 'pending'),
   );
+  await p.evaluate(() => window.frontier.command({ type: 'pause', paused: false }));
+  await wait(p, (w) => w.ships.find((s) => s.id === 'meridian')?.current?.action.type === 'HAUL');
+  await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
   const configured = await state(p);
   expect(configured.ships.find((s) => s.id === 'horizon')!.current?.source).toBe('agent');
   expect(configured.ships.find((s) => s.id === 'horizon')!.current?.action.type).toBe('ESCORT');
@@ -167,7 +173,7 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   await launcher.click();
   const chat = p.getByRole('dialog', { name: '舰队通讯' });
   await expect(chat).toContainText('请求护航');
-  await expect(chat).toContainText('已接受护航');
+  await expect(chat).toContainText('自愿接受任务');
   await expect(chat.locator('mark').filter({ hasText: '@Talia' })).toBeVisible();
   await p.getByRole('button', { name: '16×', exact: true }).click();
   await p.getByRole('button', { name: '继续', exact: true }).click();
@@ -201,7 +207,9 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   expect(
     completed.history.some((h) => h.kind === 'wormhole' && h.text.includes('MERIDIAN-1')),
   ).toBe(true);
+  await chat.locator('[data-channel-id="system-reports"]').click();
   await expect(chat.getByRole('log')).toContainText('HAUL 完成');
+  await chat.locator('[data-channel-id="frontier-command"]').click();
   await p.getByRole('button', { name: '暂停', exact: true }).click();
   await chat.getByLabel('通讯消息').fill('@Mira 群聊验证：优先保护货物。');
   await chat.getByRole('button', { name: 'SEND / 发送', exact: true }).click();
@@ -240,7 +248,7 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   app = undefined;
   const restarted = await launch(directory);
   const loaded = await state(restarted);
-  expect(loaded.version).toBe(12);
+  expect(loaded.version).toBe(13);
   expect(loaded.chatMessages).toEqual(persisted.chatMessages);
   expect(loaded.agents.find((a) => a.id === graduate.id)?.assignedShipId).toBe('verity');
   expect(loaded.agents.find((a) => a.id === 'ops-horizon')?.modelConfig.model).toBe(
@@ -273,6 +281,7 @@ test('Electron v11: illegal model JSON reports privately, manual retry recovers,
   await expect(chat.getByRole('log')).toContainText('schema');
   await chat.getByRole('button', { name: '关闭面板' }).click();
   provider.mode = 'refuse';
+  await p.evaluate(() => window.frontier.command({ type: 'retryAgent', agentId: 'ops-horizon' }));
   await nav(p, 'AGENTS');
   await p.getByRole('button', { name: '查看 Agent Mira' }).click();
   await p.getByRole('button', { name: '再次决策' }).click();
@@ -287,9 +296,9 @@ test('Electron v11: illegal model JSON reports privately, manual retry recovers,
   expect(refused.ships.find((s) => s.id === 'meridian')!.current).toBeNull();
   expect(
     refused.agents.find((a) => a.id === 'ops-horizon')!.relationships['ops-meridian'].trust,
-  ).toBeLessThan(50);
+  ).toBe(50);
   expect(
-    refused.chatMessages.some((m) => m.kind === 'reply' && m.content.includes('拒绝护航')),
+    refused.chatMessages.some((m) => m.kind === 'reply' && m.content.includes('拒绝任务')),
   ).toBe(true);
   expect(refused.chatMessages.some((m) => m.content.includes('暂缓此次货运'))).toBe(true);
   expect((await p.evaluate(() => window.frontier.save())).ok).toBe(true);
@@ -366,7 +375,7 @@ test('Electron v11: floating communications stays usable at narrow widths and 20
   }
 });
 
-test('Electron v11: portable Agent Demo loads and one-click demo saves complete the real loop without an API key', async () => {
+test('Electron v13: legacy demo preserves physical progress; a new demo awaits genuine model consent', async () => {
   test.setTimeout(90000);
   const directory = mkdtempSync(join(tmpdir(), 'frontier-v11-demo-'));
   cpSync(resolve('demo/user-data/frontiers-v11'), join(directory, 'frontiers-v11'), {
@@ -393,6 +402,7 @@ test('Electron v11: portable Agent Demo loads and one-click demo saves complete 
   expect(
     completed.history.some((h) => h.kind === 'wormhole' && h.text.includes('MERIDIAN-1')),
   ).toBe(true);
+  await chat.locator('[data-channel-id="system-reports"]').click();
   await expect(chat.getByRole('log')).toContainText('HAUL 完成');
   await p.getByRole('button', { name: '暂停', exact: true }).click();
   await p.screenshot({ path: join(output, 'demo-delivery-completed.png') });
@@ -403,11 +413,11 @@ test('Electron v11: portable Agent Demo loads and one-click demo saves complete 
   await expect(manager).toHaveCount(0);
   const catalog = await p.evaluate(() => window.frontier.listSaves());
   expect(catalog.saves).toHaveLength(2);
-  expect((await state(p)).escortRequests[0].status).toBe('accepted');
+  expect((await state(p)).escortRequests).toEqual([]);
   expect((await p.evaluate(() => window.frontier.save())).ok).toBe(true);
   await app!.close();
   app = undefined;
   const restarted = await launch(directory);
-  expect((await state(restarted)).escortRequests[0].status).toBe('accepted');
+  expect((await state(restarted)).escortRequests).toEqual([]);
   expect((await restarted.evaluate(() => window.frontier.listSaves())).saves).toHaveLength(2);
 });

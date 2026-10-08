@@ -1,4 +1,5 @@
 import { admiralTaskSchema } from './admiral-task-schema';
+import { commitmentSchema } from './condition-schema';
 import {
   colonySchema,
   personnelSchema,
@@ -94,6 +95,9 @@ const directive = z
     executorAgentId: id.nullable(),
     sourceMessageId: integer.positive().nullable(),
     taskId: id.nullable(),
+    contractId: id.nullable(),
+    cycle: integer,
+    controlMode: z.enum(['direct', 'voluntary', 'autonomous']),
     allowWormholes: z.boolean(),
     journey: journey.nullable(),
     groupOrderId: id.nullable(),
@@ -127,6 +131,7 @@ const ship = pointSchema
     cargo: stockSchema,
     passengers: integer,
     cooldowns: z.record(nn),
+    ammoAlertActive: z.boolean().optional(),
     lastAttackerId: id.nullable(),
     attackedAt: n,
     scanUntil: nn,
@@ -174,7 +179,7 @@ const communication = z
   .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(12),
+    version: z.literal(13),
     tick: integer,
     time: nn,
     seed: integer.max(4294967295),
@@ -210,6 +215,8 @@ export const worldSchema = z
     chatMessages: z.array(chatMessageSchema),
     admiralTasks: z.array(admiralTaskSchema),
     escortRequests: z.array(escortRequestSchema),
+    commitments: z.array(commitmentSchema),
+    settledOutcomes: z.array(id),
     nextChat: integer.positive(),
     losses: z.array(
       z
@@ -502,6 +509,12 @@ export const worldSchema = z
       )
         bad('Invalid Agent decision clock');
       if (
+        new Set(a.feedbackEvents).size !== a.feedbackEvents.length ||
+        new Set(a.decision.events.map((event) => event.id)).size !== a.decision.events.length ||
+        a.decision.events.some((event) => event.time > w.time)
+      )
+        bad('Invalid consumed Agent events');
+      if (
         new Set(a.memory.map((m) => m.id)).size !== a.memory.length ||
         a.memory.some((m) => m.time > w.time)
       )
@@ -514,26 +527,32 @@ export const worldSchema = z
         bad('Invalid Agent relationship');
     }
     const channelIds = new Set(w.chatChannels.map((c) => c.id));
-    if (channelIds.size !== w.chatChannels.length || w.chatChannels.length !== w.agents.length + 1)
+    if (channelIds.size !== w.chatChannels.length || w.chatChannels.length !== w.agents.length + 2)
       bad('Invalid chat channel count');
     for (const ch of w.chatChannels) {
       if (
         new Set(ch.members).size !== ch.members.length ||
-        ch.members.some((id) => !actors.has(id)) ||
+        ch.members.some((id) => !actors.has(id) && !(id === 'system' && ch.kind === 'reports')) ||
         ch.readThrough >= w.nextChat
       )
         bad('Invalid channel membership/read cursor');
       if (
-        ch.kind === 'command'
-          ? ch.id !== 'frontier-command' || ch.members.length !== actors.size
-          : ch.members.length !== 2 ||
-            !ch.members.includes(w.commander.id) ||
-            !w.agents.some((a) => ch.id === 'private:' + a.id && ch.members.includes(a.id))
+        ch.kind === 'reports'
+          ? ch.id !== 'system-reports' ||
+            ch.members.length !== actors.size + 1 ||
+            !ch.members.includes('system')
+          : ch.kind === 'command'
+            ? ch.id !== 'frontier-command' || ch.members.length !== actors.size
+            : ch.members.length !== 2 ||
+              !ch.members.includes(w.commander.id) ||
+              !w.agents.some((a) => ch.id === 'private:' + a.id && ch.members.includes(a.id))
       )
         bad('Invalid chat channel');
     }
     if (new Set(w.chatMessages.map((m) => m.id)).size !== w.chatMessages.length)
       bad('Duplicate chat messages');
+    const messageEvents = w.chatMessages.flatMap((m) => (m.eventId ? [m.eventId] : []));
+    if (new Set(messageEvents).size !== messageEvents.length) bad('Duplicate chat event');
     for (const m of w.chatMessages) {
       const ch = w.chatChannels.find((c) => c.id === m.channelId);
       if (
@@ -544,6 +563,8 @@ export const worldSchema = z
         m.id >= w.nextChat
       )
         bad('Invalid chat message');
+      if (ch?.kind === 'reports' && m.origin !== 'engine' && m.origin !== 'legacy')
+        bad('Forged system report');
       if (
         m.replyTo &&
         !w.chatMessages.some(
@@ -588,6 +609,54 @@ export const worldSchema = z
         ![...w.ships.map((s) => s.id), ...w.losses.map((l) => l.shipId)].includes(r.targetShipId)
       )
         bad('Invalid escort contract');
+    const contractIds = new Set([...taskIds, ...w.escortRequests.map((r) => r.id)]);
+    if (contractIds.size !== w.admiralTasks.length + w.escortRequests.length)
+      bad('Duplicate contract identity');
+    if (
+      new Set(w.settledOutcomes).size !== w.settledOutcomes.length ||
+      new Set(w.commitments.map((c) => c.id)).size !== w.commitments.length
+    )
+      bad('Duplicate settlement');
+    for (const c of w.commitments) {
+      if (
+        !contractIds.has(c.contractId) ||
+        !agentIds.has(c.agentId) ||
+        (c.escrow > 0 && (c.condition.type !== 'reward' || c.status !== 'pending')) ||
+        (c.condition.type === 'reward' && c.escrow > c.condition.credits)
+      )
+        bad('Invalid commitment escrow');
+      const contract =
+        w.admiralTasks.find((t) => t.id === c.contractId) ??
+        w.escortRequests.find((r) => r.id === c.contractId);
+      if (
+        contract &&
+        (c.agentId !== ('consent' in contract ? contract.agentId : contract.responderId) ||
+          !contract.conditions.some(
+            (condition) => JSON.stringify(condition) === JSON.stringify(c.condition),
+          ) ||
+          (c.condition.type === 'reward' &&
+            c.status === 'pending' &&
+            (contract.creditsApproved ? c.escrow !== c.condition.credits : c.escrow !== 0)) ||
+          (c.condition.type === 'reward' &&
+            c.status === 'fulfilled' &&
+            !w.settledOutcomes.includes(c.contractId + ':settled')))
+      )
+        bad('Invalid commitment proof');
+    }
+    for (const contract of [...w.escortRequests, ...w.admiralTasks]) {
+      if (!actors.has(contract.turnAgentId)) bad('Invalid negotiation turn');
+      if (new Set(contract.conditions.map((c) => c.type)).size !== contract.conditions.length)
+        bad('Duplicate condition');
+      for (const condition of contract.conditions) {
+        if (
+          'locationId' in condition &&
+          !w.locations.some((l) => l.id === condition.locationId && l.owner === 'starfleet')
+        )
+          bad('Invalid condition facility');
+        if (condition.type === 'escort' && !agentIds.has(condition.agentId))
+          bad('Invalid condition Agent');
+      }
+    }
     if (
       new Set(w.contactAlerts.map((a) => a.contactId)).size !== w.contactAlerts.length ||
       w.contactAlerts.some(
@@ -753,8 +822,25 @@ export const worldSchema = z
       ...w.factions.orion.losses,
       ...w.factions.romulan.losses,
     ]);
+    for (const r of w.escortRequests) {
+      if (r.parentTaskId && !contractIds.has(r.parentTaskId)) bad('Invalid collaboration parent');
+      for (const action of [r.action, r.followUp])
+        if (action)
+          for (const target of [
+            ...('targetId' in action ? [action.targetId] : []),
+            ...('sourceId' in action ? [action.sourceId] : []),
+          ])
+            if (!refs.has(target)) bad('Invalid collaboration action target');
+      if (
+        r.kind === 'escort' &&
+        r.action &&
+        (r.action.type !== 'ESCORT' || r.action.targetId !== r.targetShipId)
+      )
+        bad('Invalid real escort plan');
+    }
     for (const d of directives) {
       if (d.created > w.time) bad('Future directive');
+      if (d.contractId && !contractIds.has(d.contractId)) bad('Invalid directive contract');
       if (d.executorAgentId && !agentIds.has(d.executorAgentId)) bad('Invalid executor Agent');
       if (
         d.taskId &&
@@ -943,10 +1029,10 @@ export const worldSchema = z
       )
         bad('Invalid historical sequence');
     }
-    const numbered = [...globalIds, ...directives.map((d) => d.id)].map((id) =>
+    const numbered = [...globalIds, ...taskIds, ...directives.map((d) => d.id)].map((id) =>
       Number(
         id.match(
-          /^(?:ship|job|facility|project|directive|orion-built|group|personnel|event|trade|site-intel|escort)-(\d+)$/,
+          /^(?:ship|job|facility|project|directive|orion-built|group|personnel|event|trade|site-intel|escort|admiral-task)-(\d+)$/,
         )?.[1] ?? 0,
       ),
     );

@@ -16,7 +16,7 @@ import { createEvent } from '../../src/engine/world-events';
 import type { WorldState, Action, Snapshot } from '../../src/engine/types';
 
 let app: ElectronApplication | undefined;
-const output = resolve('docs/verification/v10');
+const output = resolve('docs/verification/v13/regression-v10');
 async function launch(world: WorldState, textScale = 1) {
   mkdirSync(output, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'frontier-v10-ui-'));

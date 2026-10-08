@@ -1,0 +1,2012 @@
+{
+  "version": 13,
+  "tick": 874,
+  "time": 87.4,
+  "seed": 236807,
+  "initialSeed": 236807,
+  "paused": true,
+  "speed": 16,
+  "status": "active",
+  "pauseReasons": [],
+  "commander": {
+    "id": "commander",
+    "name": "Dawn Frontier Command",
+    "rank": "ADMIRAL"
+  },
+  "operators": [
+    {
+      "id": "ops-meridian",
+      "name": "Mira",
+      "kind": "agent",
+      "availability": "available"
+    },
+    {
+      "id": "ops-vigil",
+      "name": "USS VIGIL / 守望号 · 值班指挥组",
+      "kind": "rules",
+      "availability": "available"
+    },
+    {
+      "id": "ops-verity",
+      "name": "USS VERITY / 明理号 · 值班指挥组",
+      "kind": "rules",
+      "availability": "available"
+    },
+    {
+      "id": "ops-horizon",
+      "name": "Talia",
+      "kind": "agent",
+      "availability": "available"
+    },
+    {
+      "id": "ops-meridian-2",
+      "name": "USS MERIDIAN-2 · 值班指挥组",
+      "kind": "rules",
+      "availability": "available"
+    },
+    {
+      "id": "ops-meridian-3",
+      "name": "USS MERIDIAN-3 · 值班指挥组",
+      "kind": "rules",
+      "availability": "available"
+    }
+  ],
+  "assignments": [
+    {
+      "operatorId": "ops-meridian",
+      "shipId": "meridian",
+      "since": 0
+    },
+    {
+      "operatorId": "ops-vigil",
+      "shipId": "vigil",
+      "since": 0
+    },
+    {
+      "operatorId": "ops-verity",
+      "shipId": "verity",
+      "since": 0
+    },
+    {
+      "operatorId": "ops-horizon",
+      "shipId": "horizon",
+      "since": 0
+    },
+    {
+      "operatorId": "ops-meridian-2",
+      "shipId": "meridian-2",
+      "since": 0
+    },
+    {
+      "operatorId": "ops-meridian-3",
+      "shipId": "meridian-3",
+      "since": 0
+    }
+  ],
+  "agents": [
+    {
+      "id": "ops-horizon",
+      "name": "Talia",
+      "career": "battle",
+      "personality": {
+        "riskTolerance": 60,
+        "cooperation": 78,
+        "discipline": 82,
+        "ambition": 65
+      },
+      "profile": {
+        "patience": 72,
+        "assertiveness": 80,
+        "sociability": 35,
+        "motivations": {
+          "safety": 60,
+          "duty": 92,
+          "profit": 25,
+          "growth": 78,
+          "belonging": 70
+        },
+        "style": "concise"
+      },
+      "psychology": {
+        "stress": 0,
+        "confidence": 60,
+        "resentment": 0
+      },
+      "longTermGoal": {
+        "activity": "growth",
+        "summary": "growth：建立可靠的个人成绩与合作关系"
+      },
+      "taskPreferences": {
+        "security": 70,
+        "logistics": 30,
+        "exploration": 72,
+        "growth": 78
+      },
+      "rewardCredits": 0,
+      "feedbackEvents": [],
+      "skills": {
+        "battle": 55,
+        "logistics": 22,
+        "navigation": 40
+      },
+      "experience": 0,
+      "trust": 65,
+      "fatigue": 0,
+      "morale": 80,
+      "currentGoal": "保护边疆航线与舰队",
+      "memory": [
+        {
+          "id": 1,
+          "time": 87.4,
+          "kind": "chat",
+          "summary": "Admiral: v13 自主协作演示：AURORA 库存与虫洞出口已确认，HORIZON 存在舰损。配置模型后观察风险判断、协商、实际维修和货物交付；待处理请求中的奖励须由 Admiral 确认预算。",
+          "entityId": "commander",
+          "salience": 2
+        }
+      ],
+      "relationships": {
+        "ops-meridian": {
+          "trust": 50,
+          "cooperation": 50,
+          "lastInteraction": 0
+        }
+      },
+      "assignedShipId": "horizon",
+      "originPersonnelId": null,
+      "modelConfig": {
+        "model": null,
+        "reasoningEffort": "low"
+      },
+      "enabled": true,
+      "status": "online",
+      "decision": {
+        "revision": 1,
+        "pendingReasons": [
+          "assignment",
+          "configuration"
+        ],
+        "nextAt": 0,
+        "lastAt": null,
+        "lastChatId": 0,
+        "lastAdmiralMessageId": 0,
+        "failures": 0,
+        "lastError": null,
+        "contextKey": "{\"discoveries\":[\"sector:-1:0:system:0\",\"sector:-1:0:system:0:body:0\",\"sector:0:0:system:0\",\"sector:0:0:system:0:body:1\",\"sector:0:0:system:0:body:2\",\"sector:0:0:system:0:body:3\",\"sector:0:0:system:1\",\"sector:0:0:system:1:body:0\",\"sector:0:0:system:1:body:1\",\"sector:1:0:system:0\",\"sector:1:0:system:0:body:1\",\"sector:1:0:system:0:body:2\",\"sector:1:0:system:0:body:3\",\"sector:1:0:system:0:body:4\"],\"freight\":[[\"mine\",true,false]],\"needs\":[],\"threats\":[],\"fatigue\":\"ready\",\"trust\":3,\"morale\":4,\"growth\":0,\"peers\":[[\"ops-meridian\",5]],\"goal\":\"growth\"}",
+        "dangerKey": "",
+        "events": [
+          {
+            "id": "configuration",
+            "kind": "configuration",
+            "time": 87.4
+          }
+        ]
+      }
+    },
+    {
+      "id": "ops-meridian",
+      "name": "Mira",
+      "career": "logistics",
+      "personality": {
+        "riskTolerance": 25,
+        "cooperation": 86,
+        "discipline": 74,
+        "ambition": 58
+      },
+      "profile": {
+        "patience": 88,
+        "assertiveness": 54,
+        "sociability": 76,
+        "motivations": {
+          "safety": 90,
+          "duty": 70,
+          "profit": 78,
+          "growth": 55,
+          "belonging": 85
+        },
+        "style": "warm"
+      },
+      "psychology": {
+        "stress": 0,
+        "confidence": 60,
+        "resentment": 0
+      },
+      "longTermGoal": {
+        "activity": "exploration",
+        "summary": "exploration：建立可靠的个人成绩与合作关系"
+      },
+      "taskPreferences": {
+        "security": 30,
+        "logistics": 70,
+        "exploration": 88,
+        "growth": 55
+      },
+      "rewardCredits": 0,
+      "feedbackEvents": [],
+      "skills": {
+        "battle": 18,
+        "logistics": 55,
+        "navigation": 40
+      },
+      "experience": 0,
+      "trust": 65,
+      "fatigue": 0,
+      "morale": 80,
+      "currentGoal": "将矿场库存运往有需求的设施",
+      "memory": [
+        {
+          "id": 1,
+          "time": 87.4,
+          "kind": "chat",
+          "summary": "Admiral: v13 自主协作演示：AURORA 库存与虫洞出口已确认，HORIZON 存在舰损。配置模型后观察风险判断、协商、实际维修和货物交付；待处理请求中的奖励须由 Admiral 确认预算。",
+          "entityId": "commander",
+          "salience": 2
+        },
+        {
+          "id": 2,
+          "time": 87.4,
+          "kind": "chat",
+          "summary": "Admiral: 请评估 AURORA 到 Dawn 的公开航线风险与库存机会。若需要同僚协作，请提出结构化请求并自主判断其条件。",
+          "entityId": "commander",
+          "salience": 2
+        }
+      ],
+      "relationships": {
+        "ops-horizon": {
+          "trust": 50,
+          "cooperation": 50,
+          "lastInteraction": 0
+        }
+      },
+      "assignedShipId": "meridian",
+      "originPersonnelId": null,
+      "modelConfig": {
+        "model": null,
+        "reasoningEffort": "none"
+      },
+      "enabled": true,
+      "status": "online",
+      "decision": {
+        "revision": 2,
+        "pendingReasons": [
+          "assignment",
+          "configuration",
+          "chat:10"
+        ],
+        "nextAt": 0,
+        "lastAt": null,
+        "lastChatId": 0,
+        "lastAdmiralMessageId": 0,
+        "failures": 0,
+        "lastError": null,
+        "contextKey": "{\"discoveries\":[\"sector:-1:0:system:0\",\"sector:-1:0:system:0:body:0\",\"sector:0:0:system:0\",\"sector:0:0:system:0:body:1\",\"sector:0:0:system:0:body:2\",\"sector:0:0:system:0:body:3\",\"sector:0:0:system:1\",\"sector:0:0:system:1:body:0\",\"sector:0:0:system:1:body:1\",\"sector:1:0:system:0\",\"sector:1:0:system:0:body:1\",\"sector:1:0:system:0:body:2\",\"sector:1:0:system:0:body:3\",\"sector:1:0:system:0:body:4\"],\"freight\":[[\"mine\",true,false]],\"needs\":[],\"threats\":[],\"fatigue\":\"ready\",\"trust\":3,\"morale\":4,\"growth\":0,\"peers\":[[\"ops-horizon\",5]],\"goal\":\"exploration\"}",
+        "dangerKey": "",
+        "events": [
+          {
+            "id": "configuration",
+            "kind": "configuration",
+            "time": 87.4
+          },
+          {
+            "id": "chat:10",
+            "kind": "chat",
+            "time": 87.4
+          }
+        ]
+      }
+    }
+  ],
+  "chatChannels": [
+    {
+      "id": "system-reports",
+      "name": "SYSTEM REPORTS / 系统报告",
+      "kind": "reports",
+      "members": [
+        "commander",
+        "system",
+        "ops-horizon",
+        "ops-meridian"
+      ],
+      "readThrough": 0
+    },
+    {
+      "id": "frontier-command",
+      "name": "FRONTIER COMMAND",
+      "kind": "command",
+      "members": [
+        "commander",
+        "ops-horizon",
+        "ops-meridian"
+      ],
+      "readThrough": 0
+    },
+    {
+      "id": "private:ops-horizon",
+      "name": "Talia",
+      "kind": "private",
+      "members": [
+        "commander",
+        "ops-horizon"
+      ],
+      "readThrough": 0
+    },
+    {
+      "id": "private:ops-meridian",
+      "name": "Mira",
+      "kind": "private",
+      "members": [
+        "commander",
+        "ops-meridian"
+      ],
+      "readThrough": 0
+    }
+  ],
+  "chatMessages": [
+    {
+      "id": 1,
+      "sender": "system",
+      "channelId": "system-reports",
+      "time": 0,
+      "content": "USS VERITY / 明理号 / ADMIRAL / commander / REPLACE / TRANSIT",
+      "mentions": [],
+      "kind": "report",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "engine",
+      "eventId": "comms:2",
+      "requestId": null,
+      "controlMode": "voluntary"
+    },
+    {
+      "id": 2,
+      "sender": "system",
+      "channelId": "system-reports",
+      "time": 1,
+      "content": "Wormhole 调查：DAWN PASSAGE / 曙光通道探测到通道，需要确认稳定性",
+      "mentions": [],
+      "kind": "report",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "engine",
+      "eventId": "comms:3",
+      "requestId": null,
+      "controlMode": "voluntary"
+    },
+    {
+      "id": 3,
+      "sender": "system",
+      "channelId": "system-reports",
+      "time": 2,
+      "content": "USS VERITY / 明理号 发现 DF-0/12-A，永久星图已更新",
+      "mentions": [],
+      "kind": "report",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "engine",
+      "eventId": "comms:4",
+      "requestId": null,
+      "controlMode": "voluntary"
+    },
+    {
+      "id": 4,
+      "sender": "system",
+      "channelId": "system-reports",
+      "time": 2,
+      "content": "USS VERITY / 明理号实际穿越 DAWN PASSAGE / 曙光通道，航线与星图改变",
+      "mentions": [],
+      "kind": "report",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "engine",
+      "eventId": "comms:5",
+      "requestId": null,
+      "controlMode": "voluntary"
+    },
+    {
+      "id": 5,
+      "sender": "system",
+      "channelId": "system-reports",
+      "time": 2,
+      "content": "USS VERITY / 明理号 / TRANSIT / ADMIRAL / commander / Wormhole 航行完成",
+      "mentions": [],
+      "kind": "report",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "engine",
+      "eventId": "comms:6",
+      "requestId": null,
+      "controlMode": "voluntary"
+    },
+    {
+      "id": 6,
+      "sender": "system",
+      "channelId": "system-reports",
+      "time": 2.3,
+      "content": "NEW HORIZON / 新曙殖民地 Commander 推荐候选人 Cadet 3",
+      "mentions": [],
+      "kind": "report",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "engine",
+      "eventId": "comms:7",
+      "requestId": null,
+      "controlMode": "voluntary"
+    },
+    {
+      "id": 7,
+      "sender": "system",
+      "channelId": "system-reports",
+      "time": 2.3,
+      "content": "Cadet 3获准培养，录取60 + 训练90 Credits",
+      "mentions": [],
+      "kind": "report",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "engine",
+      "eventId": "comms:8",
+      "requestId": null,
+      "controlMode": "voluntary"
+    },
+    {
+      "id": 8,
+      "sender": "system",
+      "channelId": "system-reports",
+      "time": 87.4,
+      "content": "NEW HORIZON / 新曙殖民地 Commander 推荐候选人 Cadet 4",
+      "mentions": [],
+      "kind": "report",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "engine",
+      "eventId": "comms:9",
+      "requestId": null,
+      "controlMode": "voluntary"
+    },
+    {
+      "id": 9,
+      "sender": "commander",
+      "channelId": "frontier-command",
+      "time": 87.4,
+      "content": "v13 自主协作演示：AURORA 库存与虫洞出口已确认，HORIZON 存在舰损。配置模型后观察风险判断、协商、实际维修和货物交付；待处理请求中的奖励须由 Admiral 确认预算。",
+      "mentions": [],
+      "kind": "message",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "admiral",
+      "eventId": null,
+      "requestId": null,
+      "controlMode": "voluntary"
+    },
+    {
+      "id": 10,
+      "sender": "commander",
+      "channelId": "private:ops-meridian",
+      "time": 87.4,
+      "content": "请评估 AURORA 到 Dawn 的公开航线风险与库存机会。若需要同僚协作，请提出结构化请求并自主判断其条件。",
+      "mentions": [],
+      "kind": "message",
+      "purpose": "information",
+      "replyTo": null,
+      "origin": "admiral",
+      "eventId": null,
+      "requestId": null,
+      "controlMode": "voluntary"
+    }
+  ],
+  "admiralTasks": [],
+  "escortRequests": [],
+  "commitments": [],
+  "settledOutcomes": [],
+  "nextChat": 11,
+  "losses": [],
+  "ships": [
+    {
+      "x": 200,
+      "y": 4760,
+      "id": "meridian",
+      "name": "USS MERIDIAN-1",
+      "classId": "antares",
+      "factionId": "starfleet",
+      "hull": 110,
+      "shield": 65,
+      "core": 75,
+      "photon": 0,
+      "quantum": 0,
+      "modules": [],
+      "engines": 100,
+      "weapons": 100,
+      "status": "docked",
+      "current": null,
+      "queue": [],
+      "suspended": [],
+      "standing": {
+        "roe": "RETURN FIRE",
+        "retreatHull": 30,
+        "retreatShield": 15,
+        "retreatCore": 10,
+        "photonThreshold": 20,
+        "quantumThreshold": 20,
+        "maxPursuit": 150,
+        "allowNeutral": false,
+        "allowRomulan": false,
+        "autoEscort": false,
+        "respondDistress": false,
+        "protectCivilian": false,
+        "protectFreighter": false,
+        "protectColony": false,
+        "serviceWhenDocked": false
+      },
+      "path": [],
+      "heading": 0,
+      "cargo": {
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "passengers": 0,
+      "cooldowns": {},
+      "lastAttackerId": null,
+      "attackedAt": -1000,
+      "scanUntil": 0,
+      "cloak": "off",
+      "cloakUntil": 0,
+      "emergencyRetreat": null,
+      "tracking": null
+    },
+    {
+      "x": -254,
+      "y": 45,
+      "id": "vigil",
+      "name": "USS VIGIL / 守望号",
+      "classId": "peregrine",
+      "factionId": "starfleet",
+      "hull": 85,
+      "shield": 90,
+      "core": 90,
+      "photon": 0,
+      "quantum": 0,
+      "modules": [],
+      "engines": 100,
+      "weapons": 100,
+      "status": "idle",
+      "current": null,
+      "queue": [],
+      "suspended": [],
+      "standing": {
+        "roe": "RETURN FIRE",
+        "retreatHull": 30,
+        "retreatShield": 15,
+        "retreatCore": 10,
+        "photonThreshold": 20,
+        "quantumThreshold": 20,
+        "maxPursuit": 150,
+        "allowNeutral": false,
+        "allowRomulan": false,
+        "autoEscort": false,
+        "respondDistress": false,
+        "protectCivilian": false,
+        "protectFreighter": false,
+        "protectColony": false,
+        "serviceWhenDocked": false
+      },
+      "path": [],
+      "heading": 0,
+      "cargo": {
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "passengers": 0,
+      "cooldowns": {},
+      "lastAttackerId": null,
+      "attackedAt": -1000,
+      "scanUntil": 0,
+      "cloak": "off",
+      "cloakUntil": 0,
+      "emergencyRetreat": null,
+      "tracking": null
+    },
+    {
+      "x": 90,
+      "y": 4720,
+      "id": "verity",
+      "name": "USS VERITY / 明理号",
+      "classId": "constitution",
+      "factionId": "starfleet",
+      "hull": 200,
+      "shield": 170,
+      "core": 150,
+      "photon": 24,
+      "quantum": 0,
+      "modules": [],
+      "engines": 100,
+      "weapons": 100,
+      "status": "idle",
+      "current": null,
+      "queue": [],
+      "suspended": [],
+      "standing": {
+        "roe": "RETURN FIRE",
+        "retreatHull": 30,
+        "retreatShield": 15,
+        "retreatCore": 10,
+        "photonThreshold": 20,
+        "quantumThreshold": 20,
+        "maxPursuit": 150,
+        "allowNeutral": false,
+        "allowRomulan": false,
+        "autoEscort": false,
+        "respondDistress": false,
+        "protectCivilian": false,
+        "protectFreighter": false,
+        "protectColony": false,
+        "serviceWhenDocked": false
+      },
+      "path": [],
+      "heading": 0,
+      "cargo": {
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "passengers": 0,
+      "cooldowns": {},
+      "lastAttackerId": null,
+      "attackedAt": -1000,
+      "scanUntil": 0,
+      "cloak": "off",
+      "cloakUntil": 0,
+      "emergencyRetreat": null,
+      "tracking": null
+    },
+    {
+      "x": 220,
+      "y": 4760,
+      "id": "horizon",
+      "name": "USS HORIZON / 地平线号",
+      "classId": "galaxy",
+      "factionId": "starfleet",
+      "hull": 247,
+      "shield": 330,
+      "core": 240,
+      "photon": 36,
+      "quantum": 12,
+      "modules": [],
+      "engines": 100,
+      "weapons": 100,
+      "status": "docked",
+      "current": null,
+      "queue": [],
+      "suspended": [],
+      "standing": {
+        "roe": "RETURN FIRE",
+        "retreatHull": 30,
+        "retreatShield": 15,
+        "retreatCore": 10,
+        "photonThreshold": 20,
+        "quantumThreshold": 20,
+        "maxPursuit": 150,
+        "allowNeutral": false,
+        "allowRomulan": false,
+        "autoEscort": false,
+        "respondDistress": false,
+        "protectCivilian": false,
+        "protectFreighter": false,
+        "protectColony": false,
+        "serviceWhenDocked": false
+      },
+      "path": [],
+      "heading": 0,
+      "cargo": {
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "passengers": 0,
+      "cooldowns": {},
+      "lastAttackerId": null,
+      "attackedAt": -1000,
+      "scanUntil": 0,
+      "cloak": "off",
+      "cloakUntil": 0,
+      "emergencyRetreat": null,
+      "tracking": null
+    },
+    {
+      "x": -170,
+      "y": 45,
+      "id": "meridian-2",
+      "name": "USS MERIDIAN-2",
+      "classId": "antares",
+      "factionId": "starfleet",
+      "hull": 110,
+      "shield": 65,
+      "core": 75,
+      "photon": 0,
+      "quantum": 0,
+      "modules": [],
+      "engines": 100,
+      "weapons": 100,
+      "status": "idle",
+      "current": null,
+      "queue": [],
+      "suspended": [],
+      "standing": {
+        "roe": "RETURN FIRE",
+        "retreatHull": 30,
+        "retreatShield": 15,
+        "retreatCore": 10,
+        "photonThreshold": 20,
+        "quantumThreshold": 20,
+        "maxPursuit": 150,
+        "allowNeutral": false,
+        "allowRomulan": false,
+        "autoEscort": false,
+        "respondDistress": false,
+        "protectCivilian": false,
+        "protectFreighter": false,
+        "protectColony": false,
+        "serviceWhenDocked": false
+      },
+      "path": [],
+      "heading": 0,
+      "cargo": {
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "passengers": 0,
+      "cooldowns": {},
+      "lastAttackerId": null,
+      "attackedAt": -1000,
+      "scanUntil": 0,
+      "cloak": "off",
+      "cloakUntil": 0,
+      "emergencyRetreat": null,
+      "tracking": null
+    },
+    {
+      "x": -142,
+      "y": 45,
+      "id": "meridian-3",
+      "name": "USS MERIDIAN-3",
+      "classId": "antares",
+      "factionId": "starfleet",
+      "hull": 110,
+      "shield": 65,
+      "core": 75,
+      "photon": 0,
+      "quantum": 0,
+      "modules": [],
+      "engines": 100,
+      "weapons": 100,
+      "status": "idle",
+      "current": null,
+      "queue": [],
+      "suspended": [],
+      "standing": {
+        "roe": "RETURN FIRE",
+        "retreatHull": 30,
+        "retreatShield": 15,
+        "retreatCore": 10,
+        "photonThreshold": 20,
+        "quantumThreshold": 20,
+        "maxPursuit": 150,
+        "allowNeutral": false,
+        "allowRomulan": false,
+        "autoEscort": false,
+        "respondDistress": false,
+        "protectCivilian": false,
+        "protectFreighter": false,
+        "protectColony": false,
+        "serviceWhenDocked": false
+      },
+      "path": [],
+      "heading": 0,
+      "cargo": {
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "passengers": 0,
+      "cooldowns": {},
+      "lastAttackerId": null,
+      "attackedAt": -1000,
+      "scanUntil": 0,
+      "cloak": "off",
+      "cloakUntil": 0,
+      "emergencyRetreat": null,
+      "tracking": null
+    }
+  ],
+  "enemies": [],
+  "sectors": [
+    {
+      "id": "sector:-1:0",
+      "q": -1,
+      "r": 0,
+      "systemIds": [
+        "sector:-1:0:system:0"
+      ],
+      "discovered": true
+    },
+    {
+      "id": "sector:0:0",
+      "q": 0,
+      "r": 0,
+      "systemIds": [
+        "sector:0:0:system:0",
+        "sector:0:0:system:1"
+      ],
+      "discovered": true
+    },
+    {
+      "id": "sector:1:0",
+      "q": 1,
+      "r": 0,
+      "systemIds": [
+        "sector:1:0:system:0"
+      ],
+      "discovered": true
+    },
+    {
+      "id": "sector:0:12",
+      "q": 0,
+      "r": 12,
+      "systemIds": [
+        "sector:0:12:system:0"
+      ],
+      "discovered": true
+    }
+  ],
+  "systems": [
+    {
+      "x": -340.60087545542046,
+      "y": 91.52091891970485,
+      "id": "sector:-1:0:system:0",
+      "name": "DF--1/0-A",
+      "sectorId": "sector:-1:0",
+      "discovered": true,
+      "survey": 1,
+      "bodyIds": [
+        "sector:-1:0:system:0:body:0"
+      ],
+      "starClass": "A"
+    },
+    {
+      "x": 43.844132660888135,
+      "y": 68.65571749163792,
+      "id": "sector:0:0:system:0",
+      "name": "DF-0/0-A",
+      "sectorId": "sector:0:0",
+      "discovered": true,
+      "survey": 1,
+      "bodyIds": [
+        "new-horizon-world",
+        "sector:0:0:system:0:body:1",
+        "sector:0:0:system:0:body:2",
+        "sector:0:0:system:0:body:3"
+      ],
+      "starClass": "giant"
+    },
+    {
+      "x": -8.872258441988379,
+      "y": -112.24479803815484,
+      "id": "sector:0:0:system:1",
+      "name": "DF-0/0-B",
+      "sectorId": "sector:0:0",
+      "discovered": true,
+      "survey": 1,
+      "bodyIds": [
+        "sector:0:0:system:1:body:0",
+        "sector:0:0:system:1:body:1"
+      ],
+      "starClass": "neutron"
+    },
+    {
+      "x": 491.02700607618317,
+      "y": 81.0273114591837,
+      "id": "sector:1:0:system:0",
+      "name": "DF-1/0-A",
+      "sectorId": "sector:1:0",
+      "discovered": true,
+      "survey": 1,
+      "bodyIds": [
+        "helios-deposit",
+        "sector:1:0:system:0:body:1",
+        "sector:1:0:system:0:body:2",
+        "sector:1:0:system:0:body:3",
+        "sector:1:0:system:0:body:4"
+      ],
+      "starClass": "F"
+    },
+    {
+      "x": -111.8439951678738,
+      "y": 4897.681547531392,
+      "id": "sector:0:12:system:0",
+      "name": "DF-0/12-A",
+      "sectorId": "sector:0:12",
+      "discovered": true,
+      "survey": 1,
+      "bodyIds": [
+        "veil-derelict",
+        "sector:0:12:system:0:body:1",
+        "sector:0:12:system:0:body:2",
+        "sector:0:12:system:0:body:3",
+        "sector:0:12:system:0:body:4",
+        "sector:0:12:system:0:body:5"
+      ],
+      "starClass": "G"
+    }
+  ],
+  "bodies": [
+    {
+      "x": -474.5015823096037,
+      "y": -70.75214177370071,
+      "id": "sector:-1:0:system:0:body:0",
+      "name": "离子风暴 -1/0-0-0",
+      "systemId": "sector:-1:0:system:0",
+      "kind": "anomaly",
+      "category": "离子风暴",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.429556984314695,
+      "hazard": 0.7663074440788478,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 130,
+      "y": 140,
+      "id": "new-horizon-world",
+      "name": "New Horizon M-class",
+      "systemId": "sector:0:0:system:0",
+      "kind": "planet",
+      "category": "M-class 宜居世界",
+      "population": 0,
+      "survey": 2,
+      "habitable": true,
+      "remaining": 0,
+      "richness": 1.2,
+      "hazard": 0.25,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": -114.67324629426003,
+      "y": 70.25379814207554,
+      "id": "sector:0:0:system:0:body:1",
+      "name": "气态巨行星 0/0-0-1",
+      "systemId": "sector:0:0:system:0",
+      "kind": "planet",
+      "category": "气态巨行星",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.7451620794832705,
+      "hazard": 0.5109865527669899,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 97.72584609687328,
+      "y": -10.483850687742233,
+      "id": "sector:0:0:system:0:body:2",
+      "name": "海洋世界 0/0-0-2",
+      "systemId": "sector:0:0:system:0",
+      "kind": "planet",
+      "category": "海洋世界",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.417393850116059,
+      "hazard": 0.12141915566287935,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": -45.664083287119865,
+      "y": 27.30825811624527,
+      "id": "sector:0:0:system:0:body:3",
+      "name": "小行星带 0/0-0-3",
+      "systemId": "sector:0:0:system:0",
+      "kind": "belt",
+      "category": "小行星带",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.373236788297072,
+      "hazard": 0.39999350402038547,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": -40.753854513168335,
+      "y": 105.85821978747845,
+      "id": "sector:0:0:system:1:body:0",
+      "name": "海洋世界 0/0-1-0",
+      "systemId": "sector:0:0:system:1",
+      "kind": "planet",
+      "category": "海洋世界",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 0.9136465794406831,
+      "hazard": 0.3381517137703486,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 140.72463490068913,
+      "y": 68.44982087612152,
+      "id": "sector:0:0:system:1:body:1",
+      "name": "岩石卫星 0/0-1-1",
+      "systemId": "sector:0:0:system:1",
+      "kind": "moon",
+      "category": "岩石卫星",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 0.8471556514967232,
+      "hazard": 0.2700615967111662,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 240,
+      "y": -80,
+      "id": "helios-deposit",
+      "name": "Helios 金属矿床",
+      "systemId": "sector:1:0:system:0",
+      "kind": "resource",
+      "category": "金属矿床",
+      "population": 0,
+      "survey": 2,
+      "habitable": false,
+      "remaining": 2857.1999999999985,
+      "richness": 1.2,
+      "hazard": 0.25,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 319.8477055877447,
+      "y": -62.314807921648026,
+      "id": "sector:1:0:system:0:body:1",
+      "name": "气态巨行星 1/0-0-1",
+      "systemId": "sector:1:0:system:0",
+      "kind": "planet",
+      "category": "气态巨行星",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.3995011193212121,
+      "hazard": 0.34714999014511705,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 434.07686680555344,
+      "y": -47.7387348562479,
+      "id": "sector:1:0:system:0:body:2",
+      "name": "气态巨行星 1/0-0-2",
+      "systemId": "sector:1:0:system:0",
+      "kind": "planet",
+      "category": "气态巨行星",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 2.090835054311901,
+      "hazard": 0.3529808255680837,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 557.8406017273664,
+      "y": 103.1319959461689,
+      "id": "sector:1:0:system:0:body:3",
+      "name": "冰质卫星 1/0-0-3",
+      "systemId": "sector:1:0:system:0",
+      "kind": "moon",
+      "category": "冰质卫星",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.1422864604275673,
+      "hazard": 0.14461947239004075,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 290.91479524970055,
+      "y": 65.10475911200047,
+      "id": "sector:1:0:system:0:body:4",
+      "name": "小行星带 1/0-0-4",
+      "systemId": "sector:1:0:system:0",
+      "kind": "belt",
+      "category": "小行星带",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.1143241107463835,
+      "hazard": 0.263514913439285,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 40,
+      "y": 4835,
+      "id": "veil-derelict",
+      "name": "VEIL DERELICT / 幽影侦察舰残骸",
+      "systemId": "sector:0:12:system:0",
+      "kind": "derelict",
+      "category": "废弃 Veil 侦察舰",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.2,
+      "hazard": 0.05,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 111.67260438203812,
+      "y": 4797.350763306022,
+      "id": "sector:0:12:system:0:body:1",
+      "name": "海洋世界 0/12-0-1",
+      "systemId": "sector:0:12:system:0",
+      "kind": "planet",
+      "category": "海洋世界",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.2023974684067071,
+      "hazard": 0.49033405443886297,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": -7.426212504506111,
+      "y": 4719.172688275576,
+      "id": "sector:0:12:system:0:body:2",
+      "name": "岩石卫星 0/12-0-2",
+      "systemId": "sector:0:12:system:0",
+      "kind": "moon",
+      "category": "岩石卫星",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 0.8509097355883568,
+      "hazard": 0.4522545837517828,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": -158.88533286750317,
+      "y": 4746.850470602512,
+      "id": "sector:0:12:system:0:body:3",
+      "name": "冰封世界 0/12-0-3",
+      "systemId": "sector:0:12:system:0",
+      "kind": "planet",
+      "category": "冰封世界",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 2.078656117105856,
+      "hazard": 0.30622811037581416,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": -142.21832558512688,
+      "y": 4677.147167995572,
+      "id": "sector:0:12:system:0:body:4",
+      "name": "荒芜岩石世界 0/12-0-4",
+      "systemId": "sector:0:12:system:0",
+      "kind": "planet",
+      "category": "荒芜岩石世界",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 0,
+      "richness": 1.335904416628182,
+      "hazard": 0.31450888138031585,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    },
+    {
+      "x": 83.79625484347343,
+      "y": 4876.635083928704,
+      "id": "sector:0:12:system:0:body:5",
+      "name": "高密度矿物带 0/12-0-5",
+      "systemId": "sector:0:12:system:0",
+      "kind": "resource",
+      "category": "高密度矿物带",
+      "population": 0,
+      "survey": 1,
+      "habitable": false,
+      "remaining": 2884,
+      "richness": 1.0845492482651025,
+      "hazard": 0.391131167341955,
+      "hidden": false,
+      "specialClaimed": false,
+      "discovered": true
+    }
+  ],
+  "locations": [
+    {
+      "x": -240,
+      "y": 0,
+      "id": "base",
+      "name": "DAWN STARBASE / 曙光基地",
+      "label": "DAWN STARBASE / 曙光基地",
+      "kind": "base",
+      "owner": "starfleet",
+      "siteId": null,
+      "stock": {
+        "materials": 70,
+        "photon": 90,
+        "quantum": 20,
+        "specialFinds": 0
+      },
+      "hull": 5000,
+      "maxHull": 5000,
+      "shield": 3000,
+      "maxShield": 3000,
+      "core": 300,
+      "attackedAt": -1000,
+      "lastAttackerId": null,
+      "cooldown": 0,
+      "distress": false,
+      "discovered": true,
+      "production": 2.400000000000001,
+      "capacity": {
+        "materials": 6000,
+        "photon": 500,
+        "quantum": 200,
+        "specialFinds": 50
+      },
+      "storageFull": false,
+      "extracted": 0,
+      "colony": null,
+      "occupation": null
+    },
+    {
+      "x": 130,
+      "y": 140,
+      "id": "colony",
+      "name": "NEW HORIZON / 新曙殖民地",
+      "label": "NEW HORIZON / 新曙殖民地",
+      "kind": "colony",
+      "owner": "starfleet",
+      "siteId": "new-horizon-world",
+      "stock": {
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "hull": 1100,
+      "maxHull": 1100,
+      "shield": 650,
+      "maxShield": 650,
+      "core": 300,
+      "attackedAt": -1000,
+      "lastAttackerId": null,
+      "cooldown": 0,
+      "distress": false,
+      "discovered": true,
+      "production": 2.400000000000001,
+      "capacity": {
+        "materials": 300,
+        "photon": 40,
+        "quantum": 10,
+        "specialFinds": 20
+      },
+      "storageFull": false,
+      "extracted": 0,
+      "colony": {
+        "population": 1000.8743816119149,
+        "housing": 1500,
+        "stability": 75,
+        "morale": 75,
+        "security": 75,
+        "industry": 50,
+        "science": 50,
+        "commanderId": "commander-colony",
+        "nextCandidate": 447.4,
+        "contamination": 0,
+        "quarantine": false,
+        "development": null
+      },
+      "occupation": null
+    },
+    {
+      "x": 240,
+      "y": -80,
+      "id": "mine",
+      "name": "HELIOS MINE / 赫利俄斯矿场",
+      "label": "HELIOS MINE / 赫利俄斯矿场",
+      "kind": "mine",
+      "owner": "starfleet",
+      "siteId": "helios-deposit",
+      "stock": {
+        "materials": 262.80000000000007,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "hull": 650,
+      "maxHull": 650,
+      "shield": 380,
+      "maxShield": 380,
+      "core": 300,
+      "attackedAt": -1000,
+      "lastAttackerId": null,
+      "cooldown": 0,
+      "distress": false,
+      "discovered": true,
+      "production": 2.400000000000001,
+      "capacity": {
+        "materials": 3000,
+        "photon": 30,
+        "quantum": 10,
+        "specialFinds": 10
+      },
+      "storageFull": false,
+      "extracted": 142.80000000000004,
+      "colony": null,
+      "occupation": null
+    },
+    {
+      "x": 260,
+      "y": 180,
+      "id": "outpost",
+      "name": "BEACON OUTPOST / 信标前哨",
+      "label": "BEACON OUTPOST / 信标前哨",
+      "kind": "outpost",
+      "owner": "starfleet",
+      "siteId": null,
+      "stock": {
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "hull": 800,
+      "maxHull": 800,
+      "shield": 500,
+      "maxShield": 500,
+      "core": 300,
+      "attackedAt": -1000,
+      "lastAttackerId": null,
+      "cooldown": 0,
+      "distress": false,
+      "discovered": true,
+      "production": 2.400000000000001,
+      "capacity": {
+        "materials": 250,
+        "photon": 60,
+        "quantum": 20,
+        "specialFinds": 10
+      },
+      "storageFull": false,
+      "extracted": 0,
+      "colony": null,
+      "occupation": null
+    },
+    {
+      "x": 500,
+      "y": -530,
+      "id": "orion-base",
+      "name": "Orion Hideout",
+      "label": "Orion Hideout",
+      "kind": "outpost",
+      "owner": "orion",
+      "siteId": null,
+      "stock": {
+        "materials": 15,
+        "photon": 12,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "hull": 800,
+      "maxHull": 800,
+      "shield": 500,
+      "maxShield": 500,
+      "core": 300,
+      "attackedAt": -1000,
+      "lastAttackerId": null,
+      "cooldown": 0,
+      "distress": false,
+      "discovered": false,
+      "production": 0,
+      "capacity": {
+        "materials": 250,
+        "photon": 60,
+        "quantum": 20,
+        "specialFinds": 10
+      },
+      "storageFull": false,
+      "extracted": 0,
+      "colony": null,
+      "occupation": null
+    },
+    {
+      "x": 1180,
+      "y": 150,
+      "id": "romulan-base",
+      "name": "Romulan Border Command",
+      "label": "Romulan Border Command",
+      "kind": "base",
+      "owner": "romulan",
+      "siteId": null,
+      "stock": {
+        "materials": 40,
+        "photon": 60,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "hull": 5000,
+      "maxHull": 5000,
+      "shield": 3000,
+      "maxShield": 3000,
+      "core": 300,
+      "attackedAt": -1000,
+      "lastAttackerId": null,
+      "cooldown": 0,
+      "distress": false,
+      "discovered": false,
+      "production": 0,
+      "capacity": {
+        "materials": 6000,
+        "photon": 500,
+        "quantum": 200,
+        "specialFinds": 50
+      },
+      "storageFull": false,
+      "extracted": 0,
+      "colony": null,
+      "occupation": null
+    },
+    {
+      "x": 200,
+      "y": 4760,
+      "id": "demo-aurora-mine",
+      "name": "AURORA MINE",
+      "label": "AURORA MINE",
+      "kind": "mine",
+      "owner": "starfleet",
+      "siteId": null,
+      "stock": {
+        "materials": 120,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "hull": 650,
+      "maxHull": 650,
+      "shield": 380,
+      "maxShield": 380,
+      "core": 300,
+      "attackedAt": -1000,
+      "lastAttackerId": null,
+      "cooldown": 0,
+      "distress": false,
+      "discovered": true,
+      "production": 0.2,
+      "capacity": {
+        "materials": 3000,
+        "photon": 30,
+        "quantum": 10,
+        "specialFinds": 10
+      },
+      "storageFull": false,
+      "extracted": 0,
+      "colony": null,
+      "occupation": null
+    }
+  ],
+  "projects": [],
+  "jobs": [],
+  "wrecks": [],
+  "intel": [],
+  "factions": {
+    "orion": {
+      "reports": [],
+      "credits": 40,
+      "production": 0,
+      "losses": [],
+      "stance": "observe",
+      "pressure": 0
+    },
+    "romulan": {
+      "reports": [],
+      "credits": 150,
+      "production": 0,
+      "losses": [],
+      "stance": "observe",
+      "pressure": 0
+    }
+  },
+  "siteIntel": [],
+  "recoveredVeil": false,
+  "productionDiscountUnlocked": false,
+  "renamedEntityIds": [],
+  "contactAlerts": [],
+  "dismissedMarkerIds": [],
+  "tension": 0,
+  "resources": {
+    "credits": 2174.5056800028538
+  },
+  "upgrades": {
+    "shipyard": 0,
+    "armory": 0,
+    "sensors": 0,
+    "logistics": 1,
+    "defense": 0
+  },
+  "groups": [],
+  "personnel": [
+    {
+      "id": "commander-colony",
+      "name": "Commander 陈星",
+      "originId": "colony",
+      "career": "commander",
+      "experience": 8.739999999999858,
+      "skills": {
+        "battle": 20,
+        "science": 30,
+        "diplomacy": 40,
+        "logistics": 35,
+        "security": 40,
+        "commander": 60
+      },
+      "status": "assigned",
+      "training": 90,
+      "locationId": "colony",
+      "posting": {
+        "type": "colony",
+        "id": "colony"
+      }
+    },
+    {
+      "id": "personnel-3",
+      "name": "Cadet 3",
+      "originId": "colony",
+      "career": "battle",
+      "experience": 0,
+      "skills": {
+        "battle": 50,
+        "science": 35,
+        "diplomacy": 25,
+        "logistics": 30,
+        "security": 25,
+        "commander": 25
+      },
+      "status": "training",
+      "training": 85.09999999999944,
+      "locationId": "colony",
+      "posting": null
+    },
+    {
+      "id": "personnel-4",
+      "name": "Cadet 4",
+      "originId": "colony",
+      "career": "logistics",
+      "experience": 0,
+      "skills": {
+        "battle": 25,
+        "science": 35,
+        "diplomacy": 25,
+        "logistics": 30,
+        "security": 25,
+        "commander": 25
+      },
+      "status": "candidate",
+      "training": 0,
+      "locationId": "colony",
+      "posting": null
+    }
+  ],
+  "events": [
+    {
+      "id": "event-2",
+      "kind": "wormhole",
+      "subjectId": "wormhole:0:0",
+      "created": 1,
+      "deadline": 241,
+      "stage": "reported",
+      "evidence": "DAWN PASSAGE / 曙光通道探测到通道，需要确认稳定性",
+      "choice": null,
+      "work": 0,
+      "population": 0,
+      "carrierId": null,
+      "targetId": null,
+      "assetIds": [],
+      "followUpId": null,
+      "outcome": ""
+    }
+  ],
+  "wormholes": [
+    {
+      "x": 90,
+      "y": -80,
+      "id": "wormhole:0:0",
+      "name": "DAWN PASSAGE / 曙光通道",
+      "sectorId": "sector:0:0",
+      "discovered": true,
+      "surveyed": true,
+      "exit": {
+        "x": 90,
+        "y": 4720
+      },
+      "exitSector": {
+        "q": 0,
+        "r": 12
+      },
+      "stability": 1,
+      "stable": true,
+      "transits": 1
+    },
+    {
+      "x": 90,
+      "y": 4720,
+      "id": "wormhole:0:12",
+      "name": "DAWN PASSAGE / 曙光通道",
+      "sectorId": "sector:0:12",
+      "discovered": true,
+      "surveyed": true,
+      "exit": {
+        "x": 90,
+        "y": -80
+      },
+      "exitSector": {
+        "q": 0,
+        "r": 0
+      },
+      "stability": 1,
+      "stable": true,
+      "transits": 0
+    }
+  ],
+  "trade": {
+    "stock": {
+      "materials": 400,
+      "photon": 60,
+      "quantum": 10,
+      "specialFinds": 0
+    },
+    "credits": 2000,
+    "capacity": {
+      "materials": 1000,
+      "photon": 300,
+      "quantum": 100,
+      "specialFinds": 50
+    },
+    "depot": {
+      "x": -640,
+      "y": -140
+    },
+    "orders": []
+  },
+  "civilians": [
+    {
+      "x": -640,
+      "y": -140,
+      "id": "federation-carrier",
+      "name": "SS FEDERATION EXCHANGE",
+      "classId": "antares",
+      "factionId": "starfleet",
+      "hull": 110,
+      "shield": 65,
+      "core": 75,
+      "photon": 0,
+      "quantum": 0,
+      "modules": [],
+      "engines": 100,
+      "weapons": 100,
+      "status": "docked",
+      "current": null,
+      "queue": [],
+      "suspended": [],
+      "standing": {
+        "roe": "RETURN FIRE",
+        "retreatHull": 30,
+        "retreatShield": 15,
+        "retreatCore": 10,
+        "photonThreshold": 20,
+        "quantumThreshold": 20,
+        "maxPursuit": 150,
+        "allowNeutral": false,
+        "allowRomulan": false,
+        "autoEscort": false,
+        "respondDistress": false,
+        "protectCivilian": false,
+        "protectFreighter": false,
+        "protectColony": false,
+        "serviceWhenDocked": false
+      },
+      "path": [],
+      "heading": 0,
+      "cargo": {
+        "materials": 0,
+        "photon": 0,
+        "quantum": 0,
+        "specialFinds": 0
+      },
+      "passengers": 0,
+      "cooldowns": {},
+      "lastAttackerId": null,
+      "attackedAt": -1000,
+      "scanUntil": 0,
+      "cloak": "off",
+      "cloakUntil": 0,
+      "emergencyRetreat": null,
+      "tracking": null,
+      "homeId": "exchange",
+      "orderId": null,
+      "phase": "idle",
+      "work": 0
+    }
+  ],
+  "communications": [
+    {
+      "id": 1,
+      "time": 0,
+      "priority": "high",
+      "text": "ADMIRAL：六舰待命。向 UNKNOWN SPACE 测绘，矿场已有材料等待运回；新曙殖民地提供 Credits 收益，矿场满仓时需要运输材料。",
+      "read": false,
+      "entityId": "mine",
+      "category": "request"
+    },
+    {
+      "id": 2,
+      "time": 0,
+      "priority": "normal",
+      "text": "USS VERITY / 明理号 / ADMIRAL / commander / REPLACE / TRANSIT",
+      "read": false,
+      "entityId": "verity",
+      "category": "report"
+    },
+    {
+      "id": 3,
+      "time": 1,
+      "priority": "normal",
+      "text": "Wormhole 调查：DAWN PASSAGE / 曙光通道探测到通道，需要确认稳定性",
+      "read": false,
+      "entityId": "event-2",
+      "category": "report"
+    },
+    {
+      "id": 4,
+      "time": 2,
+      "priority": "normal",
+      "text": "USS VERITY / 明理号 发现 DF-0/12-A，永久星图已更新",
+      "read": false,
+      "entityId": "sector:0:12:system:0",
+      "category": "report"
+    },
+    {
+      "id": 5,
+      "time": 2,
+      "priority": "normal",
+      "text": "USS VERITY / 明理号实际穿越 DAWN PASSAGE / 曙光通道，航线与星图改变",
+      "read": false,
+      "entityId": "wormhole:0:0",
+      "category": "report"
+    },
+    {
+      "id": 6,
+      "time": 2,
+      "priority": "normal",
+      "text": "USS VERITY / 明理号 / TRANSIT / ADMIRAL / commander / Wormhole 航行完成",
+      "read": false,
+      "entityId": "verity",
+      "category": "report"
+    },
+    {
+      "id": 7,
+      "time": 2.3,
+      "priority": "normal",
+      "text": "NEW HORIZON / 新曙殖民地 Commander 推荐候选人 Cadet 3",
+      "read": false,
+      "entityId": "personnel-3",
+      "category": "report"
+    },
+    {
+      "id": 8,
+      "time": 2.3,
+      "priority": "normal",
+      "text": "Cadet 3获准培养，录取60 + 训练90 Credits",
+      "read": false,
+      "entityId": "personnel-3",
+      "category": "report"
+    },
+    {
+      "id": 9,
+      "time": 87.4,
+      "priority": "normal",
+      "text": "NEW HORIZON / 新曙殖民地 Commander 推荐候选人 Cadet 4",
+      "read": false,
+      "entityId": "personnel-4",
+      "category": "report"
+    }
+  ],
+  "logs": [
+    {
+      "id": 1,
+      "time": 0,
+      "level": "info",
+      "text": "USS VERITY / 明理号 / ADMIRAL / commander / REPLACE / TRANSIT"
+    },
+    {
+      "id": 2,
+      "time": 1,
+      "level": "info",
+      "text": "Wormhole 调查：DAWN PASSAGE / 曙光通道探测到通道，需要确认稳定性"
+    },
+    {
+      "id": 3,
+      "time": 2,
+      "level": "info",
+      "text": "USS VERITY / 明理号 发现 DF-0/12-A，永久星图已更新"
+    },
+    {
+      "id": 4,
+      "time": 2,
+      "level": "info",
+      "text": "USS VERITY / 明理号实际穿越 DAWN PASSAGE / 曙光通道，航线与星图改变"
+    },
+    {
+      "id": 5,
+      "time": 2,
+      "level": "info",
+      "text": "USS VERITY / 明理号 / TRANSIT / ADMIRAL / commander / Wormhole 航行完成"
+    },
+    {
+      "id": 6,
+      "time": 2.2,
+      "level": "info",
+      "text": "AURORA 矿场加入物流网络；已确认虫洞为 Dawn 后方提供运输捷径。"
+    },
+    {
+      "id": 7,
+      "time": 2.3,
+      "level": "info",
+      "text": "NEW HORIZON / 新曙殖民地 Commander 推荐候选人 Cadet 3"
+    },
+    {
+      "id": 8,
+      "time": 2.3,
+      "level": "info",
+      "text": "Cadet 3获准培养，录取60 + 训练90 Credits"
+    },
+    {
+      "id": 9,
+      "time": 87.4,
+      "level": "info",
+      "text": "NEW HORIZON / 新曙殖民地 Commander 推荐候选人 Cadet 4"
+    },
+    {
+      "id": 10,
+      "time": 87.4,
+      "level": "info",
+      "text": "HORIZON 先前任务留下舰损；是否接受支援及提出维修条件由 Talia 自主判断。"
+    }
+  ],
+  "history": [
+    {
+      "id": 1,
+      "time": 0,
+      "kind": "directive",
+      "text": "USS VERITY / 明理号 / ADMIRAL / commander / REPLACE / TRANSIT",
+      "entityId": "verity"
+    },
+    {
+      "id": 2,
+      "time": 1,
+      "kind": "event",
+      "text": "Wormhole 调查：DAWN PASSAGE / 曙光通道探测到通道，需要确认稳定性",
+      "entityId": "event-2"
+    },
+    {
+      "id": 3,
+      "time": 2,
+      "kind": "discovery",
+      "text": "USS VERITY / 明理号 发现 DF-0/12-A，永久星图已更新",
+      "entityId": "sector:0:12:system:0"
+    },
+    {
+      "id": 4,
+      "time": 2,
+      "kind": "wormhole",
+      "text": "USS VERITY / 明理号实际穿越 DAWN PASSAGE / 曙光通道，航线与星图改变",
+      "entityId": "wormhole:0:0"
+    },
+    {
+      "id": 5,
+      "time": 2,
+      "kind": "action",
+      "text": "USS VERITY / 明理号 / TRANSIT / ADMIRAL / commander / Wormhole 航行完成",
+      "entityId": "verity"
+    },
+    {
+      "id": 6,
+      "time": 2.2,
+      "kind": "demo",
+      "text": "AURORA 矿场加入物流网络；已确认虫洞为 Dawn 后方提供运输捷径。",
+      "entityId": "demo-aurora-mine"
+    },
+    {
+      "id": 7,
+      "time": 2.3,
+      "kind": "candidate",
+      "text": "NEW HORIZON / 新曙殖民地 Commander 推荐候选人 Cadet 3",
+      "entityId": "personnel-3"
+    },
+    {
+      "id": 8,
+      "time": 2.3,
+      "kind": "personnel",
+      "text": "Cadet 3获准培养，录取60 + 训练90 Credits",
+      "entityId": "personnel-3"
+    },
+    {
+      "id": 9,
+      "time": 87.4,
+      "kind": "candidate",
+      "text": "NEW HORIZON / 新曙殖民地 Commander 推荐候选人 Cadet 4",
+      "entityId": "personnel-4"
+    },
+    {
+      "id": 10,
+      "time": 87.4,
+      "kind": "demo",
+      "text": "HORIZON 先前任务留下舰损；是否接受支援及提出维修条件由 Talia 自主判断。",
+      "entityId": "horizon"
+    }
+  ],
+  "beams": [],
+  "nextId": 5,
+  "nextLog": 11,
+  "nextComms": 10,
+  "nextHistory": 11
+}

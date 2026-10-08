@@ -1,10 +1,10 @@
 # STARFLEET: FRONTIER COMMAND
 
-**Lv1 + Lv2 + 第一版 Agent / v12 Dawn Frontier。玩家是拥有最终指挥权的 Admiral。**
+**Lv1 + Lv2 + v13 自主协作。玩家是拥有最终指挥权的 Admiral。**
 
 持续世界、LCARS 26 Classic、探索、建设、实际运输、殖民地与持久势力之上，加入独立的 Battle / Logistics Agent。模型决定意图、路线风险、聊天与协作；Electron 主进程执行经过校验的高层 Action。初始 Talia 驾驶 Galaxy，Mira 驾驶 Antares；职业代表专长，不限制合法行动。
 
-![Agent 名册](docs/verification/v11/agents-roster.png)
+![v13 任务协商](docs/verification/v13/request-negotiation.png)
 
 ## 运行
 
@@ -17,29 +17,31 @@ npm start
 
 新世界暂停于 DAY 1 00:00，默认 1×。约一现实秒推进一游戏分钟；4× / 16× 重复相同的 0.1 游戏分钟固定步。重启暂停，不离线推进。
 
-快速展示新增内容：**存档管理器 → AGENT DEMO / 演示存档 → 继续**。默认 16×，已准备真实的虫洞运输、护航、群聊/私聊和接近毕业的学员；约几十秒内可看到结果。也提供 [独立 Demo 存档与演示步骤](demo/README.md)，运行 `npm run demo:save` 可重新生成。初始决策是经校验的场景编排，后续自主决策需要配置自己的 API。
+快速展示新增内容：**存档管理器 → AGENT DEMO / 演示存档 → 配置模型**。固定 seed 的场景包含公开库存、确认虫洞、受损的护航舰和已付费培养的学员，不预置任何 Agent 的接受或决策。模型先判断风险并协商；Admiral 在待处理请求中确认奖励预算，继续 16× 后由引擎完成维修、会合、装货、航行和卸货。见 [演示步骤](demo/README.md)；`npm run demo:save` 可重新生成独立存档。
 
 ## Agent 与通讯
 
 1. 打开 **CONSOLE SETTINGS → AGENT API**，填写 OpenAI-compatible Base URL、API Key、默认 Model 与 reasoning effort。可以先测试当前输入，再保存。协议是 `/chat/completions`；Base URL 可填 API 根路径或完整 endpoint。
 2. Key 使用 Electron `safeStorage` 系统加密，独立保存于本机配置；不会进入公开 Snapshot、聊天、日志或世界存档。未配置 API 时 Agent 显示离线，Admiral 仍可指挥全部舰船。没有脚本自动决策的替代模型。
-3. 在 **AGENTS / 智能体** 按 BATTLE、LOGISTICS 查看姓名、舰船、目标、经验/技能、模型和实时状态。详情可查看性格、信任/疲劳/士气、有限记忆与关系，分配舰船、覆盖 Model / reasoning，关闭自主控制或请求再次决策。
-4. 常驻 **CHAT / 通讯** 按钮可拖至视口任意位置，位置独立保存在界面偏好中。浮窗列出固定 FRONTIER COMMAND 群聊和每个 Admiral ↔ Agent 私聊；红点只在有未读时显示。聊天不暂停世界，可直接输入 `@Talia`、`@Mira` 或使用提及按钮。
-5. Agent 的请求、拒绝、危险、任务执行与完成报告都进入聊天。协作不是文字模拟：接受护航必须同时提交对应 ESCORT；实际结果更新经验、技能、关系和记忆。聊天按游戏时间持久保存，Agent 只观察最近 24 条相关消息和最多 32 条记忆。
+3. 在 **AGENTS / 智能体** 查看稳定人格、个人动机、长期目标、任务偏好、工作意愿、压力/信心/不满、关系变化原因与承诺。初始角色有明确档案，新学员按世界初始 seed 和稳定 ID 获得个人差异。状态与经历进入下一次观察，影响模型的真实选择；健谈只影响表达，不增加调用频率。
+4. **CHAT / 通讯** 可拖动，保留指挥群和私聊，并增加 **SYSTEM REPORTS / 系统报告** 和 **REQUESTS / 待处理请求**。系统报告只读，普通报告没有弹窗和提示音，不解析其中的 `@`，不唤醒同僚或写入旁观者记忆。危险、拒绝、失约及需要 Admiral 处理的请求正常通知。
+5. 协作采用带版本的结构化请求，涵盖护航、组队、增援、物流支援和未装载任务交接。接收方自主接受、拒绝或提出条件，最多两次反提议；等待模型不使请求过期。维修消耗真实现场 Materials，REST 连续计时，护航实际会合，已装货物留在原舰。奖励须 Admiral 批准后从预算托管，履约只支付一次，未支付余额在取消或失败时退回。聊天观察最多 24 条，记忆最多 32 条，重要承诺与关系事件优先保留。
 
-Reasoning 支持 none / low / medium / high。`none` **不发送** `reasoning_effort`；具体模型的默认内部推理由 provider 决定。Provider 明确拒绝 reasoning 参数时省略并重试；拒绝 JSON 模式时退回文本 JSON，仍执行本地严格 schema 校验。调用超时、连接错误、非法 JSON 或非法 Action 会进入私聊错误，并可手动重试或在 30 游戏分钟后复查，不影响物理模拟。
+Reasoning 支持 none / low / medium / high。`none` **不发送** `reasoning_effort`。明确不支持的参数会兼容降级，输出仍通过本地 schema 与规则验证。普通自主决策最多两次纠错，短任务判断最多一次纠错；兼容与纠错共享 45 秒网络处理超时。认证失败等待配置或手动重试，暂时网络错误按现实时间退避且最多三次失败，不按游戏时间重试。
 
-模型只在新任务、聊天/提及、护航、公开危险、任务结果或空闲复查节点调用，每次决策独立于 simulation tick。Admiral 当前、排队和挂起指令优先；过期模型响应会丢弃。模型只获得自己的状态、己方资产、公开地图/接触、实际库存/需求、航线、聊天与关系，不获得未知敌人、秘密基地、意图或随机源。
+模型只在定向 Admiral 输入、协商请求、新危险或影响选择的机会变化时调用。没有变化的空闲状态、移动坐标、普通完成和少量 XP/库存增长不会反复调用。应用内没有每分钟调用额度、全局并发上限或单次决策的消息条数上限。每 Agent 保留一个有效逻辑决策，新消息取消过期请求。控制台显示请求、取消、纠错、当前并发和 provider 返回的 token usage；缺失 usage 显示未知。旧调用额度文件不再生效。
 
-## Admiral 聊天指挥 / v12
+## Admiral 意图、自愿任务与直接接管 / v13
 
-私聊或在群中明确 `@AgentName`，可以直接下达常用命令：`去把 orion scout 干掉`、`立即开火`、`USS VIGIL 给你了`、`建设高密度矿物带 0/12-0-5`、`沿 0/12 一路测绘回来直到 0/0，不走虫洞`。主进程根据公开信息编译这些明确指令，没有 API Key 也可执行；无法唯一识别的目标会请求澄清。
+私聊或群中明确 `@AgentName`，可提出 `巡逻基地 30 分钟`、`从 mine 运送 40 Materials 到 base`、建设或逐区测绘意图。**明确聊天任务使用专门的短 LLM 判断**，仅发送任务相关事实，返回接受或拒绝及一句理由；接受后立即交给原有引擎执行或报告具体阻碍，不进入条件协商，也不发送“等待自主判断”的占位回执。接受前不执行或支付任务费用。普通交流和 Agent 同僚协作仍使用完整自主决策。无法唯一识别的目标会请求澄清。
 
-Admiral 授权攻击高于自主 ROE，不会伪造敌对情报，也不会绕过射程、武器状态或政治后果。分舰真正修改 Assignment；不会挤掉其他正式 Agent。建设扣预算、建立项目，自运或请求空闲且愿意合作的 Logistics 同僚运送真实 Materials，再等待施工。逐区测绘支持同一列最多 65 个连续星区，禁用虫洞约束进入 Journey Planner。新的地图或舰船指令随时接管聊天任务。
+地图舰船指令、通讯中的 **Admiral 直接接管** 模式，以及文字前缀 **直接接管** 立即使用最终指挥权；不需要 API。接管使冲突计划和过期模型响应失效，可降低信任和士气，实际货物保留。`USS VIGIL 给你了` 等分舰操作仍由真实 Admiral 权限处理。
+
+Admiral 授权攻击高于自主 ROE，仍遵守真实射程、舰船状态和政治后果。建设支援需要同僚自主答复，再执行真实 HAUL；引擎不替同僚自动接受。已接受任务在准备完成后自动续行。直接指挥、队列、临时中断、取消和实际失败分别处理，避免恢复后重复 XP、奖励或关系结算。
 
 执行回执来自引擎。模型协议由实际校验定义生成，优先严格 JSON Schema，不支持时降级 JSON 模式或文本；非法结构和动作最多纠错两次，共用一次决策超时。错误显示具体字段。确认消息保存回复链且不再互相唤醒，Agent 详情显示任务来源、进度及阻碍。
 
-首次启动会复制并迁移 v11 时间线至 `frontiers-v12` / `timeline-v12.json`，保留原 v11 文件、分支、每日档和进度。旧聊天不会重新执行，旧模型的口头分舰不会追认为分配；API 配置继续使用原系统加密配置。
+首次启动优先复制迁移 v12 至 `frontiers-v13` / `timeline-v13.json`；仅没有 v12 时使用 v11→v12→v13。迁移先验证冻结的旧 schema，再补充字段并验证 v13，覆盖主档、备份、每日档、failure.json、分支关系和 ID 预留。原文件与加密 API 配置保留，历史聊天不重放，旧自动物流委派不会追认为新的自愿承诺。损坏或较新的时间线保持保护。
 
 ## Journey Planner
 
@@ -126,7 +128,7 @@ Sector / System / Local 采用分层显示；选中系统也可展开次级天�
 
 Renderer 只有只读公开 Snapshot，未知敌方基地、AI intent、真实目的地、反跟踪证据、假航点与随机源留在主进程及严格存档。地点情报仅公开玩家实际观测到的坐标和确认进度。
 
-v12 使用独立 `timeline-v12.json` 与 `frontiers-v12/frontier-******/`，自动复制迁移 v11，不迁移 v10 或更早存档，不改写原文件。世界、聊天、协作、培养、Agent 状态和每舰旅程采用严格 v12 schema；凭据独立系统加密。保留原子写入、每日快照、独立分支恢复、存档错误保护和永久舰损。Agent 档案在舰损后保留，可重新分配新舰；全舰损后仍可通过 Colony 收入、有限贸易与 Shipyard 恢复。
+v13 使用严格版本化的独立时间线，迁移 v12 或 v11，保留原文件；v10 及更早的存档不加载。存档包含承诺、托管、去重与结算记录，保存恢复不会重复执行或支付。保留每日快照、独立分支、存档保护、永久舰损和原经济闭环。
 
 ## 验证
 
@@ -134,9 +136,9 @@ v12 使用独立 `timeline-v12.json` 与 `frontiers-v12/frontier-******/`，自�
 npm test
 npm run build
 npm run test:e2e
-npx playwright test tests/e2e/agents.spec.ts
+npx playwright test tests/e2e/v13.spec.ts tests/e2e/agents.spec.ts
 ```
 
-Agent 专项测试使用本地 HTTP 协议测试服务与隔离 userData，验证真实 Electron IPC、DPAPI 配置保存、私聊/群聊/@、培养、独立模型、NONE、兼容重试及虫洞运输/护航。测试服务不是应用里的决策回退；真实外部 provider 需配置自己的 API 后使用。
+验收使用隔离 userData、仓库内 v12 fixture 和本地 HTTP 测试 provider；不读取玩家 APPDATA。真实模型的输出可不同，必须通过相同的结构与规则验证。应用没有脚本决策回退；正常试玩使用玩家配置的真实模型。[v13 验证记录](docs/verification/v13/README.md)。
 
 [架构](docs/architecture.md) · [世界](docs/worldbuilding.md) · [验收](docs/acceptance.md) · [演示](docs/demo-script.md) · [验证记录](docs/verification.md)

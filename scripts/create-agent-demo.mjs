@@ -15,5 +15,5 @@ if (loaded.world) {
   store.write(world);
   store.rename(store.catalog().activeId, AGENT_DEMO_NAME);
 } else store.beginNew(world, undefined, AGENT_DEMO_NAME);
-writeFileSync(join(directory, '..', 'agent-demo-v12.json'), JSON.stringify(world, null, 2) + '\n');
-console.log('v12 Agent Demo saved: ' + store.path);
+writeFileSync(join(directory, '..', 'agent-demo-v13.json'), JSON.stringify(world, null, 2) + '\n');
+console.log('v13 Agent Demo saved: ' + store.path);

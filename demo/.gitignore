@@ -13,3 +13,10 @@ user-data/frontiers-v12/*
 user-data/frontiers-v12/frontier-000001/*
 !user-data/frontiers-v12/frontier-000001/head.json
 !user-data/frontiers-v12/frontier-000001/branch.json
+!user-data/frontiers-v13/
+!user-data/timeline-v13.json
+user-data/frontiers-v13/*
+!user-data/frontiers-v13/frontier-000001/
+user-data/frontiers-v13/frontier-000001/*
+!user-data/frontiers-v13/frontier-000001/head.json
+!user-data/frontiers-v13/frontier-000001/branch.json

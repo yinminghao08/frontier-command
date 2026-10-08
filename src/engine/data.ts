@@ -14,7 +14,7 @@ import { FACILITIES } from './definitions/progression';
 import { materialize } from './world-generation';
 import { DEFAULT_STANDING, STORAGE } from './definitions/frontier';
 import { makeAgent, registerAgent } from './agents';
-import { COMMAND_CHANNEL } from './chat';
+import { COMMAND_CHANNEL, REPORT_CHANNEL, SYSTEM_ACTOR } from './chat';
 export { BASE } from './definitions/locations';
 export const emptyStock = (): Stock => ({
   materials: 0,
@@ -164,7 +164,7 @@ export function createWorld(seed = 236807): WorldState {
     makeShip(s.id, s.name, s.classId, 'starfleet', { x: BASE.x + (i - 1.5) * 28, y: BASE.y + 45 }),
   );
   const w: WorldState = {
-    version: 12,
+    version: 13,
     tick: 0,
     time: 0,
     seed: seed >>> 0,
@@ -184,6 +184,13 @@ export function createWorld(seed = 236807): WorldState {
     agents: [],
     chatChannels: [
       {
+        id: REPORT_CHANNEL,
+        name: 'SYSTEM REPORTS / 系统报告',
+        kind: 'reports',
+        members: ['commander', SYSTEM_ACTOR],
+        readThrough: 0,
+      },
+      {
         id: COMMAND_CHANNEL,
         name: 'FRONTIER COMMAND',
         kind: 'command',
@@ -194,6 +201,8 @@ export function createWorld(seed = 236807): WorldState {
     chatMessages: [],
     admiralTasks: [],
     escortRequests: [],
+    commitments: [],
+    settledOutcomes: [],
     nextChat: 1,
     losses: [],
     ships,

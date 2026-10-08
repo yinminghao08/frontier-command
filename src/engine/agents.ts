@@ -9,11 +9,22 @@ import type {
   WorldState,
 } from './types';
 import { validateAction, ok, no } from './command-system';
-import { capabilities } from './capabilities';
+import { capabilities, cargoUsed } from './capabilities';
 import { hasAdmiralWork } from './fleet';
 import { dist } from './navigation';
 import { AGENT_RULES } from './definitions/agents';
-import { cancelAdmiralTasks } from './admiral-tasks';
+import { cancelAdmiralTasks, advanceAdmiralTask } from './admiral-tasks';
+import { personalState, personalFeedback, decisionWorldKey } from './personality';
+import {
+  applyNegotiation,
+  liveRequest,
+  makeRequest,
+  validateNegotiation,
+  cancelContracts,
+  settleContract,
+  requestFingerprint,
+} from './contracts';
+import { available } from './inventory';
 import {
   addAgentChannels,
   appendChat,
@@ -30,11 +41,13 @@ export function makeAgent(
   career: AgentCareer,
   shipId: string | null = null,
   originPersonnelId: string | null = null,
+  initialSeed = 236807,
 ): Agent {
   return {
     id,
     name,
     career,
+    ...personalState(id, career, initialSeed),
     personality:
       career === 'battle'
         ? { riskTolerance: 60, cooperation: 78, discipline: 82, ambition: 65 }
@@ -65,6 +78,9 @@ export function makeAgent(
       lastAdmiralMessageId: 0,
       failures: 0,
       lastError: null,
+      contextKey: '',
+      dangerKey: '',
+      events: [],
     },
   };
 }
@@ -154,6 +170,8 @@ export function validateAgentCommand(
   if (c.type === 'agentDecisionState') return ok();
   const decision = c.decision,
     ship = w.ships.find((s) => s.id === a.assignedShipId);
+  const negotiation = validateNegotiation(e, a, decision);
+  if (!negotiation.ok) return negotiation;
   if (decision.action) {
     if (!ship) return no('尚未分配舰船');
     const valid = validateAutonomousAction(e, ship, decision.action);
@@ -163,6 +181,20 @@ export function validateAgentCommand(
       a.id,
     );
     if (!command.ok) return command;
+    const sameAction =
+      ship.current && JSON.stringify(ship.current.action) === JSON.stringify(decision.action);
+    if (
+      !sameAction &&
+      decision.action.type === 'HAUL' &&
+      available(w, decision.action.sourceId, decision.action.cargoKind) < decision.action.amount
+    )
+      return no('自主运输需要足够真实可用库存');
+    if (
+      !sameAction &&
+      decision.action.type === 'HAUL' &&
+      cargoUsed(ship) + decision.action.amount > capabilities(ship).cargo
+    )
+      return no('当前货舱可用空间不足');
   }
   if (decision.mode === 'act' && !decision.action && !decision.coordination)
     return no('mode=act 必须提交实际 action 或协调请求');
@@ -189,6 +221,20 @@ export function validateAgentCommand(
     if (!peer || coordination.targetShipId !== a.assignedShipId)
       return no('护航请求必须指定可用同僚和自己的舰船');
     if (
+      a.feedbackEvents.includes(
+        requestFingerprint(
+          e,
+          a.id,
+          peer.id,
+          'escort',
+          { type: 'ESCORT', targetId: coordination.targetShipId },
+          null,
+          [],
+        ),
+      )
+    )
+      return no('相同公开状态的护航请求已处理，需要新的依据');
+    if (
       w.escortRequests.some(
         (r) =>
           r.requesterId === a.id &&
@@ -204,9 +250,11 @@ export function validateAgentCommand(
         r.id === coordination.requestId &&
         r.responderId === a.id &&
         r.status === 'pending' &&
-        r.deadline >= w.time,
+        (!r.explicitDeadline || r.deadline >= w.time),
     );
     if (!request) return no('护航请求已过期或无权限');
+    if (request.kind !== 'escort' || request.conditions.length || request.conditionVersion !== 1)
+      return no('带条件或经过协商的请求必须使用 answerRequest');
     if (
       coordination.accept &&
       (decision.action?.type !== 'ESCORT' || decision.action.targetId !== request.targetShipId)
@@ -214,20 +262,6 @@ export function validateAgentCommand(
       return no('接受护航必须提交对应真实 ESCORT');
   }
   return ok();
-}
-function relationship(w: WorldState, leftId: string, rightId: string, change: number) {
-  for (const [id, peer] of [
-    [leftId, rightId],
-    [rightId, leftId],
-  ]) {
-    const a = w.agents.find((a) => a.id === id);
-    if (!a) continue;
-    const r = a.relationships[peer] ?? { trust: 50, cooperation: 50, lastInteraction: w.time };
-    r.trust = Math.max(0, Math.min(100, r.trust + change));
-    r.cooperation = Math.max(0, Math.min(100, r.cooperation + change));
-    r.lastInteraction = w.time;
-    a.relationships[peer] = r;
-  }
 }
 export function applyAgentCommand(
   e: SimulationEngine,
@@ -237,7 +271,9 @@ export function applyAgentCommand(
   const w = e.state;
   if (c.type === 'admiralChatTask') return null;
   if (c.type === 'sendChat') {
-    appendChat(e, actorId, c.channelId, c.content, c.mentions);
+    appendChat(e, actorId, c.channelId, c.content, c.mentions, 'message', {
+      controlMode: c.controlMode,
+    });
     return ok('消息已发送');
   }
   if (c.type === 'readChat') {
@@ -260,6 +296,7 @@ export function applyAgentCommand(
   if (c.type === 'assignAgent') {
     cancelAdmiralTasks(e, null, a.id);
     const old = w.ships.find((s) => s.id === a.assignedShipId);
+    if (old) cancelContracts(e, old.id, 'Admiral 重新分舰', 'cancel');
     if (old?.current?.source === 'agent' && old.current.actorId === a.id)
       e.complete(old, 'Admiral 重新分配舰船', true);
     w.assignments = w.assignments.filter(
@@ -276,6 +313,9 @@ export function applyAgentCommand(
       c.shipId
         ? '已接管 ' + w.ships.find((s) => s.id === c.shipId)!.name + '，等待决策。'
         : '舰船分配已解除。',
+      [],
+      'report',
+      { eventId: a.id + ':assignment:' + a.decision.revision },
     );
     return ok('Agent 分配已更新');
   }
@@ -284,6 +324,7 @@ export function applyAgentCommand(
     a.enabled = c.enabled;
     if (!a.enabled) {
       const ship = w.ships.find((s) => s.id === a.assignedShipId);
+      if (ship) cancelContracts(e, ship.id, 'Admiral 关闭自主控制', 'cancel');
       if (ship?.current?.source === 'agent') e.complete(ship, 'Admiral 关闭自主控制', true);
     }
     wakeAgent(a, 'configuration', w.time, true);
@@ -298,7 +339,8 @@ export function applyAgentCommand(
   if (c.type === 'agentDecisionState') {
     if (c.state === 'waiting') {
       a.status = 'waiting';
-      a.decision.pendingReasons = [];
+      // Keep the triggering evidence durable while HTTP work is pending.
+      // The service's per-Agent flight prevents concurrent logical decisions.
       a.decision.lastAt = w.time;
     } else if (c.state === 'ready') a.status = a.assignedShipId ? 'online' : 'unassigned';
     else {
@@ -306,8 +348,9 @@ export function applyAgentCommand(
       a.status = c.state;
       a.decision.failures++;
       a.decision.lastError = c.error;
-      a.decision.nextAt = w.time + AGENT_RULES.errorRetryMinutes;
-      a.decision.pendingReasons = ['retry'];
+      a.decision.nextAt = w.time;
+      a.decision.pendingReasons = [];
+      a.decision.events = [];
       if (!alreadyOffline) {
         remember(w, a, 'decision', c.error ?? '通讯不可用');
         appendChat(
@@ -324,13 +367,21 @@ export function applyAgentCommand(
   }
   const d = c.decision;
   if (d.action) {
-    const result = e.submitAction(a.id, d.action);
+    const previousContract = e.executingContractId;
+    if (d.coordination?.type === 'answerEscort' && d.coordination.accept)
+      e.executingContractId = d.coordination.requestId;
+    const existing = w.ships.find((s) => s.id === a.assignedShipId)?.current;
+    const result =
+      existing && JSON.stringify(existing.action) === JSON.stringify(d.action)
+        ? ok('继续当前行动')
+        : e.submitAction(a.id, d.action);
+    e.executingContractId = previousContract;
     if (!result.ok) return result;
   }
   a.currentGoal = d.goal;
   const current = w.ships.find((s) => s.id === a.assignedShipId)?.current;
   a.status =
-    current?.source === 'admiral'
+    current?.source === 'admiral' && current.controlMode !== 'voluntary'
       ? 'admiral'
       : current
         ? 'executing'
@@ -340,18 +391,9 @@ export function applyAgentCommand(
   a.decision.lastError = null;
   a.decision.failures = 0;
   a.decision.nextAt = w.time + d.waitMinutes;
+  const previousChatId = a.decision.lastChatId;
   a.decision.lastChatId = w.nextChat - 1;
   remember(w, a, 'decision', d.memory ?? d.rationale, null, 5);
-  if (
-    d.action &&
-    w.chatMessages.some(
-      (m) =>
-        m.sender === w.commander.id &&
-        m.id > a.decision.lastChatId - 6 &&
-        (m.channelId === privateChannel(a.id) || m.mentions.includes(a.id)),
-    )
-  )
-    a.trust = Math.min(100, a.trust + 1);
   for (const m of d.messages) {
     const parent =
       m.replyTo ??
@@ -369,6 +411,17 @@ export function applyAgentCommand(
       !d.coordination &&
       parent !== null &&
       /^(?:@[^\s]+\s+)?(?:收到|明白|了解|一致|同意|确认|acknowledged)/i.test(m.content);
+    if (
+      (acknowledgement && parent !== null && parent <= previousChatId) ||
+      w.chatMessages.some(
+        (message) =>
+          message.sender === a.id &&
+          message.channelId === m.channelId &&
+          message.content === m.content &&
+          message.replyTo === parent,
+      )
+    )
+      continue;
     appendChat(e, a.id, m.channelId, m.content, m.mentions, 'message', {
       purpose: acknowledgement ? 'acknowledgement' : m.purpose,
       replyTo: parent,
@@ -376,36 +429,15 @@ export function applyAgentCommand(
   }
   const coordination = d.coordination;
   if (coordination?.type === 'requestEscort') {
-    const peer = w.agents.find((p) => p.id === coordination.agentId)!;
-    const request = {
-      id: 'escort-' + w.nextId++,
-      requesterId: a.id,
-      responderId: peer.id,
-      targetShipId: coordination.targetShipId,
-      created: w.time,
-      deadline: w.time + AGENT_RULES.escortDeadline,
-      started: false,
-      status: 'pending' as const,
-    };
-    w.escortRequests.push(request);
-    appendChat(
-      e,
-      a.id,
-      COMMAND_CHANNEL,
-      '@' +
-        peer.name +
-        ' 请求护航 ' +
-        w.ships.find((s) => s.id === coordination.targetShipId)!.name +
-        '。' +
-        d.rationale,
-      [peer.id],
-      'request',
-    );
+    makeRequest(e, a.id, coordination.agentId, 'escort', {
+      type: 'ESCORT',
+      targetId: coordination.targetShipId,
+    });
     a.currentGoal = (d.goal + '（等待护航答复）').slice(0, 240);
   } else if (coordination?.type === 'answerEscort') {
     const request = w.escortRequests.find((r) => r.id === coordination.requestId)!;
     request.status = coordination.accept ? 'accepted' : 'rejected';
-    relationship(w, a.id, request.requesterId, coordination.accept ? 4 : -2);
+    request.executionStarted = coordination.accept;
     const requester = w.agents.find((p) => p.id === request.requesterId)!;
     appendChat(
       e,
@@ -417,7 +449,9 @@ export function applyAgentCommand(
         d.rationale,
       [requester.id],
       'reply',
+      { origin: 'engine', requestId: request.id, eventId: request.id + ':answer' },
     );
+    wakeAgent(requester, 'request:' + request.id + ':answer', w.time, true);
   }
   if (d.action)
     appendChat(
@@ -427,7 +461,36 @@ export function applyAgentCommand(
       '执行 ' + d.action.type + '：' + d.goal + '。' + d.rationale,
       [],
       'report',
+      { eventId: current?.id ? current.id + ':issued' : a.id + ':decision:' + c.revision },
     );
+  applyNegotiation(e, a, d);
+  a.decision.revision++;
+  a.decision.pendingReasons = [];
+  a.decision.events = [];
+  a.decision.contextKey = decisionWorldKey(a, w);
+  if (coordination?.type === 'answerTask' && coordination.response === 'accept') {
+    const task = w.admiralTasks.find((t) => t.id === coordination.taskId);
+    if (task) advanceAdmiralTask(e, task);
+  }
+  if (
+    coordination?.type === 'answerTask' ||
+    coordination?.type === 'answerRequest' ||
+    coordination?.type === 'answerEscort'
+  ) {
+    const pending =
+      w.admiralTasks.find(
+        (t) =>
+          t.agentId === a.id &&
+          t.controlMode === 'voluntary' &&
+          ['active', 'blocked'].includes(t.status) &&
+          ['proposed', 'negotiating'].includes(t.consent) &&
+          t.turnAgentId === a.id,
+      ) ??
+      w.escortRequests.find(
+        (r) => ['pending', 'negotiating'].includes(r.status) && r.turnAgentId === a.id,
+      );
+    if (pending) wakeAgent(a, `proposal:${pending.id}:${pending.conditionVersion}`, w.time);
+  }
   return ok('Agent 决策已校验并执行');
 }
 export function agentOutcome(
@@ -443,6 +506,21 @@ export function agentOutcome(
     a = w.agents.find((a) => a.id === (directive.executorAgentId ?? directive.actorId));
   if (!a) return;
   const action = directive.action;
+  const outcomeId =
+    directive.id +
+    ':' +
+    directive.cycle +
+    ':' +
+    (cycle ? 'delivery' : failed ? 'failed' : 'completed');
+  if (w.settledOutcomes.includes(outcomeId)) return;
+  w.settledOutcomes.push(outcomeId);
+  if (failed && /接管|取消|新指令/.test(text)) {
+    remember(w, a, 'outcome', action.type + ': ' + text, ship.id, 8);
+    appendChat(e, a.id, COMMAND_CHANNEL, ship.name + ' / 指令已中断：' + text, [], 'report', {
+      eventId: outcomeId,
+    });
+    return;
+  }
   if (!failed) {
     const xp =
       action.type === 'HAUL'
@@ -459,49 +537,54 @@ export function agentOutcome(
           : 'navigation';
     a.skills[skill] = Math.min(100, a.skills[skill] + xp * 0.08);
     a.morale = Math.min(100, a.morale + 2);
+    personalFeedback(a, outcomeId, { stress: -3, confidence: 2 });
   } else {
     a.morale = Math.max(0, a.morale - 2);
     a.trust = Math.max(0, a.trust - 1);
+    personalFeedback(a, outcomeId, { stress: 5, confidence: -3 });
   }
   remember(w, a, 'outcome', action.type + ': ' + text, ship.id, 8);
-  appendChat(
-    e,
-    a.id,
-    COMMAND_CHANNEL,
-    ship.name +
-      ' / ' +
-      action.type +
-      (failed ? ' 未完成：' : cycle ? ' 本轮完成：' : ' 完成：') +
-      text +
-      ' · XP ' +
-      Math.floor(a.experience),
-    [],
-    failed ? 'danger' : 'report',
-  );
-  for (const r of w.escortRequests.filter(
-    (r) => r.responderId === a.id && r.status === 'accepted' && action.type === 'ESCORT',
-  )) {
-    r.status = failed ? 'failed' : 'completed';
-    relationship(w, a.id, r.requesterId, failed ? -3 : 6);
-    const peer = w.agents.find((p) => p.id === r.requesterId)!;
-    remember(w, peer, 'outcome', a.name + ' ' + (failed ? '护航中断' : '护航完成'), a.id, 8);
-    wakeAgent(peer, 'escortResult', w.time);
-  }
+  if (
+    !directive.taskId ||
+    e.state.admiralTasks.find((t) => t.id === directive.taskId)?.kind !== 'action'
+  )
+    appendChat(
+      e,
+      a.id,
+      COMMAND_CHANNEL,
+      ship.name +
+        ' / ' +
+        action.type +
+        (failed ? ' 未完成：' : cycle ? ' 本轮完成：' : ' 完成：') +
+        text +
+        ' · XP ' +
+        Math.floor(a.experience),
+      [],
+      failed ? 'danger' : 'report',
+      { eventId: outcomeId },
+    );
   if (!cycle) {
     a.decision.revision++;
     a.status = a.enabled ? 'online' : 'offline';
-    wakeAgent(a, 'taskResult', w.time + AGENT_RULES.minDecisionMinutes);
     a.decision.nextAt = w.time + AGENT_RULES.minDecisionMinutes;
   }
 }
 export function agentVesselLost(e: SimulationEngine, ship: Ship) {
   const w = e.state;
+  cancelContracts(e, ship.id, '协作舰船永久损失', 'failure');
   for (const a of w.agents.filter((a) => a.assignedShipId === ship.id)) {
+    for (const task of w.admiralTasks.filter(
+      (t) => t.agentId === a.id && ['active', 'blocked'].includes(t.status),
+    )) {
+      task.status = 'cancelled';
+      settleContract(e, task, false, '执行舰船永久损失');
+    }
     if (ship.current?.source === 'agent') agentOutcome(e, ship, ship.current, '舰船永久损失', true);
     a.assignedShipId = null;
     a.decision.revision++;
     a.status = 'unassigned';
     a.decision.pendingReasons = [];
+    a.decision.events = [];
     remember(w, a, 'outcome', ship.name + ' 永久损失，等待 Admiral 分配新舰', ship.id, 10);
     appendChat(
       e,
@@ -512,10 +595,6 @@ export function agentVesselLost(e: SimulationEngine, ship: Ship) {
       'danger',
     );
   }
-  for (const r of w.escortRequests.filter(
-    (r) => r.targetShipId === ship.id && ['pending', 'accepted'].includes(r.status),
-  ))
-    r.status = 'failed';
 }
 export function advanceAgents(e: SimulationEngine, dt: number) {
   const w = e.state;
@@ -528,26 +607,36 @@ export function advanceAgents(e: SimulationEngine, dt: number) {
       remember(w, a, 'outcome', '分配舰船永久损失，等待 Admiral 分配新舰', null, 10);
       appendChat(e, a.id, COMMAND_CHANNEL, '分配舰船已永久损失，等待新舰分配。', [], 'danger');
     }
-    const active = ship?.current?.source === 'agent' || ship?.current?.executorAgentId === a.id;
+    const active =
+      !(ship?.current?.action.type === 'REST' && ship.status === 'docked') &&
+      (ship?.current?.source === 'agent' || ship?.current?.executorAgentId === a.id);
     a.fatigue = Math.max(0, Math.min(100, a.fatigue + dt * (active ? 0.045 : -0.1)));
-    if (w.tick % 10 !== 0 || !a.enabled || a.status === 'waiting') continue;
+    if (w.tick % 10 !== 0 || !a.enabled) continue;
     if (ship && hasAdmiralWork(ship)) {
       a.status = 'admiral';
+      a.decision.pendingReasons = a.decision.pendingReasons.filter(
+        (reason) => reason !== 'admiralDirective',
+      );
+      a.decision.events = a.decision.events.filter((event) => event.id !== 'admiralDirective');
       continue;
     }
     if (a.status === 'admiral') {
       a.status = 'online';
-      wakeAgent(a, 'admiralReleased', w.time);
     }
     if (
       ship &&
       (ship.hull / capabilities(ship).hull < 0.45 ||
         w.intel.some((i) => i.live && i.hostile && !i.resolved && dist(i, ship) < 240))
     ) {
-      const lastDanger = [...a.memory]
-        .reverse()
-        .find((m) => m.kind === 'danger' && m.entityId === ship.id);
-      if (!lastDanger || w.time - lastDanger.time >= 30) {
+      const dangerKey = JSON.stringify([
+        ship.hull / capabilities(ship).hull < 0.45,
+        w.intel
+          .filter((i) => i.live && i.hostile && !i.resolved && dist(i, ship) < 240)
+          .map((i) => i.id)
+          .sort(),
+      ]);
+      if (dangerKey !== a.decision.dangerKey) {
+        a.decision.dangerKey = dangerKey;
         remember(w, a, 'danger', '已观测到近距威胁或舰体低于 45%，需要重新判断风险', ship.id, 9);
         appendChat(
           e,
@@ -557,33 +646,35 @@ export function advanceAgents(e: SimulationEngine, dt: number) {
           [],
           'danger',
         );
-        wakeAgent(a, 'danger', w.time);
+        wakeAgent(a, 'danger', w.time, true);
       }
+    } else a.decision.dangerKey = '';
+    const contextKey = decisionWorldKey(a, w);
+    if (!a.decision.contextKey) a.decision.contextKey = contextKey;
+    if (
+      !active &&
+      a.status !== 'waiting' &&
+      contextKey !== a.decision.contextKey &&
+      !a.decision.pendingReasons.length &&
+      w.time >= a.decision.nextAt
+    ) {
+      wakeAgent(a, 'opportunityChanged', w.time, true);
+      a.decision.contextKey = contextKey;
     }
-    if (!active && !a.decision.pendingReasons.length && w.time >= a.decision.nextAt)
-      wakeAgent(a, 'opportunityReview', w.time);
   }
   for (const r of w.escortRequests) {
     if (
       r.status === 'accepted' &&
-      w.ships.find((s) => s.id === r.targetShipId)?.current?.action.type === 'HAUL'
+      w.ships.find((s) => s.id === r.targetShipId)?.current?.action.type === 'HAUL' &&
+      w.ships.find((s) => s.id === r.targetShipId)?.current?.phase === 'delivering' &&
+      w.ships.some(
+        (s) =>
+          s.current?.action.type === 'ESCORT' &&
+          s.current.action.targetId === r.targetShipId &&
+          s.current.actorId === r.responderId &&
+          dist(s, w.ships.find((s) => s.id === r.targetShipId)!) < 60,
+      )
     )
       r.started = true;
-    if (
-      (r.status === 'pending' || (r.status === 'accepted' && !r.started)) &&
-      w.time > r.deadline
-    ) {
-      r.status = 'failed';
-      const requester = w.agents.find((a) => a.id === r.requesterId)!;
-      appendChat(
-        e,
-        requester.id,
-        COMMAND_CHANNEL,
-        '护航请求超时，重新评估运输风险。',
-        [],
-        'report',
-      );
-      wakeAgent(requester, 'escortTimeout', w.time);
-    }
   }
 }

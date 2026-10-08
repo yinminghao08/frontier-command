@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('frontier', {
   saveAction: (action: SaveAction) => ipcRenderer.invoke('world:save-action', action),
   setDisplayZoom: (factor: number) => ipcRenderer.invoke('display:zoom', factor),
   agentSettings: () => ipcRenderer.invoke('agent:settings'),
+  agentRuntime: () => ipcRenderer.invoke('agent:runtime'),
   configureAgentApi: (settings: AgentApiInput) =>
     ipcRenderer.invoke('agent:configure-api', settings),
   testAgentApi: (settings?: AgentApiInput) => ipcRenderer.invoke('agent:test-api', settings),

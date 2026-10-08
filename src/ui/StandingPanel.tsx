@@ -56,6 +56,24 @@ export function StandingPanel({
     <>
       <LcarsTextBar>常备命令</LcarsTextBar>
       <LcarsField>
+        海盗交货策略
+        <select
+          aria-label="海盗交货策略"
+          value={ship.piracyPolicy}
+          onChange={(e) =>
+            command({
+              type: 'setPiracyPolicy',
+              shipId: ship.id,
+              policy: e.target.value as Ship['piracyPolicy'],
+            })
+          }
+        >
+          <option value="preserveShip">保船优先 / 无法脱离或获援时有限交货</option>
+          <option value="preserveCargo">保货优先 / 濒危时交货</option>
+          <option value="manual">手动 / Admiral 决定</option>
+        </select>
+      </LcarsField>
+      <LcarsField>
         自主交战规则
         <select
           aria-label="自主交战规则"

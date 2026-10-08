@@ -16,7 +16,7 @@ import { materialize } from '../../src/engine/world-generation';
 import { AgentTestProvider } from './agent-provider';
 import type { Snapshot } from '../../src/engine/types';
 let app: ElectronApplication | undefined, provider: AgentTestProvider | undefined;
-const output = resolve('docs/verification/v13');
+const output = resolve('.test-data/verification/v14');
 const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(directory: string) {
   mkdirSync(output, { recursive: true });

@@ -6,6 +6,8 @@ import * as commands from './command-system';
 import * as projection from './projection';
 import { advanceShip } from './execution';
 import { advanceEnemy, advanceFactions } from './threats';
+import { advanceOrion } from './orion/tactics';
+import { advancePiracyPolicies } from './orion/piracy';
 import { advanceEconomy } from './services';
 import { updateSensors } from './sensors';
 import { applyDamage, fire } from './combat';
@@ -186,11 +188,15 @@ export class SimulationEngine {
     advanceEconomy(this, fixedDelta);
     advanceAdmiralTasks(this);
     advanceContracts(this);
+    advancePiracyPolicies(this);
     for (const s of [...w.ships]) {
       if (this.isCommandLost()) break;
       advanceShip(this, s, fixedDelta);
     }
-    for (const s of [...w.enemies]) {
+    advanceOrion(this, fixedDelta);
+    for (const s of [...w.enemies]
+      .filter((s) => s.factionId === 'romulan')
+      .sort((a, b) => a.id.localeCompare(b.id))) {
       if (this.isCommandLost()) break;
       advanceEnemy(this, s, fixedDelta);
     }

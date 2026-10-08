@@ -1,0 +1,55 @@
+{
+  "baseline": { "branch": "main", "commit": "ff1a12b" },
+  "completedAtUtc": "2026-10-08T08:52:42Z",
+  "saveVersion": 14,
+  "unit": {
+    "command": "npm test",
+    "files": 24,
+    "passed": 361,
+    "failed": 0,
+    "status": "passed"
+  },
+  "build": {
+    "command": "npm run build",
+    "status": "passed",
+    "checks": ["strict TypeScript", "Vite renderer", "Electron main process"]
+  },
+  "electronFullRegression": {
+    "command": "npm run test:e2e -- --workers=2",
+    "passed": 62,
+    "failed": 0,
+    "durationMinutes": 12.8,
+    "status": "passed",
+    "scope": "Complete suite before the final rescue arrival timestamp correction"
+  },
+  "electronFinalOrionRegression": {
+    "command": "npx playwright test tests/e2e/orion.spec.ts",
+    "passed": 5,
+    "failed": 0,
+    "durationMinutes": 1.0,
+    "status": "passed",
+    "scope": "Final build, including physical rescue arrival, acceptance, refusal, restart and responsive LCARS controls"
+  },
+  "naturalWorlds": {
+    "command": "node scripts/verify-orion.mjs",
+    "cases": 12,
+    "seeds": [42, 1701, 236807],
+    "gameMinutesPerCase": 360,
+    "status": "passed",
+    "evidence": "natural-worlds.json",
+    "saveValidation": "Every final world passed the strict v14 parser"
+  },
+  "demo": {
+    "snapshot": "demo/agent-demo-v14.json",
+    "head": "demo/user-data/frontiers-v14/frontier-000001/head.json",
+    "strictSaveValidation": "passed",
+    "orionShips": 10,
+    "legacyFiles": "Preserved; v14 uses independent directories without migration"
+  },
+  "isolation": {
+    "electronUserData": "Per-test isolated directories",
+    "agentProvider": "Local HTTP fixture only",
+    "orionModelCalls": 0
+  },
+  "diffCheck": "passed"
+}

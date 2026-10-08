@@ -8,7 +8,6 @@ import {
   readdirSync,
   statSync,
   rmSync,
-  cpSync,
 } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -28,7 +27,7 @@ const metaSchema = z
   })
   .strict();
 const indexSchema = z
-  .object({ version: z.literal(13), activeId: branchId, branches: z.array(metaSchema) })
+  .object({ version: z.literal(14), activeId: branchId, branches: z.array(metaSchema) })
   .strict();
 type Index = z.infer<typeof indexSchema>;
 function atomic(path: string, data: unknown) {
@@ -47,32 +46,18 @@ export class SaveStore {
   private blocked = false;
   private indexBlocked = false;
   constructor(readonly directory: string) {
-    this.root = join(directory, 'frontiers-v13');
-    this.indexPath = join(directory, 'timeline-v13.json');
+    this.root = join(directory, 'frontiers-v14');
+    this.indexPath = join(directory, 'timeline-v14.json');
     if (
       existsSync(directory) &&
       readdirSync(directory).some(
-        (file) => Number(/^timeline-v(\d+)\.json$/.exec(file)?.[1] ?? 0) > 13,
+        (file) => Number(/^timeline-v(\d+)\.json$/.exec(file)?.[1] ?? 0) > 14,
       )
     ) {
       this.blocked = true;
       this.indexBlocked = true;
       mkdirSync(this.root, { recursive: true });
       return;
-    }
-    if (
-      !existsSync(this.indexPath) &&
-      (existsSync(join(directory, 'timeline-v12.json')) ||
-        existsSync(join(directory, 'timeline-v11.json')))
-    ) {
-      try {
-        this.migrateLegacy(existsSync(join(directory, 'timeline-v12.json')) ? 12 : 11);
-      } catch {
-        this.blocked = true;
-        this.indexBlocked = true;
-        mkdirSync(this.root, { recursive: true });
-        return;
-      }
     }
     mkdirSync(this.root, { recursive: true });
     if (existsSync(this.indexPath))
@@ -106,61 +91,6 @@ export class SaveStore {
         this.indexBlocked = true;
       }
     }
-  }
-  private migrateLegacy(version: 11 | 12) {
-    const legacy = z
-      .object({ version: z.literal(version), activeId: branchId, branches: z.array(metaSchema) })
-      .strict()
-      .parse(
-        JSON.parse(readFileSync(join(this.directory, 'timeline-v' + version + '.json'), 'utf8')),
-      );
-    const next = indexSchema.parse({ ...legacy, version: 13 });
-    if (
-      !next.branches.some((b) => b.id === next.activeId) ||
-      new Set(next.branches.map((b) => b.id)).size !== next.branches.length
-    )
-      throw Error('Invalid legacy timeline');
-    for (const branch of next.branches) {
-      const visited = new Set<string>();
-      let current: string | null = branch.id;
-      while (current) {
-        if (visited.has(current)) throw Error('Cyclic legacy ancestry');
-        visited.add(current);
-        const meta = next.branches.find((b) => b.id === current);
-        if (!meta) throw Error('Missing legacy parent');
-        current = meta.parent?.id ?? null;
-      }
-    }
-    const stage = join(this.directory, '.migration-v13-' + randomUUID());
-    mkdirSync(stage);
-    const legacyRoot = join(this.directory, 'frontiers-v' + version);
-    for (const file of readdirSync(legacyRoot))
-      if (/^\.allocated-frontier-\d{6,}$/.test(file))
-        copyFileSync(join(legacyRoot, file), join(stage, file));
-    for (const branch of next.branches) {
-      const target = join(stage, branch.id);
-      cpSync(join(legacyRoot, branch.id), target, { recursive: true });
-      for (const file of readdirSync(target)) {
-        if (!/^(head\.json(?:\.bak)?|failure\.json|day-\d+\.json)$/.test(file)) continue;
-        // Preserve damaged files for the normal protected-save/backup recovery path.
-        try {
-          atomic(join(target, file), loadWorld(join(target, file)));
-        } catch (error) {
-          if (
-            !(
-              error instanceof z.ZodError ||
-              error instanceof SyntaxError ||
-              error instanceof UnsupportedSaveVersionError
-            )
-          )
-            throw error;
-        }
-      }
-    }
-    if (existsSync(this.root))
-      renameSync(this.root, join(this.directory, '.pre-migration-v13-' + randomUUID()));
-    renameSync(stage, this.root);
-    atomic(this.indexPath, next);
   }
   /** Only validated IDs can be resolved into paths used by management operations. */
   private branchDirectory(id: string) {
@@ -273,12 +203,12 @@ export class SaveStore {
         message: '时间线索引损坏或版本不支持；已保留原文件并阻止覆盖。',
         blocked: true,
       };
-    if (!this.index) return { world: null, message: 'v13 Agent边疆就绪。', blocked: false };
+    if (!this.index) return { world: null, message: 'v14 持久海盗边疆就绪。', blocked: false };
     try {
       const loaded = this.readBranch(this.index.activeId);
       return {
         world: loaded.world,
-        message: loaded.backup ? '已从同代备份恢复' : '已恢复 v13 时间线',
+        message: loaded.backup ? '已从同代备份恢复' : '已恢复 v14 时间线',
         blocked: false,
       };
     } catch (error) {
@@ -334,7 +264,7 @@ export class SaveStore {
       writeFileSync(journal, '', { flag: 'wx' });
       renameSync(dir, destination);
       moved = true;
-      this.commit({ version: 13, activeId: id, branches: [...(this.index?.branches ?? []), meta] });
+      this.commit({ version: 14, activeId: id, branches: [...(this.index?.branches ?? []), meta] });
     } catch (error) {
       rmSync(dir, { recursive: true, force: true });
       if (moved) rmSync(destination, { recursive: true, force: true });

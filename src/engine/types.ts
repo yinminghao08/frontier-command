@@ -150,6 +150,7 @@ export interface EscortRequest {
   deadline: number;
   started: boolean;
   executionStarted: boolean;
+  rescueArrivedAt?: number;
   status:
     | 'pending'
     | 'negotiating'
@@ -289,6 +290,7 @@ export interface Location extends Point {
   name: string;
   label: string;
   kind: FacilityKind;
+  defenseProfile?: 'orionHQ' | 'orionSupply';
   owner: FactionId;
   siteId: string | null;
   stock: Stock;
@@ -433,6 +435,7 @@ export interface TradeOrder {
   amount: number;
   delivered: number;
   loaded: number;
+  lost?: number;
   price: number;
   state: 'waiting' | 'loading' | 'delivery' | 'complete' | 'lost';
   carrierId: string | null;
@@ -485,6 +488,7 @@ export interface Directive {
   moved: number;
   carried: number;
   delivered: number;
+  lost?: number;
   reserved: Stock;
   paidCredits: number;
   search: number;
@@ -523,6 +527,7 @@ export interface Ship extends Point {
   queue: Directive[];
   suspended: Directive[];
   standing: StandingOrders;
+  piracyPolicy: 'preserveShip' | 'preserveCargo' | 'manual';
   path: Point[];
   heading: number;
   cargo: Stock;
@@ -539,8 +544,20 @@ export interface Ship extends Point {
 }
 export interface Enemy extends Ship {
   homeId: string;
-  role: 'scout' | 'raider' | 'warbird';
-  intent: 'observe' | 'raid' | 'probe' | 'patrol' | 'retreat' | 'docked';
+  role: 'scout' | 'raider' | 'warbird' | 'interceptor' | 'corsair' | 'smuggler';
+  intent:
+    | 'observe'
+    | 'raid'
+    | 'probe'
+    | 'patrol'
+    | 'retreat'
+    | 'docked'
+    | 'assemble'
+    | 'ambush'
+    | 'extort'
+    | 'disable'
+    | 'board'
+    | 'transfer';
   targetId: string | null;
   destination: Point | null;
   nextDecision: number;
@@ -595,6 +612,114 @@ export interface FactionState {
   losses: string[];
   stance: 'observe' | 'probe' | 'patrol' | 'reinforce' | 'escalate' | 'withdraw';
   pressure: number;
+}
+/** Private faction observations; never included in public snapshots. */
+export interface OrionReport extends Point {
+  id: string;
+  observerId: string;
+  seenAt: number;
+  kind: 'ship' | 'facility';
+  velocity: Point;
+  cargoEstimate: number;
+  value: number;
+  defense: number;
+  classId: ShipClassId | null;
+  escorts: { id: string; strength: number; x: number; y: number }[];
+}
+export type OrionPhase =
+  | 'assemble'
+  | 'deploy'
+  | 'ambush'
+  | 'extort'
+  | 'disable'
+  | 'board'
+  | 'withdraw'
+  | 'resupply';
+export interface OrionOperation {
+  id: string;
+  targetId: string;
+  members: { shipId: string; duty: 'intercept' | 'flank' | 'loot' | 'cover' | 'transport' }[];
+  phase: OrionPhase;
+  status: 'active' | 'complete' | 'aborted';
+  created: number;
+  phaseAt: number;
+  report: OrionReport;
+  motion: Point & { observedAt: number };
+  rendezvous: Point;
+  intercept: Point;
+  incidentId: string | null;
+  work: number;
+  transferWork: number;
+  initialCargo: number;
+  limit: number;
+  taken: number;
+  reason: string;
+}
+/** Received communications and own telemetry; never private enemy intent. */
+export interface PiracyIncident {
+  id: string;
+  shipId: string;
+  created: number;
+  deadline: number;
+  demand: number;
+  response: 'pending' | 'comply' | 'refuse';
+  responseSource: 'policy' | 'admiral' | null;
+  stage: 'demand' | 'transferring' | 'attacked' | 'boarding' | 'resolved';
+  boardingWork: number;
+  lost: Stock;
+  attackerIds: string[];
+  outcome: string;
+  notifiedAgentIds: string[];
+}
+export interface OrionJob {
+  id: string;
+  kind: 'ship' | 'ammo' | 'supply' | 'hq';
+  locationId: string | null;
+  builderId: string | null;
+  point: Point;
+  classId: ShipClassId | null;
+  work: number;
+  duration: number;
+  credits: number;
+  materials: number;
+  status: 'active' | 'complete' | 'lost';
+}
+export interface OrionLogistics {
+  shipId: string;
+  sourceId: string;
+  targetId: string;
+  phase: 'loading' | 'delivery';
+  work: number;
+  manifest: Stock;
+}
+export interface OrionState {
+  intelligence: Record<string, OrionReport[]>;
+  patrols: Record<string, { anchor: Point; leg: number }>;
+  operations: OrionOperation[];
+  jobs: OrionJob[];
+  logistics: OrionLogistics[];
+  servicedLoot: Record<string, Stock>;
+  lootCargo: Record<string, Stock>;
+  provisioning: { shipId: string; sourceId: string | null; headquarters: boolean }[];
+  robbedTargets: Record<string, { cargoEstimate: number; seenAt: number; departed: boolean }>;
+  nextPlan: number;
+  market: { credits: number; stock: Stock; capacity: Stock };
+  realizedIncome: number;
+  ledger: {
+    id: string;
+    time: number;
+    kind: string;
+    entityId: string;
+    credits: number;
+    goods: Stock;
+  }[];
+  shipLosses: {
+    id: string;
+    time: number;
+    cargo: Stock;
+    ammunition: Ammunition;
+    classId: ShipClassId;
+  }[];
 }
 export interface Cost {
   credits: number;
@@ -720,7 +845,9 @@ export interface SiteIntel extends Point {
   lastSeen: number;
 }
 export interface WorldState {
-  version: 13;
+  version: 14;
+  orion: OrionState;
+  piracyIncidents: PiracyIncident[];
   tick: number;
   time: number;
   seed: number;
@@ -784,7 +911,8 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 13;
+  version: 14;
+  piracyIncidents: PiracyIncident[];
   tick: number;
   time: number;
   paused: boolean;
@@ -837,6 +965,8 @@ interface SnapshotData {
   trade: TradeState;
 }
 export type Command =
+  | { type: 'respondPiracy'; incidentId: string; shipId: string; response: 'comply' | 'refuse' }
+  | { type: 'setPiracyPolicy'; shipId: string; policy: Ship['piracyPolicy'] }
   | { type: 'admiralChatTask'; agentId: string; messageId: number }
   | { type: 'assignAgent'; agentId: string; shipId: string | null }
   | { type: 'configureAgent'; agentId: string; modelConfig: Agent['modelConfig']; enabled: boolean }
@@ -930,6 +1060,8 @@ export type Command =
 export type SessionCommand = { type: 'restorePreviousDay' | 'beginNewFrontier' };
 export type CommandResult = { ok: boolean; reason: string };
 interface ObservationData {
+  piracyIncidents: PiracyIncident[];
+  rescueOptions: { agentId: string; action: Action }[];
   time: number;
   operatorId: string;
   self: Agent | null;

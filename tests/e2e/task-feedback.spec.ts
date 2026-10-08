@@ -80,7 +80,7 @@ test('Electron short LLM judgments accept immediately, reject with a reason and 
     expect(rejected.ships.find((s) => s.id === 'meridian')!.current!.id).toBe(directive);
     expect(rejected.chatMessages.some((m) => m.content.includes('等待自主判断'))).toBe(false);
     expect(errors).toEqual([]);
-    const output = resolve('docs/verification/v13');
+    const output = resolve('.test-data/verification/v14');
     mkdirSync(output, { recursive: true });
     await p.screenshot({ path: join(output, 'short-task-feedback.png') });
   } finally {

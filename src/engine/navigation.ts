@@ -43,6 +43,8 @@ export function segmentDistance(p: Point, a: Point, b: Point) {
 export function move(s: Ship, p: Point, dt: number, factor = 1) {
   const d = dist(s, p),
     step = capabilities(s).warp * dt * factor;
+  // Sensors read a physical wake from actual boosted movement, never planned routes.
+  if (d > 0 && dt > 0) s.cooldowns.warpEmission = factor > 1.25 ? 1 : 0;
   s.heading = Math.atan2(p.y - s.y, p.x - s.x);
   if (d <= step) {
     s.x = p.x;
@@ -114,7 +116,13 @@ export function safeRouteBlocked(w: Chart, start: Point, path: Point[]) {
   }
   return false;
 }
-export function planRoute(w: Chart, start: Point, end: Point, route: RouteKind): Point[] {
+export function planRoute(
+  w: Chart,
+  start: Point,
+  end: Point,
+  route: RouteKind,
+  clearance = 85,
+): Point[] {
   if (route === 'direct') return [{ x: end.x, y: end.y }];
   if (route === 'risky')
     return [
@@ -122,9 +130,13 @@ export function planRoute(w: Chart, start: Point, end: Point, route: RouteKind):
       { x: end.x, y: end.y },
     ];
   const hazards = knownRouteHazards(w).filter(
-    (h) => dist(h, start) > 85 && dist(h, end) > 85 && segmentDistance(h, start, end) < 240,
+    (h) =>
+      dist(h, start) > clearance &&
+      dist(h, end) > clearance &&
+      segmentDistance(h, start, end) < Math.max(240, clearance * 3),
   );
-  if (!hazards.some((h) => segmentDistance(h, start, end) < 85)) return [{ x: end.x, y: end.y }];
+  if (!hazards.some((h) => segmentDistance(h, start, end) < clearance))
+    return [{ x: end.x, y: end.y }];
   // Visibility graph: only known hazards, deterministic vertices and tie-breaking.
   const nodes: Point[] = [
     { x: start.x, y: start.y },
@@ -133,10 +145,10 @@ export function planRoute(w: Chart, start: Point, end: Point, route: RouteKind):
   for (const h of hazards.slice(0, 24))
     for (let i = 0; i < 8; i++) {
       const p = {
-        x: h.x + Math.cos((i * Math.PI) / 4) * 112,
-        y: h.y + Math.sin((i * Math.PI) / 4) * 112,
+        x: h.x + Math.cos((i * Math.PI) / 4) * Math.max(112, clearance * 1.32),
+        y: h.y + Math.sin((i * Math.PI) / 4) * Math.max(112, clearance * 1.32),
       };
-      if (!hazards.some((other) => dist(other, p) < 85)) nodes.push(p);
+      if (!hazards.some((other) => dist(other, p) < clearance)) nodes.push(p);
     }
   const lengths = nodes.map(() => Infinity),
     previous = nodes.map(() => -1),
@@ -156,7 +168,7 @@ export function planRoute(w: Chart, start: Point, end: Point, route: RouteKind):
     for (let i = 1; i < nodes.length; i++) {
       if (
         visited.has(i) ||
-        hazards.some((h) => segmentDistance(h, nodes[at], nodes[i]) < 85 - 1e-8)
+        hazards.some((h) => segmentDistance(h, nodes[at], nodes[i]) < clearance - 1e-8)
       )
         continue;
       const candidate = lengths[at] + dist(nodes[at], nodes[i]);

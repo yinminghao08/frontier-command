@@ -13,6 +13,7 @@ import type { CommandSender } from './types';
 import type { ComposerRequest } from './OrderComposer';
 import { LcarsTextBar, LcarsButton, LcarsField } from './components/Lcars';
 import { MineAccidentStatus } from './MineAccidentStatus';
+import { PiracyStatus } from './PiracyStatus';
 export function EventsView({
   world,
   command,
@@ -32,7 +33,19 @@ export function EventsView({
   return (
     <>
       <LcarsTextBar>持续世界事件</LcarsTextBar>
-      {!events.length && <p>暂无待处置事件。</p>}
+      {[...new Set(world.piracyIncidents.slice(-8).map((i) => i.shipId))].map((shipId) => (
+        <div key={shipId}>
+          <b>
+            {world.ships.find((s) => s.id === shipId)?.name ??
+              world.losses.find((s) => s.shipId === shipId)?.name ??
+              '运输遭遇'}
+          </b>
+          <PiracyStatus world={world} shipId={shipId} command={command} />
+        </div>
+      ))}
+      {!events.length && !world.piracyIncidents.some((i) => i.stage !== 'resolved') && (
+        <p>暂无待处置事件。</p>
+      )}
       {events.map((v) => (
         <div className="record-row" data-entity-id={v.id} key={v.id}>
           <b>

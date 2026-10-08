@@ -108,6 +108,7 @@ export const tradeOrderSchema = z
     amount: integer.min(1),
     delivered: n,
     loaded: n,
+    lost: n.optional(),
     price: n,
     state: z.enum(['waiting', 'loading', 'delivery', 'complete', 'lost']),
     carrierId: id.nullable(),

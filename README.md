@@ -1,8 +1,12 @@
 # STARFLEET: FRONTIER COMMAND
 
-**Lv1 + Lv2 + v13 自主协作。玩家是拥有最终指挥权的 Admiral。**
+**Lv1 + Lv2 + v14 持久海盗生态与自主协作。玩家是拥有最终指挥权的 Admiral。**
 
 持续世界、LCARS 26 Classic、探索、建设、实际运输、殖民地与持久势力之上，加入独立的 Battle / Logistics Agent。模型决定意图、路线风险、聊天与协作；Electron 主进程执行经过校验的高层 Action。初始 Talia 驾驶 Galaxy，Mira 驾驶 Antares；职业代表专长，不限制合法行动。
+
+Orion 的十艘初始舰分散侦察、集结伏击，勒索或登舰抢走真实货物，再实际返航、销赃、维修和造舰。护航、改线、秘密跟踪及摧毁据点会改变其收益和生存条件；舰损永久，扩军需要实际收入，上限含在建舰共24艘。普通海盗与舰船交货策略均由确定性 AI 执行。己方遇袭后，Logistics Agent 可通过现有自愿协作请求 Battle Agent 救援。
+
+新版本使用独立 `frontiers-v14` / `timeline-v14.json`，不迁移或修改旧存档。舰船详情可设置保船、保货或手动交货策略，并覆盖当前勒索响应。规则、实测数据与截图见 [v14 验证记录](docs/verification/v14/README.md)。
 
 ![v13 任务协商](docs/verification/v13/request-negotiation.png)
 
@@ -41,7 +45,7 @@ Admiral 授权攻击高于自主 ROE，仍遵守真实射程、舰船状态和�
 
 执行回执来自引擎。模型协议由实际校验定义生成，优先严格 JSON Schema，不支持时降级 JSON 模式或文本；非法结构和动作最多纠错两次，共用一次决策超时。错误显示具体字段。确认消息保存回复链且不再互相唤醒，Agent 详情显示任务来源、进度及阻碍。
 
-首次启动优先复制迁移 v12 至 `frontiers-v13` / `timeline-v13.json`；仅没有 v12 时使用 v11→v12→v13。迁移先验证冻结的旧 schema，再补充字段并验证 v13，覆盖主档、备份、每日档、failure.json、分支关系和 ID 预留。原文件与加密 API 配置保留，历史聊天不重放，旧自动物流委派不会追认为新的自愿承诺。损坏或较新的时间线保持保护。
+首次启动创建独立 v14 世界；旧 v9–v13 文件完整保留。v14 严格校验库存、行动、建设、货损与结算，损坏或较新的 v14 时间线保持保护。加密 API 配置仍独立于世界存档。
 
 ## Journey Planner
 

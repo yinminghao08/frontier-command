@@ -20,6 +20,8 @@ import {
 import { SHIP_CLASSES, type ShipClassId } from './definitions/ships';
 import { CRITICAL_KINDS, GOODS } from './types';
 import { capabilities, cargoUsed } from './capabilities';
+import { orionSchema, piracyIncidentSchema } from './orion/schema';
+import { ORION_RULES, ORION_BUILDS } from './definitions/orion';
 import {
   agentSchema,
   chatChannelSchema,
@@ -86,6 +88,7 @@ const directive = z
     moved: nn,
     carried: nn,
     delivered: nn,
+    lost: nn.optional(),
     reserved: stockSchema,
     paidCredits: nn,
     search: nn,
@@ -126,6 +129,7 @@ const ship = pointSchema
     queue: z.array(directive).max(32),
     suspended: z.array(directive).max(16),
     standing: standingSchema,
+    piracyPolicy: z.enum(['preserveShip', 'preserveCargo', 'manual']),
     path: z.array(pointSchema),
     heading: n,
     cargo: stockSchema,
@@ -179,7 +183,9 @@ const communication = z
   .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(13),
+    version: z.literal(14),
+    orion: orionSchema,
+    piracyIncidents: z.array(piracyIncidentSchema),
     tick: integer,
     time: nn,
     seed: integer.max(4294967295),
@@ -238,8 +244,21 @@ export const worldSchema = z
       ship
         .extend({
           homeId: id,
-          role: z.enum(['scout', 'raider', 'warbird']),
-          intent: z.enum(['observe', 'raid', 'probe', 'patrol', 'retreat', 'docked']),
+          role: z.enum(['scout', 'raider', 'warbird', 'interceptor', 'corsair', 'smuggler']),
+          intent: z.enum([
+            'observe',
+            'raid',
+            'probe',
+            'patrol',
+            'retreat',
+            'docked',
+            'assemble',
+            'ambush',
+            'extort',
+            'disable',
+            'board',
+            'transfer',
+          ]),
           targetId: id.nullable(),
           destination: pointSchema.nullable(),
           nextDecision: nn,
@@ -323,6 +342,7 @@ export const worldSchema = z
           name,
           label: name,
           kind: facilityKind,
+          defenseProfile: z.enum(['orionHQ', 'orionSupply']).optional(),
           owner: z.enum(['starfleet', 'orion', 'romulan']),
           siteId: id.nullable(),
           stock: stockSchema,
@@ -477,6 +497,149 @@ export const worldSchema = z
   .strict()
   .superRefine((w, ctx) => {
     const bad = (message: string) => ctx.addIssue({ code: 'custom', message });
+    const orionIds = new Set([
+      ...w.enemies.filter((s) => s.factionId === 'orion').map((s) => s.id),
+      ...w.factions.orion.losses,
+    ]);
+    const ownIds = new Set(
+      [...w.ships, ...w.civilians].map((s) => s.id).concat(w.losses.map((l) => l.shipId)),
+    );
+    const incidentIds = new Set(w.piracyIncidents.map((i) => i.id));
+    if (incidentIds.size !== w.piracyIncidents.length) bad('Duplicate piracy incident');
+    for (const i of w.piracyIncidents) {
+      if (
+        !ownIds.has(i.shipId) ||
+        i.created > w.time ||
+        i.deadline < i.created ||
+        new Set(i.attackerIds).size !== i.attackerIds.length ||
+        i.attackerIds.some((id) => !orionIds.has(id)) ||
+        i.notifiedAgentIds.some((id) => !w.agents.some((a) => a.id === id))
+      )
+        bad('Invalid piracy incident reference or time');
+    }
+    const occupied = new Set<string>();
+    const targetRefs = new Set([...ownIds, ...w.locations.map((l) => l.id)]),
+      activeTargets = new Set<string>();
+    if (
+      new Set(w.orion.operations.map((o) => o.id)).size !== w.orion.operations.length ||
+      new Set(w.orion.jobs.map((j) => j.id)).size !== w.orion.jobs.length
+    )
+      bad('Duplicate Orion action ID');
+    for (const reports of Object.values(w.orion.intelligence))
+      for (const r of reports)
+        if (r.seenAt > w.time || !targetRefs.has(r.id) || !orionIds.has(r.observerId))
+          bad('Invalid Orion observation');
+    for (const r of Object.values(w.orion.robbedTargets))
+      if (r.seenAt > w.time) bad('Invalid Orion cargo-batch time');
+    for (const op of w.orion.operations) {
+      if (
+        op.created > w.time ||
+        op.phaseAt > w.time ||
+        op.report.seenAt > w.time ||
+        op.motion.observedAt > w.time ||
+        op.taken > op.limit + 1e-7 ||
+        new Set(op.members.map((m) => m.shipId)).size !== op.members.length ||
+        op.members.some((m) => !orionIds.has(m.shipId)) ||
+        !targetRefs.has(op.targetId) ||
+        (op.incidentId && !incidentIds.has(op.incidentId)) ||
+        op.report.id !== op.targetId
+      )
+        bad('Invalid Orion operation');
+      if (op.status === 'active') {
+        if (activeTargets.has(op.targetId)) bad('Overlapping Orion target');
+        activeTargets.add(op.targetId);
+      }
+      if (op.status === 'active')
+        for (const m of op.members) {
+          if (occupied.has(m.shipId)) bad('Orion ship in overlapping operations');
+          occupied.add(m.shipId);
+        }
+    }
+    for (const j of w.orion.jobs) {
+      if (
+        j.work > j.duration + 1e-7 ||
+        (j.builderId && !orionIds.has(j.builderId)) ||
+        (j.locationId && !w.locations.some((l) => l.id === j.locationId)) ||
+        (j.kind === 'ship' && (!j.classId || !Object.hasOwn(ORION_BUILDS, j.classId))) ||
+        ((j.kind === 'supply' || j.kind === 'hq') && !j.builderId)
+      )
+        bad('Invalid Orion paid job');
+      if (j.kind === 'ship' && j.classId && Object.hasOwn(ORION_BUILDS, j.classId)) {
+        const d = ORION_BUILDS[j.classId as keyof typeof ORION_BUILDS];
+        if (j.credits !== d.credits || j.materials !== d.materials || j.duration !== d.minutes)
+          bad('Invalid Orion build payment');
+      }
+      if (
+        j.kind === 'ammo' &&
+        (j.materials !== 1 || j.credits !== 4 || j.duration !== 5 || j.builderId || j.classId)
+      )
+        bad('Invalid Orion ammunition payment');
+      if (j.kind === 'hq' || j.kind === 'supply') {
+        const cost = j.kind === 'hq' ? ORION_RULES.hqCost : ORION_RULES.supplyCost;
+        if (
+          j.credits !== cost.credits ||
+          j.materials !== cost.materials ||
+          j.duration !== cost.minutes ||
+          j.classId ||
+          j.locationId
+        )
+          bad('Invalid Orion construction payment');
+      }
+    }
+    if (
+      w.enemies.filter((s) => s.factionId === 'orion').length +
+        w.orion.jobs.filter((j) => j.kind === 'ship' && j.status === 'active').length >
+      ORION_RULES.fleetLimit
+    )
+      bad('Orion fleet exceeds paid capacity');
+    for (const k of GOODS)
+      if (w.orion.market.stock[k] > w.orion.market.capacity[k] + 1e-7)
+        bad('Orion market exceeds capacity');
+    for (const [shipId, loot] of Object.entries(w.orion.lootCargo)) {
+      const ship = w.enemies.find((s) => s.id === shipId);
+      if (ship && GOODS.some((k) => loot[k] > ship.cargo[k] + 1e-7))
+        bad('Orion loot exceeds physical cargo');
+    }
+    if (
+      new Set(w.orion.ledger.map((l) => l.id)).size !== w.orion.ledger.length ||
+      w.orion.ledger.some((l) => l.time > w.time)
+    )
+      bad('Invalid Orion ledger');
+    for (const l of w.orion.ledger.filter((l) => l.kind === 'sale'))
+      if (
+        Math.abs(
+          l.credits - GOODS.reduce((n, k) => n + l.goods[k] * ORION_RULES.marketPrices[k], 0),
+        ) > 1e-6
+      )
+        bad('Invalid Orion sale payment');
+    for (const p of w.orion.provisioning)
+      if (!orionIds.has(p.shipId) || (p.sourceId && !w.locations.some((l) => l.id === p.sourceId)))
+        bad('Invalid Orion construction supply reference');
+    for (const loss of w.orion.shipLosses)
+      if (!w.factions.orion.losses.includes(loss.id) || loss.time > w.time)
+        bad('Invalid Orion permanent loss');
+    if (
+      w.orion.realizedIncome !==
+      w.orion.ledger.filter((l) => l.kind === 'sale').reduce((n, l) => n + l.credits, 0)
+    ) {
+      const delta = Math.abs(
+        w.orion.realizedIncome -
+          w.orion.ledger.filter((l) => l.kind === 'sale').reduce((n, l) => n + l.credits, 0),
+      );
+      if (delta > 1e-6) bad('Orion realized income does not match sales');
+    }
+    for (const t of w.orion.logistics)
+      if (
+        !orionIds.has(t.shipId) ||
+        !w.locations.some((l) => l.id === t.sourceId) ||
+        !w.locations.some((l) => l.id === t.targetId)
+      )
+        bad('Invalid Orion physical supply route');
+    for (const ship of [...w.ships, ...w.enemies, ...w.civilians]) {
+      for (const d of [ship.current, ...ship.queue, ...ship.suspended])
+        if (d && d.action.type === 'HAUL' && (d.lost ?? 0) + d.delivered > d.carried + 1e-7)
+          bad('Cargo loss exceeds loaded manifest');
+    }
     const agentIds = new Set(w.agents.map((a) => a.id)),
       actors = new Set([w.commander.id, ...agentIds]);
     if (
@@ -606,6 +769,10 @@ export const worldSchema = z
         r.requesterId === r.responderId ||
         r.created > w.time ||
         r.deadline < r.created ||
+        (r.rescueArrivedAt !== undefined &&
+          (r.kind !== 'reinforce' ||
+            r.rescueArrivedAt < r.created ||
+            r.rescueArrivedAt > w.time)) ||
         ![...w.ships.map((s) => s.id), ...w.losses.map((l) => l.shipId)].includes(r.targetShipId)
       )
         bad('Invalid escort contract');

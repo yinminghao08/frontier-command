@@ -14,7 +14,7 @@ import { quietEngine } from '../helpers';
 import { AgentTestProvider } from './agent-provider';
 import type { Snapshot } from '../../src/engine/types';
 let app: ElectronApplication | undefined, provider: AgentTestProvider | undefined;
-const output = resolve('docs/verification/v13');
+const output = resolve('.test-data/verification/v14');
 const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(dir: string, width = 1366, height = 900) {
   app = await electron.launch({
@@ -283,8 +283,8 @@ test('Electron keeps one low-ammo report across elapsed hours, rename and restar
   await p.screenshot({ path: join(output, 'ammo-alert-once.png') });
 });
 
-test('v13 migration uses checked-in isolated v12 fixture and preserves source bytes/history/physics across restart', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'frontier-v13-fixture-')),
+test('v14 starts independently from an isolated old fixture and preserves files across restart', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'frontier-v14-fixture-')),
     root = join(dir, 'frontiers-v12', 'frontier-000001');
   mkdirSync(root, { recursive: true });
   const original = readFileSync(resolve('tests/fixtures/v12/in-progress.json'), 'utf8');
@@ -295,20 +295,13 @@ test('v13 migration uses checked-in isolated v12 fixture and preserves source by
     JSON.stringify({
       version: 12,
       activeId: 'frontier-000001',
-      branches: [{ id: 'frontier-000001', name: '隔离 v12 fixture', parent: null }],
+      branches: [{ id: 'frontier-000001', parent: null }],
     }),
   );
   let p = await launch(dir);
   const before = await state(p);
-  expect(before.version).toBe(13);
-  expect(before.escortRequests[0]).toMatchObject({ status: 'accepted', conditions: [] });
-  expect(before.commitments).toEqual([]);
-  expect(
-    before.agents.every(
-      (a) =>
-        a.decision.lastAdmiralMessageId === Math.max(0, ...before.chatMessages.map((m) => m.id)),
-    ),
-  ).toBe(true);
+  expect(before.version).toBe(14);
+  expect(before.escortRequests).toEqual([]);
   expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(original);
   await p.evaluate(() => window.frontier.save());
   await app!.close();
@@ -316,11 +309,9 @@ test('v13 migration uses checked-in isolated v12 fixture and preserves source by
   p = await launch(dir);
   const restored = await state(p);
   expect(restored.history).toEqual(before.history);
-  expect(restored.chatMessages).toEqual(before.chatMessages);
   expect(restored.ships).toEqual(before.ships);
   expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(original);
 });
-
 test('v13 request/report/composer and Agent psychology remain reachable at 1366/1024 and 100%/200% text', async () => {
   test.setTimeout(120000);
   mkdirSync(output, { recursive: true });

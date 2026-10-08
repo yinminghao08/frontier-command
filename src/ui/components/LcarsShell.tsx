@@ -304,7 +304,7 @@ export function LcarsShell({
           <span>
             LCARS / 2368
             <br />
-            AGENT LINK / V13
+            AGENT LINK / V14
           </span>
           <LcarsButton
             shape="flat"
@@ -386,6 +386,9 @@ export function LcarsShell({
                   {o.queue.length} QUEUED / {o.suspended.length} SUSPENDED
                 </span>
                 <small>{actionProgress(world, o).text}</small>
+                {world.piracyIncidents.some((i) => i.shipId === o.id && i.stage !== 'resolved') && (
+                  <small>ORION / 遭遇威胁 · 可选择舰船响应</small>
+                )}
               </LcarsButton>
             ))
           ) : (

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { quietEngine, issue, run, until, v11Fixture } from './helpers';
+import { quietEngine, issue, run, until } from './helpers';
 import { SimulationEngine } from '../src/engine/engine';
 import { makeAgent, registerAgent } from '../src/engine/agents';
 import { makeEnemy } from '../src/engine/data';
@@ -404,46 +404,27 @@ describe('Schema constraints and bounded repairs', () => {
     expect(e.state).toEqual(before);
   });
 });
-describe('v11 migration seals historical chat and retains original timeline files', () => {
-  it('copies branches/daily saves, preserves progress and never replays old commands', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'frontier-migration-'));
+describe('v14 starts an independent world and preserves historical chat files', () => {
+  it('does not import or replay old commands and leaves older branch bytes unchanged', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'frontier-v14-isolation-'));
     directories.push(dir);
-    const e = quietEngine();
-    appendChat(e, 'commander', privateChannel(battle), '立即开火');
-    const legacy = v11Fixture(e.state);
+    const old = readFileSync('demo/agent-demo-v11.json', 'utf8');
+    const root = join(dir, 'frontiers-v11', 'frontier-000001');
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'head.json'), old);
     const index = JSON.stringify({
       version: 11,
       activeId: 'frontier-000001',
-      branches: [
-        { id: 'frontier-000001', name: '我的存档', parent: null },
-        { id: 'frontier-000002', name: '分支', parent: { id: 'frontier-000001', day: 1 } },
-      ],
+      branches: [{ id: 'frontier-000001', parent: null }],
     });
     writeFileSync(join(dir, 'timeline-v11.json'), index);
-    const original = JSON.stringify(legacy);
-    for (const id of ['frontier-000001', 'frontier-000002']) {
-      const path = join(dir, 'frontiers-v11', id);
-      mkdirSync(path, { recursive: true });
-      writeFileSync(join(path, 'head.json'), original);
-      writeFileSync(join(path, 'day-1.json'), original);
-    }
-    const store = new SaveStore(dir),
-      read = store.read();
-    expect(read.blocked).toBe(false);
-    expect(read.world?.version).toBe(13);
-    expect(read.world?.ships).toEqual(e.state.ships);
-    expect(read.world?.admiralTasks).toEqual([]);
-    expect(
-      read.world?.agents.every((a) => a.decision.lastAdmiralMessageId === e.state.nextChat - 1),
-    ).toBe(true);
-    expect(store.catalog()).toMatchObject({ activeId: 'frontier-000001' });
+    const store = new SaveStore(dir);
+    expect(store.read().world).toBeNull();
+    expect(store.read().blocked).toBe(false);
+    store.write(quietEngine().state);
+    expect(store.read().world?.version).toBe(14);
+    expect(store.read().world?.admiralTasks).toEqual([]);
+    expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(old);
     expect(readFileSync(join(dir, 'timeline-v11.json'), 'utf8')).toBe(index);
-    expect(readFileSync(join(dir, 'frontiers-v11', 'frontier-000001', 'head.json'), 'utf8')).toBe(
-      original,
-    );
-    expect(
-      JSON.parse(readFileSync(join(dir, 'frontiers-v13', 'frontier-000002', 'day-1.json'), 'utf8'))
-        .version,
-    ).toBe(13);
   });
 });

@@ -6,6 +6,8 @@ import { decideThreat, advanceEnemy } from '../src/engine/threats';
 import { capabilities } from '../src/engine/capabilities';
 import { BUILD_COSTS } from '../src/engine/definitions/progression';
 import { worldSchema } from '../src/engine/save-schema';
+import { move } from '../src/engine/navigation';
+import { canDetectShip } from '../src/engine/tracking';
 describe('frontier construction and capabilities', () => {
   it.each(['mine', 'outpost', 'colony'] as const)(
     'builds %s only after on-site cargo arrives, without claiming ships',
@@ -250,7 +252,7 @@ describe('frontier construction and capabilities', () => {
   });
 });
 describe('persistent Orion and Romulan ecology', () => {
-  it('a turbulent high-speed route exposes real traffic farther away, only while underway', () => {
+  it('sensors see actual boosted warp emissions, while unread route orders and paths give no contact', () => {
     for (const route of ['safe', 'direct', 'risky'] as const) {
       const e = quietEngine(),
         s = e.state.ships[0];
@@ -280,88 +282,75 @@ describe('persistent Orion and Romulan ecology', () => {
         s.id,
       );
       s.path = [{ x: s.x + 20, y: s.y }];
+      expect(canDetectShip(scout, s, e.state.time)).toBe(false);
+      move(s, s.path[0], 0.1, route === 'risky' ? 1.5 : 1);
       decideThreat(e, scout);
       expect(scout.localReports.some((r) => r.id === s.id)).toBe(route === 'risky');
       s.path = [];
+      move(s, { x: s.x + 10, y: s.y }, 0.1);
+      expect(canDetectShip(scout, s, e.state.time)).toBe(false);
       e.state.factions.orion.reports = [];
       scout.localReports = [];
       scout.nextDecision = 0;
       decideThreat(e, scout);
-      expect(scout.localReports.some((r) => r.id === s.id)).toBe(false);
+      expect(scout.localReports.find((r) => r.id === s.id)?.seenAt).toBe(
+        route === 'risky' ? 0 : undefined,
+      );
     }
   });
-  it('scout intelligence and exposed value cause a raid; heavy escort makes the same lane unattractive', () => {
+  it('locally observed traffic launches coordinated work, and an observed heavy escort makes the same traffic unattractive', () => {
     const e = quietEngine(),
-      s = e.state.ships[0],
-      scout = makeEnemy('scout', 'raider', 'orion', { x: 200, y: 0 }, 'orion-base', 'scout'),
-      raider = makeEnemy('r', 'raider', 'orion', { x: 350, y: 0 });
-    e.state.enemies = [scout, raider];
-    s.x = 210;
-    s.y = 0;
-    s.cargo.materials = 100;
-    decideThreat(e, scout);
+      s = e.state.ships[0];
+    for (const ship of e.state.ships) {
+      ship.x = -4000;
+      ship.y = -4000;
+    }
+    s.x = 100;
+    s.y = 1000;
+    s.cargo.materials = 200;
+    const raider = makeEnemy('r', 'orionRaider', 'orion', { x: 80, y: 1000 });
+    e.state.enemies = [raider];
     decideThreat(e, raider);
-    expect(raider.intent).toBe('observe');
-    const hideout = e.state.locations.find((l) => l.id === 'orion-base')!;
-    scout.x = hideout.x;
-    scout.y = hideout.y;
-    scout.nextDecision = 0;
-    decideThreat(e, scout);
-    raider.nextDecision = 0;
-    decideThreat(e, raider);
-    expect(raider.intent).toBe('raid');
+    expect(raider.intent).toBe('assemble');
     expect(raider.targetId).toBe(s.id);
+    e.state.orion.operations = [];
+    e.state.orion.nextPlan = 0;
+    raider.intent = 'observe';
+    raider.targetId = null;
     const escort = e.state.ships[3];
     escort.x = s.x;
     escort.y = s.y;
-    raider.nextDecision = 0;
-    scout.x = 210;
-    scout.y = 0;
-    scout.nextDecision = 0;
-    decideThreat(e, scout);
-    scout.x = hideout.x;
-    scout.y = hideout.y;
-    scout.nextDecision = 0;
-    decideThreat(e, scout);
     decideThreat(e, raider);
     expect(raider.intent).toBe('observe');
+    expect(e.state.orion.operations).toEqual([]);
   });
-  it('raiders steal actual cargo, return to a persistent hideout and spend resources for recovery', () => {
+  it('timed extortion steals actual cargo and physically returns it to a persistent hideout', () => {
     const e = quietEngine(),
-      s = e.state.ships[0],
-      raider = makeEnemy('thief', 'raider', 'orion', { x: 80, y: 0 });
-    e.state.enemies = [raider];
-    s.x = 100;
-    s.y = 0;
+      s = e.state.ships[0];
+    for (const ship of e.state.ships) {
+      ship.x = -4000;
+      ship.y = -4000;
+    }
+    const home = e.state.locations.find((l) => l.id === 'orion-base')!;
+    home.x = 500;
+    home.y = 1000;
+    s.x = 600;
+    s.y = 1000;
     s.cargo.materials = 40;
     s.shield = 0;
     s.hull = 50;
     s.standing.roe = 'HOLD FIRE';
-    raider.intent = 'raid';
-    raider.targetId = s.id;
-    raider.destination = { x: s.x, y: s.y };
-    raider.nextDecision = 1e9;
-    e.state.factions.orion.reports = [
-      {
-        id: s.id,
-        observerId: raider.id,
-        seenAt: 0,
-        value: 320,
-        defense: 30,
-        kind: 'ship',
-        x: s.x,
-        y: s.y,
-      },
-    ];
-    const home = e.state.locations.find((l) => l.id === 'orion-base')!,
-      old = home.stock.materials;
-    advanceEnemy(e, raider, 0.1);
-    expect(s.cargo.materials).toBeLessThan(40);
+    const raider = makeEnemy('thief', 'orionRaider', 'orion', { x: 590, y: 1000 }, home.id);
+    e.state.enemies = [raider];
+    decideThreat(e, raider);
+    run(e, 1);
+    expect(s.cargo.materials).toBe(40);
+    until(e, () => e.state.piracyIncidents.some((i) => i.stage === 'resolved'), 30);
+    expect(s.cargo.materials).toBe(30);
     expect(raider.loot).toBeGreaterThan(0);
-    expect(raider.intent).toBe('retreat');
-    until(e, () => raider.loot === 0, 200);
+    until(e, () => raider.loot === 0, 100);
     expect(e.state.enemies).toContain(raider);
-    expect(home.stock.materials).toBeGreaterThan(old);
+    expect(home.stock.materials).toBeGreaterThan(0);
     expect(e.state.history.some((h) => h.kind === 'cargoLoss')).toBe(true);
   });
   it('destroyed ships reduce real assets and cannot respawn without industrial resources', () => {
@@ -379,7 +368,7 @@ describe('persistent Orion and Romulan ecology', () => {
     e.state.factions.orion.credits = 100;
     run(e, 31);
     expect(e.state.enemies).toHaveLength(1);
-    expect(home.stock.materials).toBe(0);
+    expect(home.stock.materials).toBe(2);
     expect(e.state.factions.orion.credits).toBe(0);
   });
   it('neutral Romulans are excluded from autonomous attack; explicit attack raises political tension', () => {
@@ -483,6 +472,9 @@ describe('faction recovery, political actions and long-lived save invariants', (
     r.intent = 'retreat';
     r.cargo.materials = 12;
     r.loot = 12;
+    e.state.orion.lootCargo[r.id] = { ...emptyStock(), materials: 12 };
+    home.stock.materials = 15;
+    home.stock.photon = 3;
     r.hull = 80;
     r.photon = 0;
     run(e, 15);

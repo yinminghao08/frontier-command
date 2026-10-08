@@ -15,7 +15,7 @@ import { COMMAND_CHANNEL, privateChannel } from '../../src/engine/chat';
 import type { Snapshot, WorldState } from '../../src/engine/types';
 import { AgentTestProvider } from './agent-provider';
 let app: ElectronApplication | undefined, provider: AgentTestProvider | undefined;
-const output = resolve('docs/verification/v13');
+const output = resolve('.test-data/verification/v14');
 const testKey = 'isolated-e2e-test-key';
 const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(directory: string) {
@@ -71,9 +71,6 @@ function fixture(): WorldState {
 async function configureApi(p: Page, url: string) {
   await p.getByRole('button', { name: 'Console Settings', exact: true }).click();
   const settings = p.getByRole('dialog', { name: '控制台设置' });
-  await settings.getByLabel('全局请求上限').fill('120');
-  await settings.getByLabel('Agent 请求上限').fill('60');
-  await settings.getByRole('button', { name: '保存调用上限', exact: true }).click();
   await settings.getByLabel('Agent API Base URL').fill(url);
   await settings.getByLabel('Agent API Key').fill(testKey);
   await settings.getByLabel('Agent 默认模型').fill('base-model');
@@ -248,7 +245,7 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   app = undefined;
   const restarted = await launch(directory);
   const loaded = await state(restarted);
-  expect(loaded.version).toBe(13);
+  expect(loaded.version).toBe(14);
   expect(loaded.chatMessages).toEqual(persisted.chatMessages);
   expect(loaded.agents.find((a) => a.id === graduate.id)?.assignedShipId).toBe('verity');
   expect(loaded.agents.find((a) => a.id === 'ops-horizon')?.modelConfig.model).toBe(
@@ -375,7 +372,7 @@ test('Electron v11: floating communications stays usable at narrow widths and 20
   }
 });
 
-test('Electron v13: legacy demo preserves physical progress; a new demo awaits genuine model consent', async () => {
+test('Electron v14: old demo files stay untouched; a new demo awaits genuine model consent', async () => {
   test.setTimeout(90000);
   const directory = mkdtempSync(join(tmpdir(), 'frontier-v11-demo-'));
   cpSync(resolve('demo/user-data/frontiers-v11'), join(directory, 'frontiers-v11'), {
@@ -385,28 +382,12 @@ test('Electron v13: legacy demo preserves physical progress; a new demo awaits g
   const p = await launch(directory);
   const initial = await state(p);
   expect(initial.paused).toBe(true);
-  expect(initial.speed).toBe(16);
+  expect(initial.version).toBe(14);
+  expect(initial.speed).toBe(1);
   expect((await p.evaluate(() => window.frontier.agentSettings())).hasKey).toBe(false);
-  await p.getByTestId('chat-launcher').click();
-  const chat = p.getByRole('dialog', { name: '舰队通讯' });
-  await expect(chat).toContainText('已接受护航');
-  await expect(chat).toContainText('120 Materials');
-  mkdirSync(output, { recursive: true });
-  await p.screenshot({ path: join(output, 'demo-command-chat.png') });
-  await p.getByRole('button', { name: '继续', exact: true }).click();
-  await wait(p, (w) => w.escortRequests[0].status === 'completed' && w.agents.length === 3);
-  const completed = await state(p);
-  expect(completed.locations.find((l) => l.id === 'base')!.stock.materials).toBe(
-    initial.locations.find((l) => l.id === 'base')!.stock.materials + 40,
+  expect(readFileSync(join(directory, 'timeline-v11.json'), 'utf8')).toBe(
+    readFileSync(resolve('demo/user-data/timeline-v11.json'), 'utf8'),
   );
-  expect(
-    completed.history.some((h) => h.kind === 'wormhole' && h.text.includes('MERIDIAN-1')),
-  ).toBe(true);
-  await chat.locator('[data-channel-id="system-reports"]').click();
-  await expect(chat.getByRole('log')).toContainText('HAUL 完成');
-  await p.getByRole('button', { name: '暂停', exact: true }).click();
-  await p.screenshot({ path: join(output, 'demo-delivery-completed.png') });
-  await chat.getByRole('button', { name: '关闭面板', exact: true }).click();
   await nav(p, 'ARCHIVE');
   const manager = p.getByRole('dialog', { name: 'ARCHIVE 工作面板' });
   await manager.getByRole('button', { name: 'AGENT DEMO / 演示存档', exact: true }).click();

@@ -7,7 +7,9 @@ import {
   worldText,
 } from './localization';
 import { BASE_REFIT } from '../engine/definitions/progression';
+import { facilityCapabilities } from '../engine/definitions/facilities';
 import { StandingPanel } from './StandingPanel';
+import { PiracyStatus } from './PiracyStatus';
 import { EventsView } from './EventsView';
 import { useState, useEffect } from 'react';
 import type { Snapshot, Action, FacilityKind } from '../engine/types';
@@ -205,6 +207,7 @@ export function Inspector({
       <>
         <LcarsTextBar literal>{name(s)}</LcarsTextBar>
         <p>{SHIP_LABELS[s.classId]} · 舰队司令拥有最终指挥权</p>
+        <PiracyStatus world={world} shipId={s.id} command={command} />
         {c.cloak && (
           <>
             <LcarsButton
@@ -539,7 +542,7 @@ export function Inspector({
           )}
         </div>
         <p>
-          相位炮射程 {FACILITIES[l.kind].range} · {l.hull > 0 ? '自卫火控在线' : '火控离线'}
+          相位炮射程 {facilityCapabilities(l).range} · {l.hull > 0 ? '自卫火控在线' : '火控离线'}
         </p>
         {l.occupation ? (
           <>

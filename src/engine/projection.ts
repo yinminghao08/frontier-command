@@ -76,6 +76,11 @@ export function snapshot(this: SimulationEngine): Snapshot {
     publicPoints.some((x) => Math.hypot(x.x - p.x, x.y - p.y) < 20);
   return structuredClone({
     version: w.version,
+    piracyIncidents: w.piracyIncidents.map(({ notifiedAgentIds, ...i }) => ({
+      ...i,
+      notifiedAgentIds: [],
+      attackerIds: i.attackerIds.filter((id) => w.intel.some((c) => c.id === id)),
+    })),
     tick: w.tick,
     time: w.time,
     paused: w.paused,
@@ -362,6 +367,18 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
       selectedChat.set(message.id, message);
   return structuredClone({
     time: snap.time,
+    piracyIncidents: snap.piracyIncidents.filter(
+      (i) =>
+        i.shipId === ship?.id ||
+        snap.contacts.some((c) => c.hostile && i.attackerIds.includes(c.id)),
+    ),
+    rescueOptions: ship
+      ? snap.agents
+          .filter(
+            (a) => a.id !== operatorId && a.career === 'battle' && a.enabled && a.assignedShipId,
+          )
+          .map((a) => ({ agentId: a.id, action: { type: 'ESCORT' as const, targetId: ship.id } }))
+      : [],
     operatorId,
     self,
     ship,

@@ -14,7 +14,7 @@ import { createEvent } from '../../src/engine/world-events';
 import type { WorldState } from '../../src/engine/types';
 
 let app: ElectronApplication | undefined;
-const output = resolve('docs/verification/v13/mine-accidents');
+const output = resolve('.test-data/verification/v14/mine-accidents');
 const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(world: WorldState) {
   const directory = mkdtempSync(join(tmpdir(), 'frontier-mine-repair-'));

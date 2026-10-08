@@ -16,7 +16,7 @@ import { MAP_PALETTE } from '../../src/ui/map/palette';
 import type { Snapshot, WorldState, Action } from '../../src/engine/types';
 import { inspectTitleBars, inspectTypography } from './typography';
 let app: ElectronApplication | undefined;
-const output = resolve('docs/verification/v13/regression-v9');
+const output = resolve('.test-data/verification/v14/regression-v9');
 async function launch(world: WorldState, scale = 1, visible = false) {
   mkdirSync(output, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'frontier-recon-v9-'));

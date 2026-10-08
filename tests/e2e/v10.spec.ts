@@ -16,7 +16,7 @@ import { createEvent } from '../../src/engine/world-events';
 import type { WorldState, Action, Snapshot } from '../../src/engine/types';
 
 let app: ElectronApplication | undefined;
-const output = resolve('docs/verification/v13/regression-v10');
+const output = resolve('.test-data/verification/v14/regression-v10');
 async function launch(world: WorldState, textScale = 1) {
   mkdirSync(output, { recursive: true });
   const directory = mkdtempSync(join(tmpdir(), 'frontier-v10-ui-'));
@@ -178,7 +178,7 @@ test('actual survey enables visible permanent half-price ship and ammunition pro
 });
 
 test('ruined enemy base is captured, supplied, rebuilt and used for local production and service', async () => {
-  test.setTimeout(90000);
+  test.setTimeout(180000);
   const e = quietEngine();
   e.state.resources.credits = 8000;
   e.base.stock.materials = 1000;

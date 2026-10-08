@@ -151,6 +151,7 @@ export const escortRequestSchema = z
     deadline: n,
     started: z.boolean(),
     executionStarted: z.boolean(),
+    rescueArrivedAt: z.number().finite().min(0).optional(),
     status: z.enum([
       'pending',
       'negotiating',

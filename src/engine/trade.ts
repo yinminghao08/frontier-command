@@ -5,6 +5,7 @@ import { TRADE_PRICES } from './definitions/frontier';
 import { available, deposit, space } from './inventory';
 import { move, dist } from './navigation';
 import { regenerate } from './combat';
+import { piracyTransferHolds } from './orion/piracy';
 export function tradeReason(
   e: SimulationEngine,
   direction: 'buy' | 'sell',
@@ -90,6 +91,7 @@ export function advanceTrade(e: SimulationEngine, dt: number) {
     t = w.trade;
   for (const s of [...w.civilians]) {
     regenerate(s, w.time, dt);
+    if (piracyTransferHolds(e, s)) continue;
     autonomousFire(e, s);
     if (s.phase === 'idle') {
       const order = t.orders.find((o) => o.state === 'waiting');

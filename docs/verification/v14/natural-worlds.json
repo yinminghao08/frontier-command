@@ -1,0 +1,833 @@
+[
+  {
+    "seed": 42,
+    "amount": 120,
+    "route": "direct",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine"
+      ],
+      "taken": 15,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 10,
+    "losses": [],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 15,
+        "reason": "实际观测到不可承担的战斗风险"
+      },
+      {
+        "target": "mine",
+        "created": 225.1,
+        "phase": "withdraw",
+        "status": "active",
+        "taken": 70,
+        "reason": "实际观测到不可承担的战斗风险"
+      }
+    ],
+    "realizedIncome": 106.25,
+    "budget": 606.25,
+    "marketInventory": {
+      "materials": 21.25,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 646
+  },
+  {
+    "seed": 42,
+    "amount": 600,
+    "route": "direct",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine"
+      ],
+      "taken": 15,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 10,
+    "losses": [],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 15,
+        "reason": "实际观测到不可承担的战斗风险"
+      },
+      {
+        "target": "meridian",
+        "created": 125.1,
+        "phase": "resupply",
+        "status": "aborted",
+        "taken": 0,
+        "reason": "实际观测到不可承担的战斗风险"
+      },
+      {
+        "target": "mine",
+        "created": 230.1,
+        "phase": "withdraw",
+        "status": "active",
+        "taken": 70,
+        "reason": "实际观测到不可承担的战斗风险"
+      }
+    ],
+    "realizedIncome": 106.25,
+    "budget": 606.25,
+    "marketInventory": {
+      "materials": 21.25,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 646
+  },
+  {
+    "seed": 42,
+    "amount": 600,
+    "route": "risky",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine",
+        "meridian"
+      ],
+      "taken": 10,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 10,
+    "losses": [],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 10,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "meridian",
+        "created": 90.1,
+        "phase": "resupply",
+        "status": "aborted",
+        "taken": 0,
+        "reason": "目标信号失联，预测搜索已到限度"
+      },
+      {
+        "target": "mine",
+        "created": 235.1,
+        "phase": "withdraw",
+        "status": "active",
+        "taken": 160,
+        "reason": "掠夺额度已达，优先保全赃物"
+      }
+    ],
+    "realizedIncome": 12.5,
+    "budget": 512.5,
+    "marketInventory": {
+      "materials": 2.5,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 644
+  },
+  {
+    "seed": 42,
+    "amount": 600,
+    "route": "safe",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine"
+      ],
+      "taken": 15,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 10,
+    "losses": [],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 15,
+        "reason": "实际观测到不可承担的战斗风险"
+      },
+      {
+        "target": "meridian",
+        "created": 125.1,
+        "phase": "resupply",
+        "status": "aborted",
+        "taken": 0,
+        "reason": "实际观测到不可承担的战斗风险"
+      },
+      {
+        "target": "mine",
+        "created": 230.1,
+        "phase": "withdraw",
+        "status": "active",
+        "taken": 70,
+        "reason": "实际观测到不可承担的战斗风险"
+      }
+    ],
+    "realizedIncome": 106.25,
+    "budget": 606.25,
+    "marketInventory": {
+      "materials": 21.25,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 646
+  },
+  {
+    "seed": 1701,
+    "amount": 120,
+    "route": "direct",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine"
+      ],
+      "taken": 120,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 10,
+    "losses": [
+      "orion-scout"
+    ],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 120,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "mine",
+        "created": 200.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 120,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "mine",
+        "created": 335.1,
+        "phase": "withdraw",
+        "status": "active",
+        "taken": 0,
+        "reason": "目标信号失联，预测搜索已到限度"
+      }
+    ],
+    "realizedIncome": 300,
+    "budget": 540,
+    "marketInventory": {
+      "materials": 60,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [
+      {
+        "id": "orion-job-50",
+        "classId": "orionRaider",
+        "status": "complete",
+        "work": 35,
+        "duration": 35,
+        "credits": 160,
+        "materials": 28
+      },
+      {
+        "id": "orion-job-64",
+        "classId": "orionScout",
+        "status": "active",
+        "work": 0,
+        "duration": 25,
+        "credits": 100,
+        "materials": 18
+      }
+    ],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 650
+  },
+  {
+    "seed": 1701,
+    "amount": 600,
+    "route": "direct",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine"
+      ],
+      "taken": 17.400000000000023,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 9,
+    "losses": [
+      "orion-scout"
+    ],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 17.400000000000023,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "meridian",
+        "created": 125.1,
+        "phase": "resupply",
+        "status": "aborted",
+        "taken": 0,
+        "reason": "目标信号失联，预测搜索已到限度"
+      },
+      {
+        "target": "mine",
+        "created": 210.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 100,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "mine",
+        "created": 340.1,
+        "phase": "withdraw",
+        "status": "active",
+        "taken": 0,
+        "reason": "目标信号失联，预测搜索已到限度"
+      }
+    ],
+    "realizedIncome": 146.75000000000003,
+    "budget": 546.75,
+    "marketInventory": {
+      "materials": 29.350000000000005,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [
+      {
+        "id": "orion-job-50",
+        "classId": "orionScout",
+        "status": "active",
+        "work": 0,
+        "duration": 25,
+        "credits": 100,
+        "materials": 18
+      }
+    ],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 650
+  },
+  {
+    "seed": 1701,
+    "amount": 600,
+    "route": "risky",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine",
+        "meridian"
+      ],
+      "taken": 10,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 9,
+    "losses": [
+      "orion-scout"
+    ],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 10,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "meridian",
+        "created": 90.1,
+        "phase": "resupply",
+        "status": "aborted",
+        "taken": 0,
+        "reason": "实际观测到不可承担的战斗风险"
+      },
+      {
+        "target": "mine",
+        "created": 210.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 140,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "mine",
+        "created": 355.1,
+        "phase": "ambush",
+        "status": "active",
+        "taken": 0,
+        "reason": ""
+      }
+    ],
+    "realizedIncome": 187.5,
+    "budget": 527.5,
+    "marketInventory": {
+      "materials": 37.5,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [
+      {
+        "id": "orion-job-50",
+        "classId": "orionRaider",
+        "status": "active",
+        "work": 9.99999999999998,
+        "duration": 35,
+        "credits": 160,
+        "materials": 28
+      }
+    ],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 634
+  },
+  {
+    "seed": 1701,
+    "amount": 600,
+    "route": "safe",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine"
+      ],
+      "taken": 17.400000000000023,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 9,
+    "losses": [
+      "orion-scout"
+    ],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 17.400000000000023,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "meridian",
+        "created": 125.1,
+        "phase": "resupply",
+        "status": "aborted",
+        "taken": 0,
+        "reason": "目标信号失联，预测搜索已到限度"
+      },
+      {
+        "target": "mine",
+        "created": 210.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 100,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "mine",
+        "created": 340.1,
+        "phase": "withdraw",
+        "status": "active",
+        "taken": 0,
+        "reason": "目标信号失联，预测搜索已到限度"
+      }
+    ],
+    "realizedIncome": 146.75000000000003,
+    "budget": 546.75,
+    "marketInventory": {
+      "materials": 29.350000000000005,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [
+      {
+        "id": "orion-job-50",
+        "classId": "orionScout",
+        "status": "active",
+        "work": 0,
+        "duration": 25,
+        "credits": 100,
+        "materials": 18
+      }
+    ],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 650
+  },
+  {
+    "seed": 236807,
+    "amount": 120,
+    "route": "direct",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine"
+      ],
+      "taken": 120,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 10,
+    "losses": [
+      "orion-raider-3",
+      "orion-raider-4"
+    ],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 120,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "mine",
+        "created": 220.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 130,
+        "reason": "掠夺额度已达，优先保全赃物"
+      }
+    ],
+    "realizedIncome": 312.5,
+    "budget": 332.5,
+    "marketInventory": {
+      "materials": 62.5,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [
+      {
+        "id": "orion-job-42",
+        "classId": "orionRaider",
+        "status": "complete",
+        "work": 35,
+        "duration": 35,
+        "credits": 160,
+        "materials": 28
+      },
+      {
+        "id": "orion-job-44",
+        "classId": "orionRaider",
+        "status": "complete",
+        "work": 35,
+        "duration": 35,
+        "credits": 160,
+        "materials": 28
+      },
+      {
+        "id": "orion-job-55",
+        "classId": "orionRaider",
+        "status": "active",
+        "work": 9.99999999999998,
+        "duration": 35,
+        "credits": 160,
+        "materials": 28
+      }
+    ],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 650
+  },
+  {
+    "seed": 236807,
+    "amount": 600,
+    "route": "direct",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine"
+      ],
+      "taken": 17.400000000000023,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 10,
+    "losses": [],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 17.400000000000023,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "meridian",
+        "created": 125.1,
+        "phase": "resupply",
+        "status": "aborted",
+        "taken": 0,
+        "reason": "实际观测到不可承担的战斗风险"
+      },
+      {
+        "target": "mine",
+        "created": 225.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 90,
+        "reason": "实际观测到不可承担的战斗风险"
+      }
+    ],
+    "realizedIncome": 134.25000000000003,
+    "budget": 634.25,
+    "marketInventory": {
+      "materials": 26.850000000000005,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 650
+  },
+  {
+    "seed": 236807,
+    "amount": 600,
+    "route": "risky",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine",
+        "meridian"
+      ],
+      "taken": 10,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 10,
+    "losses": [],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 10,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "meridian",
+        "created": 90.1,
+        "phase": "resupply",
+        "status": "aborted",
+        "taken": 0,
+        "reason": "目标信号失联，预测搜索已到限度"
+      },
+      {
+        "target": "mine",
+        "created": 225.1,
+        "phase": "withdraw",
+        "status": "active",
+        "taken": 150,
+        "reason": "掠夺额度已达，优先保全赃物"
+      }
+    ],
+    "realizedIncome": 87.5,
+    "budget": 587.5,
+    "marketInventory": {
+      "materials": 17.5,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 650
+  },
+  {
+    "seed": 236807,
+    "amount": 600,
+    "route": "safe",
+    "repeat": false,
+    "at120": {
+      "time": 120,
+      "operationTargets": [
+        "mine"
+      ],
+      "taken": 17.400000000000023,
+      "incidents": 0,
+      "realizedIncome": 0
+    },
+    "time": 360,
+    "orionShips": 10,
+    "losses": [],
+    "incidents": [],
+    "operations": [
+      {
+        "target": "mine",
+        "created": 45.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 17.400000000000023,
+        "reason": "掠夺额度已达，优先保全赃物"
+      },
+      {
+        "target": "meridian",
+        "created": 125.1,
+        "phase": "resupply",
+        "status": "aborted",
+        "taken": 0,
+        "reason": "实际观测到不可承担的战斗风险"
+      },
+      {
+        "target": "mine",
+        "created": 225.1,
+        "phase": "resupply",
+        "status": "complete",
+        "taken": 90,
+        "reason": "实际观测到不可承担的战斗风险"
+      }
+    ],
+    "realizedIncome": 134.25000000000003,
+    "budget": 634.25,
+    "marketInventory": {
+      "materials": 26.850000000000005,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "production": [],
+    "meridian": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "mineHull": 650
+  }
+]

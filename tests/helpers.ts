@@ -1,5 +1,6 @@
 import { SimulationEngine } from '../src/engine/engine';
 import { createWorld } from '../src/engine/data';
+import { createOrionState } from '../src/engine/orion/generation';
 import type { Action } from '../src/engine/types';
 import { worldSchema as legacySchema } from '../src/engine/legacy-v12/save-schema';
 import { worldSchema as v11Schema } from '../src/engine/legacy-v11/save-schema';
@@ -123,6 +124,10 @@ export function v11Fixture(world: WorldState) {
 export function quietEngine(seed = 236807) {
   const e = new SimulationEngine(createWorld(seed));
   e.state.enemies = [];
+  e.state.orion = createOrionState();
+  e.state.factions.orion.credits = 0;
+  for (const l of e.state.locations.filter((l) => l.owner === 'orion'))
+    l.stock = { materials: 0, photon: 0, quantum: 0, specialFinds: 0 };
   return e;
 }
 export function issue(

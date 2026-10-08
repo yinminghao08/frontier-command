@@ -198,6 +198,19 @@ export function validate(
     return no('该操作者无此命令权限');
   const agentResult = validateAgentCommand(this, c, actorId);
   if (agentResult) return agentResult;
+  if (c.type === 'respondPiracy') {
+    return w.ships.some((s) => s.id === c.shipId) &&
+      w.piracyIncidents.some(
+        (i) =>
+          i.id === c.incidentId &&
+          i.shipId === c.shipId &&
+          ['demand', 'transferring'].includes(i.stage),
+      )
+      ? ok()
+      : no('勒索已结束或舰船无此请求');
+  }
+  if (c.type === 'setPiracyPolicy')
+    return w.ships.some((s) => s.id === c.shipId) ? ok() : no('舰船不存在');
   if (c.type === 'issueDirective') {
     for (const id of c.shipIds) {
       const s = w.ships.find((s) => s.id === id);
@@ -379,6 +392,7 @@ export function makeDirective(e: SimulationEngine, action: Action): Directive {
     moved: 0,
     carried: 0,
     delivered: 0,
+    lost: 0,
     reserved: emptyStock(),
     paidCredits: 0,
     contractId: null,
@@ -409,6 +423,23 @@ export function dispatchCommand(
   if (!valid.ok) return valid;
   const c = commandSchema.parse(input) as Command,
     w = this.state;
+  if (c.type === 'setPiracyPolicy') {
+    w.ships.find((s) => s.id === c.shipId)!.piracyPolicy = c.policy;
+    return ok('交货策略已更新');
+  }
+  if (c.type === 'respondPiracy') {
+    const i = w.piracyIncidents.find((i) => i.id === c.incidentId)!;
+    i.response = c.response;
+    i.responseSource = 'admiral';
+    if (c.response === 'refuse') i.stage = 'demand';
+    this.record(
+      'piracyResponse',
+      'Admiral ' + (c.response === 'comply' ? '同意有限交货' : '拒绝勒索'),
+      c.shipId,
+      false,
+    );
+    return ok('响应已接受');
+  }
   if (c.type === 'admiralChatTask') {
     receiveAdmiralTask(this, c.agentId, c.messageId);
     return ok('Admiral 消息已解析');
@@ -446,6 +477,13 @@ export function dispatchCommand(
       const s = w.ships.find((s) => s.id === id)!,
         d = makeDirective(this, c.action);
       if (actorId === w.commander.id) {
+        if (c.mode !== 'QUEUE')
+          for (const incident of w.piracyIncidents.filter(
+            (i) => i.shipId === s.id && i.stage !== 'resolved',
+          )) {
+            incident.response = 'refuse';
+            incident.responseSource = 'admiral';
+          }
         if (c.mode !== 'INTERRUPT') cancelAdmiralTasks(this, s.id, undefined, c.mode !== 'QUEUE');
         if (!this.executingAdmiralTaskId && c.mode === 'REPLACE') cancelContracts(this, s.id);
       } else if (

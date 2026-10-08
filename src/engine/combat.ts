@@ -79,6 +79,20 @@ export function applyDamage(
       }
     }
   } else if (t.hull === 0) {
+    if (t.owner === 'orion')
+      for (const j of e.state.orion.jobs.filter(
+        (j) => j.status === 'active' && j.locationId === t.id,
+      )) {
+        j.status = 'lost';
+        e.state.orion.ledger.push({
+          id: 'orion-ledger-' + e.state.nextId++,
+          time: e.state.time,
+          kind: 'jobLost',
+          entityId: j.id,
+          credits: 0,
+          goods: emptyStock(),
+        });
+      }
     if (t.kind === 'base' || t.kind === 'outpost') {
       t.occupation = 'ruined';
       t.shield = 0;
@@ -130,6 +144,29 @@ export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
     const faction = w.factions[s.factionId];
     if (faction.losses.includes(s.id)) return;
     faction.losses.push(s.id);
+    if (s.factionId === 'orion') {
+      w.orion.shipLosses.push({
+        id: s.id,
+        time: w.time,
+        cargo: structuredClone(s.cargo),
+        ammunition: { photon: s.photon, quantum: s.quantum },
+        classId: s.classId,
+      });
+      w.orion.logistics = w.orion.logistics.filter((t) => t.shipId !== s.id);
+      w.orion.provisioning = w.orion.provisioning.filter((t) => t.shipId !== s.id);
+      delete w.orion.lootCargo[s.id];
+      for (const j of w.orion.jobs.filter((j) => j.status === 'active' && j.builderId === s.id)) {
+        j.status = 'lost';
+        w.orion.ledger.push({
+          id: 'orion-ledger-' + w.nextId++,
+          time: w.time,
+          kind: 'jobLost',
+          entityId: j.id,
+          credits: 0,
+          goods: emptyStock(),
+        });
+      }
+    }
     w.enemies = w.enemies.filter((x) => x.id !== s.id);
     const i = w.intel.find((i) => i.id === s.id);
     if (i) {
@@ -219,7 +256,14 @@ export function fire(
       t[subsystem] = Math.max(0, t[subsystem] - (disable === 'suppression' ? 12 : 30));
       t.core = Math.max(0, t.core - 12);
       applyDamage(e, t, weapon.damage * 0.1, s);
-    } else applyDamage(e, t, weapon.damage * (disable === 'warning' ? 0.5 : 1), s);
+    } else
+      applyDamage(
+        e,
+        t,
+        weapon.damage *
+          (disable === 'warning' ? 0.5 : disable && !('classId' in t) && t.shield <= 0 ? 0.1 : 1),
+        s,
+      );
     if (w.status !== 'active') return;
   }
 }

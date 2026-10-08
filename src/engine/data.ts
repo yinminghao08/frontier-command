@@ -15,6 +15,7 @@ import { materialize } from './world-generation';
 import { DEFAULT_STANDING, STORAGE } from './definitions/frontier';
 import { makeAgent, registerAgent } from './agents';
 import { COMMAND_CHANNEL, REPORT_CHANNEL, SYSTEM_ACTOR } from './chat';
+import { createOrionState, seedOrion } from './orion/generation';
 export { BASE } from './definitions/locations';
 export const emptyStock = (): Stock => ({
   materials: 0,
@@ -51,6 +52,7 @@ export function makeShip(
     queue: [],
     suspended: [],
     standing: structuredClone(DEFAULT_STANDING),
+    piracyPolicy: 'preserveShip',
     path: [],
     heading: 0,
     cargo: emptyStock(),
@@ -164,7 +166,9 @@ export function createWorld(seed = 236807): WorldState {
     makeShip(s.id, s.name, s.classId, 'starfleet', { x: BASE.x + (i - 1.5) * 28, y: BASE.y + 45 }),
   );
   const w: WorldState = {
-    version: 13,
+    version: 14,
+    orion: createOrionState(),
+    piracyIncidents: [],
     tick: 0,
     time: 0,
     seed: seed >>> 0,
@@ -222,7 +226,7 @@ export function createWorld(seed = 236807): WorldState {
     factions: {
       orion: {
         reports: [],
-        credits: 40,
+        credits: 500,
         production: 0,
         losses: [],
         stance: 'observe',
@@ -319,15 +323,6 @@ export function createWorld(seed = 236807): WorldState {
     phase: 'idle',
     work: 0,
   });
-  const orion = makeLocation(
-    'orion-base',
-    'Orion Hideout',
-    'outpost',
-    { x: 500, y: -530 },
-    'orion',
-  );
-  orion.stock = { ...emptyStock(), materials: 15, photon: 12 };
-  w.locations.push(orion);
   const romulan = makeLocation(
     'romulan-base',
     'Romulan Border Command',
@@ -338,13 +333,11 @@ export function createWorld(seed = 236807): WorldState {
   romulan.stock = { ...emptyStock(), materials: 40, photon: 60 };
   w.locations.push(romulan);
   w.enemies = [
-    makeEnemy('orion-scout', 'raider', 'orion', { x: 400, y: -250 }, orion.id, 'scout'),
-    makeEnemy('orion-raider-1', 'raider', 'orion', { x: 500, y: -480 }, orion.id),
-    makeEnemy('orion-raider-2', 'raider', 'orion', { x: 540, y: -510 }, orion.id),
     makeEnemy('romulan-scout', 'scout', 'romulan', { x: 820, y: 50 }, romulan.id, 'scout'),
     makeEnemy('romulan-reserve', 'dderidex', 'romulan', { x: 1200, y: 200 }, romulan.id, 'warbird'),
     makeEnemy('romulan-warbird', 'valdore', 'romulan', { x: 1060, y: 180 }, romulan.id, 'warbird'),
   ];
+  seedOrion(w);
   w.communications.push({
     id: w.nextComms++,
     time: 0,

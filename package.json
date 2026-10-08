@@ -3,7 +3,7 @@
   "version": "1.4.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Frontier Command — v13 autonomous cooperation, enforceable commitments and short task judgments",
+  "description": "Frontier Command — v14 persistent Orion piracy ecology and Agent cooperation",
   "author": "Frontier Command Project",
   "main": "dist-electron/electron/main.js",
   "scripts": {

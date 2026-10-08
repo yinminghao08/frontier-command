@@ -414,8 +414,8 @@ describe('v10 production, capture and persistent world', () => {
     expect(store.read().world).toBeNull();
     const e = quietEngine();
     store.write(e.state);
-    expect(store.read().world?.version).toBe(13);
-    expect(store.root).toContain('frontiers-v13');
+    expect(store.read().world?.version).toBe(14);
+    expect(store.root).toContain('frontiers-v14');
     for (const version of [9, 10])
       expect(readFileSync(join(dir, 'frontiers-v' + version, branch.id, 'head.json'), 'utf8')).toBe(
         original,

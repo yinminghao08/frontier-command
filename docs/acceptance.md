@@ -1,4 +1,19 @@
-# Frontier Command v13 验收
+# Frontier Command v14 验收
+
+本轮替换 Orion 单舰与瞬时补舰逻辑，保留主进程权威、固定步长、经济、Agent 和 LCARS。新世界与存档独立使用 v14，旧文件不迁移、不删除。实测数据与 Electron 截图见 [v14 验证记录](verification/v14/README.md)。
+
+| 验收行为                                                                           | 自动验证                                                                      |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 多 seed 远距隐藏总部、1–2补给点、十舰分散、首次搜索、自然货运遭遇                  | `tests/orion.test.ts`、`tests/e2e/orion.spec.ts`                              |
+| 真实传感器、分跳情报、未知状态不影响决策、改线失联、协同位置                       | `tests/orion.test.ts`                                                         |
+| 有限勒索、手动覆盖、暂停、瘫痪、登舰中断、大宗会合转运、批次去重、实际货损         | `tests/orion.test.ts`、`tests/e2e/orion.spec.ts`                              |
+| Galaxy 撤退、反跟踪、秘密尾随、十分钟基地确认及打击                                | `tests/orion.test.ts`、`tests/v9.test.ts`、`tests/e2e/recon.spec.ts`          |
+| 真实库存销赃、买方不足、维修补给、付费空仓造舰、上限、基地毁坏、残余重建、永久灭失 | `tests/orion.test.ts`、`tests/v10.test.ts`                                    |
+| 物流危险去重、真实 reinforce/ESCORT、接受/拒绝、安全抵港、关系与 Admiral 优先      | `tests/orion.test.ts`、`tests/e2e/orion.spec.ts`、既有契约回归                |
+| 1×/4×/16× 固定步、阶段重载不重复结算、严格 v14、旧文件保全                         | `tests/orion.test.ts`、`tests/v13-migration.test.ts`、`tests/e2e/v13.spec.ts` |
+| Electron 策略/覆盖/重启、1024/1366宽及100%/200%文字                                | `tests/e2e/orion.spec.ts`                                                     |
+
+## 历史 v13 验收
 
 本轮保持 v12 模拟、经济、职业、API 和 LCARS 架构。当前规则和 Electron 验证记录见 [v13 验证记录](verification/v13/README.md)，完整可重复链路见 [演示说明](../demo/README.md)。
 

@@ -41,6 +41,7 @@ export const TRACKING_RULES = Object.freeze({
 /** Physical visibility is shared by threat intelligence, combat acquisition and counter-tracking. */
 export function canDetectShip(observer: Ship, target: Ship, time: number) {
   let range = capabilities(observer).sensors;
+  if ((target.cooldowns.warpEmission ?? 0) > 0) range *= 1.5;
   if (target.cloak === 'on') {
     range *=
       target.classId === 'veil'
@@ -106,6 +107,7 @@ export function updateCounterTracking(e: SimulationEngine, s: Enemy) {
   for (const watcher of Object.values(c.watchers))
     watcher.exposure = Math.max(0, watcher.exposure - TRACKING_RULES.evidenceDecay);
   for (const ship of [...w.ships, ...w.civilians].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (ship.id === s.targetId) continue;
     if (!canDetectShip(s, ship, w.time)) continue;
     const bearing = Math.atan2(ship.y - s.y, ship.x - s.x),
       previous = c.watchers[ship.id];
@@ -144,6 +146,7 @@ export function updateCounterTracking(e: SimulationEngine, s: Enemy) {
     c.lastSeen = w.time;
     if (
       !c.evading &&
+      !['assemble', 'ambush', 'extort', 'disable', 'board'].includes(s.intent) &&
       observation.exposure > TRACKING_RULES.detectionThreshold &&
       e.random() <
         ((observation.exposure - TRACKING_RULES.detectionThreshold) /

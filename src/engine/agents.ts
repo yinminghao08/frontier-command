@@ -524,7 +524,7 @@ export function agentOutcome(
   if (!failed) {
     const xp =
       action.type === 'HAUL'
-        ? Math.max(2, Math.min(25, directive.delivered / 5))
+        ? Math.min(25, directive.delivered / 5)
         : ['ESCORT', 'ATTACK', 'DRIVE_OFF', 'DISABLE', 'PATROL'].includes(action.type)
           ? 10
           : 3;
@@ -598,6 +598,30 @@ export function agentVesselLost(e: SimulationEngine, ship: Ship) {
 }
 export function advanceAgents(e: SimulationEngine, dt: number) {
   const w = e.state;
+  for (const incident of w.piracyIncidents.filter((i) => i.stage !== 'resolved')) {
+    const a = w.agents.find((a) => a.assignedShipId === incident.shipId && a.enabled);
+    if (!a || incident.notifiedAgentIds.includes(a.id)) continue;
+    incident.notifiedAgentIds.push(a.id);
+    remember(
+      w,
+      a,
+      'danger',
+      '运输遭遇 Orion 勒索或登舰，可向战术 Agent 请求 reinforce / ESCORT。',
+      incident.shipId,
+      10,
+    );
+    appendChat(
+      e,
+      a.id,
+      COMMAND_CHANNEL,
+      '已收到舰载遇袭通信：可请求战术 Agent 增援。',
+      [],
+      'danger',
+      { origin: 'engine', eventId: incident.id + ':danger:' + a.id },
+    );
+    // A support request can preserve Admiral work; autonomous actions still validate authority.
+    wakeAgent(a, 'danger:' + incident.id, w.time, true);
+  }
   for (const a of w.agents) {
     const ship = w.ships.find((s) => s.id === a.assignedShipId);
     if (a.assignedShipId && !ship) {
@@ -663,6 +687,29 @@ export function advanceAgents(e: SimulationEngine, dt: number) {
     }
   }
   for (const r of w.escortRequests) {
+    const protectedShip = w.ships.find((s) => s.id === r.targetShipId);
+    const responder = w.ships.find(
+      (s) =>
+        s.current?.action.type === 'ESCORT' &&
+        s.current.action.targetId === r.targetShipId &&
+        s.current.actorId === r.responderId,
+    );
+    if (
+      r.kind === 'reinforce' &&
+      r.status === 'accepted' &&
+      r.rescueArrivedAt === undefined &&
+      protectedShip &&
+      responder &&
+      dist(responder, protectedShip) < 60
+    ) {
+      r.started = true;
+      r.rescueArrivedAt = w.time;
+      e.record(
+        'rescueArrived',
+        responder.name + ' 实际抵达 ' + protectedShip.name + '，执行救援护航',
+        protectedShip.id,
+      );
+    }
     if (
       r.status === 'accepted' &&
       w.ships.find((s) => s.id === r.targetShipId)?.current?.action.type === 'HAUL' &&

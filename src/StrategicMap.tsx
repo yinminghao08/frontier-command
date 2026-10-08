@@ -344,7 +344,11 @@ export function StrategicMap({
       )
       .map((s) => ({
         id: s.id,
-        name: s.name,
+        name:
+          s.name +
+          (world.piracyIncidents.some((i) => i.shipId === s.id && i.stage !== 'resolved')
+            ? ' · ORION 威胁'
+            : ''),
         p: s,
         selection: { type: 'ship', id: s.id } as Selection,
         kind: s.classId === 'antares' ? ('freighter' as const) : ('ship' as const),

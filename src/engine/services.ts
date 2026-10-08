@@ -7,6 +7,7 @@ import { RULES } from './definitions/rules';
 import type { CargoKind, UpgradeId } from './types';
 import type { ShipClassId } from './definitions/ships';
 import { dist } from './navigation';
+import { facilityCapabilities } from './definitions/facilities';
 import { available } from './command-system';
 export function advanceEconomy(e: SimulationEngine, dt: number) {
   const w = e.state,
@@ -62,7 +63,7 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
       }
     }
     if (w.time - l.attackedAt > 30) l.distress = false;
-    const def = FACILITIES[l.kind],
+    const def = facilityCapabilities(l),
       target = w.enemies
         .filter((x) => x.hull > 0 && dist(x, l) < def.range)
         .filter((x) => w.intel.some((i) => i.id === x.id && i.live && i.hostile))
@@ -83,7 +84,7 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
     l.core = Math.min(300, l.core + 5 * dt);
     l.cooldown = Math.max(0, l.cooldown - dt);
     if (w.time - l.attackedAt > 10) l.shield = Math.min(l.maxShield, l.shield + 3 * dt);
-    const def = FACILITIES[l.kind],
+    const def = facilityCapabilities(l),
       target = w.ships.find(
         (s) => dist(s, l) < def.range && s.id === l.lastAttackerId && w.time - l.attackedAt < 12,
       );

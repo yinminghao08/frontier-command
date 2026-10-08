@@ -531,29 +531,31 @@ describe('world generation, intelligence and diplomacy', () => {
     ).toBe(true);
     expect(() => parseSave(e.state)).not.toThrow();
   });
-  it('no shared intelligence means no raid, observing returns only actual scout knowledge', () => {
+  it('Orion retains local observations and sends them to a physically reached supply node without revealing its destination', () => {
     const e = quietEngine(),
       s = e.state.ships[0],
-      scout = makeEnemy('spy', 'raider', 'orion', { x: 200, y: 0 }, 'orion-base', 'scout'),
-      r = makeEnemy('r', 'raider', 'orion', { x: 350, y: 0 });
-    e.state.enemies = [scout, r];
+      home = e.state.locations.find((l) => l.id === 'orion-base')!;
+    for (const own of e.state.ships) {
+      own.x = -4000;
+      own.y = -4000;
+    }
+    for (const l of e.state.locations.filter((l) => l.owner === 'orion')) {
+      l.x = -3000;
+      l.y = 3000;
+    }
     s.x = 210;
-    s.y = 0;
+    s.y = 1000;
     s.cargo.materials = 500;
-    decideThreat(e, r);
-    expect(r.intent).toBe('observe');
+    const scout = makeEnemy('spy', 'orionScout', 'orion', { x: 200, y: 1000 }, home.id, 'scout');
+    e.state.enemies = [scout];
     decideThreat(e, scout);
-    expect(scout.localReports.length).toBeGreaterThan(0);
-    expect(e.state.factions.orion.reports).toHaveLength(0);
-    const base = e.state.locations.find((l) => l.id === 'orion-base')!;
-    scout.x = base.x;
-    scout.y = base.y;
-    scout.nextDecision = 0;
+    expect(scout.localReports.some((r) => r.id === s.id)).toBe(true);
+    expect(e.state.factions.orion.reports).toEqual([]);
+    scout.x = home.x;
+    scout.y = home.y;
     decideThreat(e, scout);
-    expect(e.state.factions.orion.reports.some((r) => r.id === s.id)).toBe(true);
-    r.nextDecision = 0;
-    decideThreat(e, r);
-    expect(r.intent).toBe('raid');
+    expect(e.state.factions.orion.reports.some((r) => r.id === s.id && r.seenAt === 0)).toBe(true);
+    expect(JSON.stringify(e.snapshot())).not.toContain(home.id);
   });
   it('Romulan probe is not hostile; political escalation uses existing assets, then withdraws without intelligence', () => {
     const e = quietEngine(),

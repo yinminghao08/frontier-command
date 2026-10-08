@@ -114,6 +114,21 @@ const groupFields = {
 };
 export const commandSchema = z.discriminatedUnion('type', [
   z
+    .object({
+      type: z.literal('respondPiracy'),
+      incidentId: id,
+      shipId: id,
+      response: z.enum(['comply', 'refuse']),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('setPiracyPolicy'),
+      shipId: id,
+      policy: z.enum(['preserveShip', 'preserveCargo', 'manual']),
+    })
+    .strict(),
+  z
     .object({ type: z.literal('admiralChatTask'), agentId: id, messageId: n.int().positive() })
     .strict(),
   z.object({ type: z.literal('assignAgent'), agentId: id, shipId: id.nullable() }).strict(),

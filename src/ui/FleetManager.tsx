@@ -6,6 +6,7 @@ import type { ComposerRequest } from './OrderComposer';
 import { defaultAction } from './OrderComposer';
 import { LcarsField, LcarsTextBar, LcarsButton } from './components/Lcars';
 import { ACTION_LABELS } from './format';
+import { PiracyStatus } from './PiracyStatus';
 export function FleetManager({
   world,
   command,
@@ -28,6 +29,16 @@ export function FleetManager({
   return (
     <>
       <LcarsTextBar>舰队与编队</LcarsTextBar>
+      {world.ships
+        .filter((s) =>
+          world.piracyIncidents.some((i) => i.shipId === s.id && i.stage !== 'resolved'),
+        )
+        .map((s) => (
+          <div key={s.id}>
+            <b>{s.name}</b>
+            <PiracyStatus world={world} shipId={s.id} command={command} />
+          </div>
+        ))}
       {world.groups.map((g) => (
         <div className="record-row" data-entity-id={g.id} key={g.id}>
           <b>

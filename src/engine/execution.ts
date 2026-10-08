@@ -27,6 +27,7 @@ import { regionAt } from './definitions/locations';
 import { SHIP_CLASSES } from './definitions/ships';
 import { TRACKING_RULES } from './tracking';
 import { appendChat, COMMAND_CHANNEL } from './chat';
+import { piracyTransferHolds } from './orion/piracy';
 function borderCrossing(e: SimulationEngine, s: Ship, previous: Point) {
   const from = regionAt(previous.x, previous.y),
     to = regionAt(s.x, s.y);
@@ -196,6 +197,10 @@ function arrivedService(e: SimulationEngine, s: Ship, d: Directive, dt: number) 
 export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
   const w = e.state;
   regenerate(s, w.time, dt);
+  if (piracyTransferHolds(e, s)) {
+    s.status = 'active';
+    return;
+  }
   if (s.current?.action.type === 'REST') {
     const site = w.locations.find(
       (l) => l.id === (s.current?.action.type === 'REST' ? s.current.action.targetId : ''),
@@ -504,15 +509,28 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
           return;
         }
         if (a.repeat) {
-          agentOutcome(e, s, d, '实际交付 ' + d.delivered + ' ' + a.cargoKind, false, true);
+          agentOutcome(
+            e,
+            s,
+            d,
+            '实际交付 ' + d.delivered + ' ' + a.cargoKind + '，货损 ' + (d.lost ?? 0),
+            (d.lost ?? 0) > 0 && d.delivered === 0,
+            true,
+          );
           d.cycle++;
           d.journey = null;
           d.phase = 'starting';
           d.work = 0;
           d.carried = 0;
           d.delivered = 0;
+          d.lost = 0;
           s.path = [];
-        } else e.complete(s, n < d.carried ? '货损：仅交付现存货物' : '交付完成');
+        } else
+          e.complete(
+            s,
+            (d.lost ?? 0) > 0 ? '货损：实际交付 ' + d.delivered + '，损失 ' + d.lost : '交付完成',
+            (d.lost ?? 0) > 0 && d.delivered === 0,
+          );
       }
     }
   } else if (a.type === 'SHADOW') {
@@ -630,6 +648,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
     if (
       !target.current &&
       (!contract || contract.started) &&
+      !w.piracyIncidents.some((i) => i.shipId === target.id && i.stage !== 'resolved') &&
       dist(s, target) < 60 &&
       w.locations.some((l) => l.owner === 'starfleet' && l.hull > 0 && dist(target, l) < 40) &&
       (!('phase' in target) || target.phase !== 'delivery')

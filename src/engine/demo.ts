@@ -5,12 +5,11 @@ import { worldSchema } from './save-schema';
 import type { Command, WorldState } from './types';
 import { capabilities } from './capabilities';
 
-export const AGENT_DEMO_NAME = 'AGENT DEMO / v13 自主协作';
+export const AGENT_DEMO_NAME = 'AGENT DEMO / v14 自主协作';
 /** Fixed-seed physical setup only. No Agent decisions or consent are pre-populated. */
 export function createAgentDemoWorld(): WorldState {
   const e = new SimulationEngine(createWorld());
   const w = e.state;
-  w.enemies = [];
   w.resources.credits = 2000;
   w.upgrades.logistics = 1;
   const command = (c: Command, actorId = w.commander.id) => {
@@ -45,13 +44,13 @@ export function createAgentDemoWorld(): WorldState {
   w.locations.push(mine);
   e.record('demo', 'AURORA 矿场加入物流网络；已确认虫洞为 Dawn 后方提供运输捷径。', mine.id, false);
 
-  // Both tuition and the first 85 minutes of training have genuinely elapsed in this save.
+  // Tuition and at least 85 training minutes genuinely elapsed, including contact pauses.
   const colony = w.locations.find((l) => l.id === 'colony')!.colony!;
   colony.nextCandidate = w.time;
   advance(0.1);
   const trainee = w.personnel.find((p) => p.status === 'candidate')!;
   command({ type: 'candidate', personnelId: trainee.id, accept: true, career: 'battle' });
-  advance(85);
+  advance(86);
   colony.nextCandidate = w.time;
   advance(0.1);
 
@@ -85,7 +84,7 @@ export function createAgentDemoWorld(): WorldState {
     channelId: COMMAND_CHANNEL,
     mentions: [],
     content:
-      'v13 自主协作演示：AURORA 库存与虫洞出口已确认，HORIZON 存在舰损。配置模型后观察风险判断、协商、实际维修和货物交付；待处理请求中的奖励须由 Admiral 确认预算。',
+      'v14 自主协作演示：AURORA 库存与虫洞出口已确认，HORIZON 存在舰损。配置模型后观察风险判断、协商、实际维修和货物交付；待处理请求中的奖励须由 Admiral 确认预算。',
   });
   command({
     type: 'sendChat',

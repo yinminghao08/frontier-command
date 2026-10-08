@@ -13,7 +13,7 @@ export interface TestCompletionRequest {
 export class AgentTestProvider {
   server: Server;
   requests: TestCompletionRequest[] = [];
-  mode: 'cooperate' | 'refuse' | 'invalid' | 'negotiate' = 'cooperate';
+  mode: 'cooperate' | 'refuse' | 'invalid' | 'negotiate' | 'piracy' | 'piracyRefuse' = 'cooperate';
   constructor() {
     this.server = createServer((request, response) => {
       let text = '';
@@ -105,7 +105,8 @@ export class AgentTestProvider {
     );
     if (proposal && proposal.action) {
       const response =
-        proposal.responderId === self.id && (this.mode === 'refuse' || self.fatigue >= 80)
+        proposal.responderId === self.id &&
+        (this.mode === 'refuse' || this.mode === 'piracyRefuse' || self.fatigue >= 80)
           ? 'reject'
           : 'accept';
       // Public class capacities are part of the ship catalogue; no hidden simulation values.
@@ -149,6 +150,33 @@ export class AgentTestProvider {
         reason: choice === 'reject' ? 'fatigue' : choice === 'counter' ? 'damage' : 'preference',
       };
       return d;
+    }
+    if (
+      (this.mode === 'piracy' || this.mode === 'piracyRefuse') &&
+      self.career === 'logistics' &&
+      obs.ship
+    ) {
+      const incident = obs.piracyIncidents.find(
+        (i) => i.shipId === obs.ship!.id && i.stage !== 'resolved',
+      );
+      const peer = obs.rescueOptions[0];
+      if (
+        incident &&
+        peer &&
+        !obs.escortRequests.some((r) => r.kind === 'reinforce' && r.created >= incident.created)
+      ) {
+        const refuge = obs.locations.find((l) => l.id === 'rescue-refuge');
+        d.goal = '请求同僚应对实际 Orion 袭击';
+        d.coordination = {
+          type: 'requestTask',
+          kind: 'reinforce',
+          agentId: peer.agentId,
+          action: peer.action,
+          followUp: refuge ? { type: 'DOCK', targetId: refuge.id } : null,
+          conditions: [],
+        };
+        return d;
+      }
     }
     const aurora = obs.inventories.find(
       (i) =>

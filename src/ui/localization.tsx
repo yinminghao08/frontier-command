@@ -7,6 +7,8 @@ const names: Record<string, string> = {
   'D’Deridex': '德德里克斯级战鸟',
   'Valdore-type': '瓦尔多型战鸟',
   'Orion Hideout': '猎户座藏身基地',
+  'Orion Syndicate Headquarters': '猎户座辛迪加总部',
+  'Orion Covert Supply Point': '猎户座隐蔽补给点',
   'SS FEDERATION EXCHANGE': '联邦交易商船',
   'USS MERIDIAN-1': '子午线一号',
   'USS MERIDIAN-2': '子午线二号',
@@ -28,6 +30,13 @@ export function displayName(name: string, custom = false): string {
       );
   const parts = name.split(' / ');
   if (parts.length > 1 && /[\u3400-\u9fff]/.test(parts.at(-1)!)) return parts.at(-1)!;
+  if (/^Orion (Light Raider|Heavy Corsair|Interceptor|Smuggler Transport)/i.test(name)) {
+    return name
+      .replace('Orion Light Raider', '猎户座轻型袭击舰')
+      .replace('Orion Heavy Corsair', '猎户座重型掠夺舰')
+      .replace('Orion Interceptor', '猎户座截击舰')
+      .replace('Orion Smuggler Transport', '猎户座走私运输舰');
+  }
   if (/^Orion (Raider|Scout|Corsair|Surveyor)/i.test(name)) {
     const number = name.match(/(\d+)$/)?.[1] ?? '';
     return (
@@ -46,6 +55,11 @@ export function displayName(name: string, custom = false): string {
     );
 }
 export const SHIP_LABELS: Record<string, string> = {
+  orionScout: '猎户座侦察舰',
+  orionRaider: '猎户座轻型袭击舰',
+  orionInterceptor: '猎户座截击舰',
+  orionCorsair: '猎户座重型掠夺舰',
+  orionSmuggler: '猎户座走私运输舰',
   veil: '幽影级侦察舰',
   antares: '心宿二级运输舰',
   peregrine: '游隼级巡逻舰',

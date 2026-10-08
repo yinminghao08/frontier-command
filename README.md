@@ -1,6 +1,6 @@
 # STARFLEET: FRONTIER COMMAND
 
-**Lv1 + Lv2 + 第一版 Agent / v11 Dawn Frontier。玩家是拥有最终指挥权的 Admiral。**
+**Lv1 + Lv2 + 第一版 Agent / v12 Dawn Frontier。玩家是拥有最终指挥权的 Admiral。**
 
 持续世界、LCARS 26 Classic、探索、建设、实际运输、殖民地与持久势力之上，加入独立的 Battle / Logistics Agent。模型决定意图、路线风险、聊天与协作；Electron 主进程执行经过校验的高层 Action。初始 Talia 驾驶 Galaxy，Mira 驾驶 Antares；职业代表专长，不限制合法行动。
 
@@ -30,6 +30,16 @@ npm start
 Reasoning 支持 none / low / medium / high。`none` **不发送** `reasoning_effort`；具体模型的默认内部推理由 provider 决定。Provider 明确拒绝 reasoning 参数时省略并重试；拒绝 JSON 模式时退回文本 JSON，仍执行本地严格 schema 校验。调用超时、连接错误、非法 JSON 或非法 Action 会进入私聊错误，并可手动重试或在 30 游戏分钟后复查，不影响物理模拟。
 
 模型只在新任务、聊天/提及、护航、公开危险、任务结果或空闲复查节点调用，每次决策独立于 simulation tick。Admiral 当前、排队和挂起指令优先；过期模型响应会丢弃。模型只获得自己的状态、己方资产、公开地图/接触、实际库存/需求、航线、聊天与关系，不获得未知敌人、秘密基地、意图或随机源。
+
+## Admiral 聊天指挥 / v12
+
+私聊或在群中明确 `@AgentName`，可以直接下达常用命令：`去把 orion scout 干掉`、`立即开火`、`USS VIGIL 给你了`、`建设高密度矿物带 0/12-0-5`、`沿 0/12 一路测绘回来直到 0/0，不走虫洞`。主进程根据公开信息编译这些明确指令，没有 API Key 也可执行；无法唯一识别的目标会请求澄清。
+
+Admiral 授权攻击高于自主 ROE，不会伪造敌对情报，也不会绕过射程、武器状态或政治后果。分舰真正修改 Assignment；不会挤掉其他正式 Agent。建设扣预算、建立项目，自运或请求空闲且愿意合作的 Logistics 同僚运送真实 Materials，再等待施工。逐区测绘支持同一列最多 65 个连续星区，禁用虫洞约束进入 Journey Planner。新的地图或舰船指令随时接管聊天任务。
+
+执行回执来自引擎。模型协议由实际校验定义生成，优先严格 JSON Schema，不支持时降级 JSON 模式或文本；非法结构和动作最多纠错两次，共用一次决策超时。错误显示具体字段。确认消息保存回复链且不再互相唤醒，Agent 详情显示任务来源、进度及阻碍。
+
+首次启动会复制并迁移 v11 时间线至 `frontiers-v12` / `timeline-v12.json`，保留原 v11 文件、分支、每日档和进度。旧聊天不会重新执行，旧模型的口头分舰不会追认为分配；API 配置继续使用原系统加密配置。
 
 ## Journey Planner
 
@@ -116,7 +126,7 @@ Sector / System / Local 采用分层显示；选中系统也可展开次级天�
 
 Renderer 只有只读公开 Snapshot，未知敌方基地、AI intent、真实目的地、反跟踪证据、假航点与随机源留在主进程及严格存档。地点情报仅公开玩家实际观测到的坐标和确认进度。
 
-v11 使用独立 `timeline-v11.json` 与 `frontiers-v11/frontier-******/`，不迁移 v10 或更早存档，不改写原文件。世界、聊天、协作、培养、Agent 状态和每舰旅程采用严格 v11 schema；凭据独立系统加密。保留原子写入、每日快照、独立分支恢复、存档错误保护和永久舰损。Agent 档案在舰损后保留，可重新分配新舰；全舰损后仍可通过 Colony 收入、有限贸易与 Shipyard 恢复。
+v12 使用独立 `timeline-v12.json` 与 `frontiers-v12/frontier-******/`，自动复制迁移 v11，不迁移 v10 或更早存档，不改写原文件。世界、聊天、协作、培养、Agent 状态和每舰旅程采用严格 v12 schema；凭据独立系统加密。保留原子写入、每日快照、独立分支恢复、存档错误保护和永久舰损。Agent 档案在舰损后保留，可重新分配新舰；全舰损后仍可通过 Colony 收入、有限贸易与 Shipyard 恢复。
 
 ## 验证
 

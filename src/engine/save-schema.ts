@@ -1,3 +1,4 @@
+import { admiralTaskSchema } from './admiral-task-schema';
 import {
   colonySchema,
   personnelSchema,
@@ -90,6 +91,10 @@ const directive = z
     note: z.string(),
     source: z.enum(['admiral', 'agent', 'standing']),
     actorId: id,
+    executorAgentId: id.nullable(),
+    sourceMessageId: integer.positive().nullable(),
+    taskId: id.nullable(),
+    allowWormholes: z.boolean(),
     journey: journey.nullable(),
     groupOrderId: id.nullable(),
     groupSlot: integer,
@@ -169,7 +174,7 @@ const communication = z
   .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(11),
+    version: z.literal(12),
     tick: integer,
     time: nn,
     seed: integer.max(4294967295),
@@ -203,6 +208,7 @@ export const worldSchema = z
     agents: z.array(agentSchema).max(512),
     chatChannels: z.array(chatChannelSchema),
     chatMessages: z.array(chatMessageSchema),
+    admiralTasks: z.array(admiralTaskSchema),
     escortRequests: z.array(escortRequestSchema),
     nextChat: integer.positive(),
     losses: z.array(
@@ -491,7 +497,8 @@ export const worldSchema = z
         bad('Invalid Agent training origin');
       if (
         (a.decision.lastAt !== null && a.decision.lastAt > w.time) ||
-        a.decision.lastChatId >= w.nextChat
+        a.decision.lastChatId >= w.nextChat ||
+        a.decision.lastAdmiralMessageId >= w.nextChat
       )
         bad('Invalid Agent decision clock');
       if (
@@ -537,6 +544,37 @@ export const worldSchema = z
         m.id >= w.nextChat
       )
         bad('Invalid chat message');
+      if (
+        m.replyTo &&
+        !w.chatMessages.some(
+          (previous) =>
+            previous.id === m.replyTo && previous.id < m.id && previous.channelId === m.channelId,
+        )
+      )
+        bad('Invalid chat reply chain');
+    }
+    const taskIds = new Set(w.admiralTasks.map((t) => t.id));
+    if (taskIds.size !== w.admiralTasks.length) bad('Duplicate Admiral tasks');
+    for (const task of w.admiralTasks) {
+      const message = w.chatMessages.find((m) => m.id === task.messageId);
+      if (
+        !agentIds.has(task.agentId) ||
+        (task.carrierAgentId && !agentIds.has(task.carrierAgentId)) ||
+        message?.sender !== w.commander.id ||
+        message.channelId !== task.channelId ||
+        !(
+          message.channelId === 'private:' + task.agentId ||
+          (message.channelId === 'frontier-command' && message.mentions.includes(task.agentId))
+        ) ||
+        task.sectorIndex > task.sectors.length ||
+        new Set(task.scannedSectorIndices).size !== task.scannedSectorIndices.length ||
+        task.scannedSectorIndices.some((i) => i >= task.sectors.length) ||
+        (task.kind === 'action' && !task.action) ||
+        (task.kind === 'assign' && !task.shipId) ||
+        (task.kind === 'construction' && (!task.targetId || !task.facilityKind)) ||
+        (task.kind === 'surveyRoute' && !task.sectors.length)
+      )
+        bad('Invalid Admiral task authority');
     }
     if (new Set(w.escortRequests.map((r) => r.id)).size !== w.escortRequests.length)
       bad('Duplicate escort requests');
@@ -717,6 +755,24 @@ export const worldSchema = z
     ]);
     for (const d of directives) {
       if (d.created > w.time) bad('Future directive');
+      if (d.executorAgentId && !agentIds.has(d.executorAgentId)) bad('Invalid executor Agent');
+      if (
+        d.taskId &&
+        (!taskIds.has(d.taskId) ||
+          d.source !== 'admiral' ||
+          !w.admiralTasks.some(
+            (t) =>
+              t.id === d.taskId &&
+              t.messageId === d.sourceMessageId &&
+              [t.agentId, t.carrierAgentId].includes(d.executorAgentId),
+          ))
+      )
+        bad('Invalid directive chat authority');
+      if (
+        d.taskId &&
+        w.admiralTasks.find((t) => t.id === d.taskId)?.allowWormholes !== d.allowWormholes
+      )
+        bad('Invalid directive journey permission');
       if (
         d.source === 'admiral'
           ? d.actorId !== w.commander.id

@@ -59,6 +59,7 @@ export const agentSchema = z
         nextAt: n,
         lastAt: n.nullable(),
         lastChatId: n.int(),
+        lastAdmiralMessageId: n.int(),
         failures: n.int(),
         lastError: z.string().max(400).nullable(),
       })
@@ -83,6 +84,8 @@ export const chatMessageSchema = z
     content: z.string().trim().min(1).max(2000),
     mentions: z.array(id).max(12),
     kind: z.enum(['message', 'request', 'reply', 'report', 'danger', 'error']),
+    purpose: z.enum(['information', 'acknowledgement', 'request']).default('information'),
+    replyTo: n.int().positive().nullable().default(null),
   })
   .strict();
 export const escortRequestSchema = z

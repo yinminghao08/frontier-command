@@ -21,6 +21,7 @@ import {
 } from './agents';
 import { hasAdmiralWork } from './fleet';
 import { wakeAgent } from './chat';
+import { addressedAdmiralMessage, cancelAdmiralTasks, receiveAdmiralTask } from './admiral-tasks';
 export const ok = (reason = '命令已接受'): CommandResult => ({ ok: true, reason });
 export const no = (reason: string): CommandResult => ({ ok: false, reason });
 export { inventory, available } from './inventory';
@@ -133,6 +134,7 @@ export function validateAction(e: SimulationEngine, s: Ship, a: Action): Command
       : no('请选择其他己方舰船');
   if (a.type === 'RECOVER')
     return w.wrecks.some((x) => x.id === a.targetId && x.discovered) ? ok() : no('残骸尚未发现');
+  if (a.type === 'UNLOAD') return inventory(w, a.targetId) ? ok() : no('己方库存或建设项目不可用');
   const dest = w.locations.find(
     (l) => l.id === a.targetId && l.owner === 'starfleet' && l.hull > 0,
   );
@@ -164,6 +166,15 @@ export function validate(
   const c = parsed.data as Command,
     w = this.state;
   if (w.status !== 'active') return no('COMMAND LOST：只能恢复昨日或开始新边疆');
+  if (c.type === 'admiralChatTask') {
+    const agent = w.agents.find((a) => a.id === c.agentId);
+    return actorId === w.commander.id &&
+      agent &&
+      c.messageId > agent.decision.lastAdmiralMessageId &&
+      addressedAdmiralMessage(this, c.agentId, c.messageId)
+      ? ok()
+      : no('聊天授权必须来自尚未处理的、定向发送的真实 Admiral 消息');
+  }
   if (actorId === w.commander.id && ['agentDecision', 'agentDecisionState'].includes(c.type))
     return no('此命令仅允许主进程 Agent port 调用');
   if (
@@ -354,6 +365,10 @@ export function makeDirective(e: SimulationEngine, action: Action): Directive {
     note: '',
     source: 'admiral',
     actorId: e.state.commander.id,
+    executorAgentId: null,
+    sourceMessageId: null,
+    taskId: null,
+    allowWormholes: true,
     journey: null,
     groupOrderId: null,
     groupSlot: 0,
@@ -371,6 +386,10 @@ export function dispatchCommand(
   if (!valid.ok) return valid;
   const c = commandSchema.parse(input) as Command,
     w = this.state;
+  if (c.type === 'admiralChatTask') {
+    receiveAdmiralTask(this, c.agentId, c.messageId);
+    return ok('Admiral 消息已解析');
+  }
   const agentApplied = applyAgentCommand(this, c, actorId);
   if (agentApplied) return agentApplied;
   const applied = applyFrontierCommand(this, c);
@@ -402,6 +421,7 @@ export function dispatchCommand(
     for (const id of c.shipIds) {
       const s = w.ships.find((s) => s.id === id)!,
         d = makeDirective(this, c.action);
+      if (actorId === w.commander.id) cancelAdmiralTasks(this, s.id, undefined, c.mode !== 'QUEUE');
       if (c.mode !== 'QUEUE' && s.current?.source === 'agent')
         agentOutcome(this, s, s.current, '新指令接管', true);
       if (c.mode === 'QUEUE' && s.current?.source === 'admiral') s.queue.push(d);
@@ -426,6 +446,13 @@ export function dispatchCommand(
             ? 'agent'
             : 'standing';
       d.actorId = actorId;
+      const chatTask = w.admiralTasks.find((t) => t.id === this.executingAdmiralTaskId);
+      if (chatTask) {
+        d.taskId = chatTask.id;
+        d.executorAgentId = w.agents.find((a) => a.assignedShipId === s.id)?.id ?? null;
+        d.sourceMessageId = chatTask.messageId;
+        d.allowWormholes = chatTask.allowWormholes;
+      }
       const agent = w.agents.find((a) => a.assignedShipId === s.id);
       if (agent && d.source === 'admiral') {
         wakeAgent(agent, 'admiralDirective', w.time, true);
@@ -460,6 +487,7 @@ export function dispatchCommand(
   }
   if (c.type === 'cancelDirective') {
     const s = w.ships.find((s) => s.id === c.shipId)!;
+    cancelAdmiralTasks(this, s.id);
     if (s.current?.source === 'agent') agentOutcome(this, s, s.current, 'Admiral 取消指令', true);
     s.current = null;
     s.queue = [];

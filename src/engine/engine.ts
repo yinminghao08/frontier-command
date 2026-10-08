@@ -11,6 +11,7 @@ import { updateSensors } from './sensors';
 import { applyDamage, fire } from './combat';
 import { advanceAgents, agentOutcome } from './agents';
 import { wakeAgent } from './chat';
+import { advanceAdmiralTasks, admiralTaskOutcome } from './admiral-tasks';
 import type {
   Action,
   AgentControllerPort,
@@ -27,6 +28,8 @@ export class SimulationEngine {
   state: WorldState;
   pending: CriticalReason[] = [];
   pendingEvents: SimulationEvent[] = [];
+  /** Engine-internal dispatch context. Never exposed through observation or IPC. */
+  executingAdmiralTaskId: string | null = null;
   constructor(world = createWorld()) {
     this.state = structuredClone(world);
     for (const a of this.state.agents)
@@ -72,7 +75,7 @@ export class SimulationEngine {
       entityId,
     });
     const agentTask = this.state.ships.some(
-      (s) => s.id === entityId && s.current?.source === 'agent',
+      (s) => s.id === entityId && (s.current?.source === 'agent' || !!s.current?.executorAgentId),
     );
     if (communicate && !agentTask) this.report(text, entityId);
     else this.log(text);
@@ -116,6 +119,7 @@ export class SimulationEngine {
   complete(s: Ship, text: string, failed = false) {
     const old = s.current;
     if (old) agentOutcome(this, s, old, text, failed);
+    if (old?.taskId) admiralTaskOutcome(this, old, text, failed);
     s.current = null;
     s.tracking = null;
     s.path = [];
@@ -133,7 +137,7 @@ export class SimulationEngine {
           ' / ' +
           text,
         s.id,
-        old.source !== 'agent',
+        old.source !== 'agent' && !old.executorAgentId,
       );
     const next = s.suspended.pop() ?? s.queue.shift();
     if (next) {
@@ -164,6 +168,7 @@ export class SimulationEngine {
     if (this.pending.some((r) => r.kind === 'newContact'))
       return [...events, ...this.pendingEvents.splice(0), ...this.finishCritical()];
     advanceEconomy(this, fixedDelta);
+    advanceAdmiralTasks(this);
     for (const s of [...w.ships]) {
       if (this.isCommandLost()) break;
       advanceShip(this, s, fixedDelta);

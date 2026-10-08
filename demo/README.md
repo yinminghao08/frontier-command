@@ -1,4 +1,4 @@
-# v11 Agent Demo
+# v12 Agent Demo
 
 最快入口：游戏中打开 **SAVE MANAGER / 存档管理器 → AGENT DEMO / 演示存档**。会创建一个独立存档并暂停，原进度自动保存。点击 **继续**，默认速度为 **16×**。
 
@@ -16,8 +16,8 @@
 
 ## 独立存档文件
 
-- `agent-demo-v11.json`：完整 v11 世界，方便检查与测试。
-- `user-data/timeline-v11.json` 与 `user-data/frontiers-v11/frontier-000001/head.json`：可直接由 Electron 加载的演示存档目录。
+- `agent-demo-v12.json`：完整 v11 世界，方便检查与测试。
+- `user-data/timeline-v12.json` 与 `user-data/frontiers-v12/frontier-000001/head.json`：可直接由 Electron 加载的演示存档目录。
 - 不包含 API Key、账户或外部网络配置。
 
 也可用隔离目录启动，不影响日常存档。PowerShell 在仓库根目录运行：
@@ -34,3 +34,5 @@ Remove-Item Env:FRONTIER_USER_DATA
 ```
 
 运行 `npm run demo:save` 可从同一场景重新生成演示文件。该命令只更新仓库中的 demo 目录；游戏内的一键入口每次创建新的独立存档。
+
+原 v11 演示文件保留，可用于迁移验收。新演示由 v12 导出，明确的 Admiral 聊天命令可直接执行，自主决策仍需要 API。

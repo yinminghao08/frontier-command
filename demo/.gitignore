@@ -6,3 +6,10 @@ user-data/frontiers-v11/*
 user-data/frontiers-v11/frontier-000001/*
 !user-data/frontiers-v11/frontier-000001/head.json
 !user-data/frontiers-v11/frontier-000001/branch.json
+!user-data/frontiers-v12/
+!user-data/timeline-v12.json
+user-data/frontiers-v12/*
+!user-data/frontiers-v12/frontier-000001/
+user-data/frontiers-v12/frontier-000001/*
+!user-data/frontiers-v12/frontier-000001/head.json
+!user-data/frontiers-v12/frontier-000001/branch.json

@@ -79,6 +79,7 @@ export const actionSchema = z.discriminatedUnion('type', [
 ]);
 export const agentDecisionSchema = z
   .object({
+    mode: z.enum(['act', 'continue', 'wait', 'clarify']).optional(),
     goal: z.string().trim().min(1).max(240),
     rationale: z.string().trim().min(1).max(600),
     action: actionSchema.nullable(),
@@ -89,6 +90,8 @@ export const agentDecisionSchema = z
             channelId: id,
             content: z.string().trim().min(1).max(1200),
             mentions: z.array(id).max(12).default([]),
+            purpose: z.enum(['information', 'acknowledgement', 'request']).default('information'),
+            replyTo: n.int().positive().nullable().default(null),
           })
           .strict(),
       )
@@ -144,6 +147,9 @@ const groupFields = {
   spacing: n.min(15).max(100),
 };
 export const commandSchema = z.discriminatedUnion('type', [
+  z
+    .object({ type: z.literal('admiralChatTask'), agentId: id, messageId: n.int().positive() })
+    .strict(),
   z.object({ type: z.literal('assignAgent'), agentId: id, shipId: id.nullable() }).strict(),
   z
     .object({

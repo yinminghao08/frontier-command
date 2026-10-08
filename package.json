@@ -1,9 +1,9 @@
 {
   "name": "frontier-command",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Frontier Command — v11 Agent-driven frontier ecology",
+  "description": "Frontier Command — v12 scoped Admiral chat tasks and resilient decisions",
   "author": "Frontier Command Project",
   "main": "dist-electron/electron/main.js",
   "scripts": {

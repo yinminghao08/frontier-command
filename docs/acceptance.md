@@ -1,3 +1,12 @@
+## v12 decision/chat regression acceptance
+
+- Admiral private/group fire orders execute real ATTACK under RETURN FIRE against publicly observed unconfirmed targets, without changing hostile evidence. Autonomous attacks retain ROE restrictions; real outcomes grant executor XP.
+- Group @ assignment modifies Assignment; another formal Agent is not displaced. Forged and cross-private authorization fails, and renderer cannot invoke the internal task grant.
+- A mine consumes 165 Credits and 30 actual Materials through physical shipping and construction. Logistics cooperation and restart preserve the project. The supplied player v11 save is tested only in a disposable copy.
+- Consecutive survey visits each requested sector, forbids wormholes when ordered, replays deterministically and yields to direct Admiral control.
+- Invalid fields, targets and JSON receive bounded correction with exact paths; exhausted retries preserve world integrity. Local provider fixtures verify format fallback and NONE reasoning.
+- Migrated names, branches, ancestry and daily saves preserve progress and original v11 files. Historical commands do not replay, and ACK replies do not generate feedback loops.
+
 # Frontier Command v11 Agent 验收
 
 当前 v11 使用新世界与独立存档目录，不迁移 v10。`tests/agents.test.ts` 验证独立 Agent、完整公开 observation、Admiral 优先级、原子拒绝非法决策、真实攻击/护航/运输、聊天与有限记忆、培养、经验及关系变化。`tests/agent-api.test.ts` 验证 main-only 协议、独立模型/NONE、兼容重试、超时、加密配置、凭据不进入记录、决策节点与过期响应。
@@ -42,7 +51,7 @@ Demo 的规则与确定性验收见 `tests/agent-demo.test.ts`；Electron 从随
 | 近距调查完成同一步创建接管事件、上下文入口、无残骸建设、唯一幽影接管           | command-v9.test.ts、recon.test.ts、command-v9.spec.ts、recon.spec.ts      |
 | 自有隐形状态在地图、舰船条和详情清晰可见，保存恢复                             | command-v9.spec.ts、recon.test.ts                                         |
 | 每舰稳定 ID 仅首次接触暂停；重获、敌对升级与重载不重复暂停；各倍率同 tick 暂停 | command-v9.test.ts、command-v9.spec.ts、pause-regression.spec.ts          |
-| 真实侦察后接管基地当步可保存；连续运行跨越自动保存周期，重载与确定性验证       | v10.test.ts、pause-regression.spec.ts                                   |
+| 真实侦察后接管基地当步可保存；连续运行跨越自动保存周期，重载与确定性验证       | v10.test.ts、pause-regression.spec.ts                                     |
 | 合并警报与单次音效、确认/定位/下令保持暂停、手动继续、静音和音量               | command-v9.spec.ts、lcars.spec.ts                                         |
 | 标记有货物/奖励/事件/打捞时不可移除，无价值时移除并永久保存真实实体/历史       | command-v9.test.ts、command-v9.spec.ts                                    |
 | 五项基地可用资源、扣除预留、零库存显示、文字放大后不重叠                       | command-v9.test.ts、command-v9.spec.ts                                    |

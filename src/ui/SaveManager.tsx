@@ -126,7 +126,7 @@ export function SaveManager({
           <LcarsButton
             disabled={busy || catalog.blocked}
             onClick={() =>
-              void run(() => action({ type: 'demo', name: 'AGENT DEMO / v11 演示' }), changed)
+              void run(() => action({ type: 'demo', name: 'AGENT DEMO / v12 演示' }), changed)
             }
           >
             AGENT DEMO / 演示存档

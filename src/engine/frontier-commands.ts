@@ -8,6 +8,9 @@ import { DEVELOPMENT } from './definitions/frontier';
 import { tradeReason, orderTrade } from './trade';
 import { eventAt, finishEvent } from './world-events';
 import { AGENT_RULES } from './definitions/agents';
+import { cancelAdmiralTasks } from './admiral-tasks';
+import { agentOutcome } from './agents';
+import { wakeAgent } from './chat';
 export function validateFrontierCommand(e: SimulationEngine, c: Command): CommandResult | null {
   const w = e.state;
   if (c.type === 'createGroup' || c.type === 'updateGroup') {
@@ -154,6 +157,9 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
         (id) => w.ships.find((s) => s.id === id)!,
       );
     for (const [slot, s] of members.entries()) {
+      cancelAdmiralTasks(e, s.id, undefined, c.mode !== 'QUEUE');
+      if (c.mode !== 'QUEUE' && s.current?.source === 'agent')
+        agentOutcome(e, s, s.current, 'Admiral 编队指令接管', true);
       const a =
           c.action.type === 'HAUL'
             ? { ...c.action, amount: Math.min(c.action.amount, capabilities(s).cargo) }
@@ -176,6 +182,11 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
         s.emergencyRetreat = null;
         s.path = [];
         s.status = 'active';
+      }
+      const agent = w.agents.find((a) => a.assignedShipId === s.id);
+      if (agent) {
+        wakeAgent(agent, 'admiralDirective', w.time, true);
+        agent.status = 'admiral';
       }
     }
     e.record('fleet', g.name + ' / ' + c.mode + ' / ' + c.action.type, g.id);

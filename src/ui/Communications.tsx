@@ -288,6 +288,12 @@ export function Communications({
                             {String(cal.minute).padStart(2, '0')}
                           </time>
                           <small>{m.kind.toUpperCase()}</small>
+                          {m.replyTo && (
+                            <small>
+                              RE #{m.replyTo}
+                              {m.purpose === 'acknowledgement' ? ' / ACK' : ''}
+                            </small>
+                          )}
                         </header>
                         <p>{highlightMentions(m.content, world)}</p>
                       </article>

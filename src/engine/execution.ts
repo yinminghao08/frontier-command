@@ -77,7 +77,7 @@ export function go(
     const tolerance =
       e.state.agents.find((a) => a.id === d.actorId)?.personality.riskTolerance ?? 40;
     d.journey = {
-      ...planJourney(e.state, s, target, route, tolerance),
+      ...planJourney(e.state, s, target, route, tolerance, d.allowWormholes),
       legIndex: 0,
       transitWork: 0,
     };
@@ -627,6 +627,16 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       }
       if (s.cargo.specialFinds > 0) unlockProductionDiscount(e);
       e.complete(s, '打捞实际残骸库存，货物留在舰上');
+    }
+  } else if (a.type === 'UNLOAD' && w.projects.some((p) => p.id === a.targetId)) {
+    const dest = inventory(w, a.targetId);
+    if (!dest) {
+      e.complete(s, '卸货地点已失效', true);
+      return;
+    }
+    if (go(e, s, d, dest, dt, 'safe', 8)) {
+      for (const kind of GOODS) s.cargo[kind] -= deposit(dest, kind, s.cargo[kind]);
+      e.complete(s, '真实货物已卸入建设项目');
     }
   } else if (arrivedService(e, s, d, dt)) {
     if (a.type === 'RETREAT' || a.type === 'DOCK') {

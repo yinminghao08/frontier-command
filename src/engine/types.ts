@@ -51,6 +51,7 @@ export interface Agent {
     nextAt: number;
     lastAt: number | null;
     lastChatId: number;
+    lastAdmiralMessageId: number;
     failures: number;
     lastError: string | null;
   };
@@ -70,6 +71,27 @@ export interface ChatMessage {
   content: string;
   mentions: string[];
   kind: 'message' | 'request' | 'reply' | 'report' | 'danger' | 'error';
+  purpose?: 'information' | 'acknowledgement' | 'request';
+  replyTo?: number | null;
+}
+export interface AdmiralTask {
+  id: string;
+  agentId: string;
+  messageId: number;
+  channelId: string;
+  kind: 'action' | 'assign' | 'construction' | 'surveyRoute' | 'cancel';
+  status: 'active' | 'blocked' | 'completed' | 'cancelled';
+  action: Action | null;
+  targetId: string | null;
+  shipId: string | null;
+  facilityKind: Exclude<FacilityKind, 'base'> | null;
+  sectors: SectorCoord[];
+  sectorIndex: number;
+  scannedSectorIndices: number[];
+  allowWormholes: boolean;
+  projectId: string | null;
+  carrierAgentId: string | null;
+  reason: string | null;
 }
 export interface EscortRequest {
   id: string;
@@ -82,10 +104,17 @@ export interface EscortRequest {
   status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'failed';
 }
 export interface AgentDecision {
+  mode?: 'act' | 'continue' | 'wait' | 'clarify';
   goal: string;
   rationale: string;
   action: Action | null;
-  messages: { channelId: string; content: string; mentions: string[] }[];
+  messages: {
+    channelId: string;
+    content: string;
+    mentions: string[];
+    purpose?: ChatMessage['purpose'];
+    replyTo?: number | null;
+  }[];
   memory: string | null;
   waitMinutes: number;
   coordination:
@@ -348,6 +377,10 @@ export interface Directive {
   note: string;
   source: 'admiral' | 'agent' | 'standing';
   actorId: string;
+  executorAgentId: string | null;
+  sourceMessageId: number | null;
+  taskId: string | null;
+  allowWormholes: boolean;
   journey: JourneyProgress | null;
   groupOrderId: string | null;
   groupSlot: number;
@@ -569,7 +602,7 @@ export interface SiteIntel extends Point {
   lastSeen: number;
 }
 export interface WorldState {
-  version: 11;
+  version: 12;
   tick: number;
   time: number;
   seed: number;
@@ -584,6 +617,7 @@ export interface WorldState {
   agents: Agent[];
   chatChannels: ChatChannel[];
   chatMessages: ChatMessage[];
+  admiralTasks: AdmiralTask[];
   escortRequests: EscortRequest[];
   nextChat: number;
   losses: LossRecord[];
@@ -630,7 +664,7 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 11;
+  version: 12;
   tick: number;
   time: number;
   paused: boolean;
@@ -643,6 +677,7 @@ interface SnapshotData {
   agents: Agent[];
   chatChannels: ChatChannel[];
   chatMessages: ChatMessage[];
+  admiralTasks: AdmiralTask[];
   escortRequests: EscortRequest[];
   losses: LossRecord[];
   ships: Ship[];
@@ -681,6 +716,7 @@ interface SnapshotData {
   trade: TradeState;
 }
 export type Command =
+  | { type: 'admiralChatTask'; agentId: string; messageId: number }
   | { type: 'assignAgent'; agentId: string; shipId: string | null }
   | { type: 'configureAgent'; agentId: string; modelConfig: Agent['modelConfig']; enabled: boolean }
   | { type: 'retryAgent'; agentId: string }
@@ -775,6 +811,16 @@ interface ObservationData {
   }[];
   ownShips: Ship[];
   currentTask: Directive | null;
+  admiralTask: AdmiralTask | null;
+  actionAvailability: { action: Action; autonomous: boolean; reason: string | null }[];
+  constructionOptions: {
+    siteId: string;
+    kind: Exclude<FacilityKind, 'base'>;
+    credits: number;
+    materials: number;
+    allowed: boolean;
+    reason: string;
+  }[];
   contacts: IntelRecord[];
   sectors: Sector[];
   systems: StarSystem[];

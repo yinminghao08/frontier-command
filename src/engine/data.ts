@@ -164,7 +164,7 @@ export function createWorld(seed = 236807): WorldState {
     makeShip(s.id, s.name, s.classId, 'starfleet', { x: BASE.x + (i - 1.5) * 28, y: BASE.y + 45 }),
   );
   const w: WorldState = {
-    version: 11,
+    version: 12,
     tick: 0,
     time: 0,
     seed: seed >>> 0,
@@ -192,6 +192,7 @@ export function createWorld(seed = 236807): WorldState {
       },
     ],
     chatMessages: [],
+    admiralTasks: [],
     escortRequests: [],
     nextChat: 1,
     losses: [],

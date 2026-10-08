@@ -396,7 +396,7 @@ describe('v10 production, capture and persistent world', () => {
       }
     }
   });
-  it('starts an independent v11 timeline without touching old v9/v10 worlds', () => {
+  it('starts an independent v12 timeline without touching old v9/v10 worlds', () => {
     const dir = mkdtempSync(join(tmpdir(), 'frontier-v11-isolation-'));
     directories.push(dir);
     const original = readFileSync('tests/fixtures/v9/in-progress.json', 'utf8');
@@ -414,8 +414,8 @@ describe('v10 production, capture and persistent world', () => {
     expect(store.read().world).toBeNull();
     const e = quietEngine();
     store.write(e.state);
-    expect(store.read().world?.version).toBe(11);
-    expect(store.root).toContain('frontiers-v11');
+    expect(store.read().world?.version).toBe(12);
+    expect(store.root).toContain('frontiers-v12');
     for (const version of [9, 10])
       expect(readFileSync(join(dir, 'frontiers-v' + version, branch.id, 'head.json'), 'utf8')).toBe(
         original,

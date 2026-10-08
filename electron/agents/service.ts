@@ -5,6 +5,7 @@ export interface DecisionHost {
   snapshot(): Snapshot;
   controllerPort(id: string): AgentControllerPort;
   command(command: Command, actorId: string): CommandResult;
+  validate?(command: Command, actorId: string): CommandResult;
 }
 /** No WorldState/engine reference is accessible to the model layer. */
 export class AgentDecisionService {
@@ -30,8 +31,27 @@ export class AgentDecisionService {
       }
     }
     if (snapshot.status !== 'active') return;
-    const config = this.config();
+    // Consume authentic Admiral input before autonomous decisions. Historical messages
+    // have their cursor sealed by migration; ordinary conversation still reaches the LLM.
     for (const a of snapshot.agents) {
+      const message = snapshot.chatMessages
+        .filter(
+          (m) =>
+            m.sender === snapshot.commander.id &&
+            m.id > a.decision.lastAdmiralMessageId &&
+            (m.channelId === 'private:' + a.id ||
+              (m.channelId === 'frontier-command' && m.mentions.includes(a.id))),
+        )
+        .at(-1);
+      if (message)
+        this.host.command(
+          { type: 'admiralChatTask', agentId: a.id, messageId: message.id },
+          snapshot.commander.id,
+        );
+    }
+    const latest = this.host.snapshot();
+    const config = this.config();
+    for (const a of latest.agents) {
       if (this.flights.size >= 2) break;
       if (
         !a.enabled ||
@@ -40,9 +60,18 @@ export class AgentDecisionService {
         snapshot.time < a.decision.nextAt
       )
         continue;
+      if (
+        latest.admiralTasks.some(
+          (t) =>
+            (t.agentId === a.id || t.carrierAgentId === a.id) &&
+            ['active', 'blocked'].includes(t.status),
+        ) &&
+        !a.decision.pendingReasons.some((r) => r.startsWith('chat:') || r === 'manual')
+      )
+        continue;
       if (!config.apiKey && a.status === 'offline') continue;
       if (
-        snapshot.paused &&
+        latest.paused &&
         !a.decision.pendingReasons.some((r) => /^(chat:|manual|configuration)/.test(r))
       )
         continue;
@@ -71,7 +100,19 @@ export class AgentDecisionService {
       if (!started.ok) continue;
       this.flights.set(a.id, { controller, revision });
       void this.client
-        .decide(config, observation, controller.signal)
+        .decide(
+          config,
+          observation,
+          controller.signal,
+          () => this.host.controllerPort(a.id).getObservation(),
+          this.host.validate
+            ? (decision) =>
+                this.host.validate!(
+                  { type: 'agentDecision', agentId: a.id, revision, decision },
+                  a.id,
+                )
+            : undefined,
+        )
         .then((decision) => {
           if (this.disposed || controller.signal.aborted) return;
           const current = this.host.controllerPort(a.id).getObservation();
@@ -100,8 +141,10 @@ export class AgentDecisionService {
                 agentId: a.id,
                 revision,
                 state: 'error',
-                error:
-                  error instanceof AgentApiError ? error.message : '模型调用失败，请稍后重试。',
+                error: (error instanceof AgentApiError
+                  ? error.message
+                  : '模型调用失败，请稍后重试。'
+                ).slice(0, 400),
               },
               a.id,
             );

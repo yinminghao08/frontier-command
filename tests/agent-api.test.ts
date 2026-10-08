@@ -217,7 +217,7 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     e.dispatchCommand({
       type: 'sendChat',
       channelId: privateChannel('ops-meridian'),
-      content: '请先回基地休息。',
+      content: '聊聊休息安排。',
       mentions: [],
     });
     service.pump();
@@ -282,7 +282,7 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     const client = new ChatCompletionsClient(async () => {
       calls++;
       return response(
-        calls === 1
+        calls <= 3
           ? 'broken JSON'
           : jsonDecision({ type: 'PATROL', targetId: 'mine', duration: 10 }),
       );
@@ -302,12 +302,12 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     expect(e.state.chatMessages.at(-1)?.kind).toBe('error');
     run(e, 1);
     for (let i = 0; i < 30; i++) service.pump();
-    expect(calls).toBe(1);
+    expect(calls).toBe(3);
     expect(JSON.stringify(e.snapshot())).not.toContain(config.apiKey);
     e.dispatchCommand({ type: 'retryAgent', agentId: 'ops-meridian' });
     service.pump();
     await flush();
-    expect(calls).toBe(2);
+    expect(calls).toBe(4);
     expect(e.state.agents[1].status).toBe('executing');
     service.dispose();
   });

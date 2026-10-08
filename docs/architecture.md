@@ -1,3 +1,15 @@
+## v12 scoped Admiral chat tasks and resilient decisions
+
+Common imperative orders are compiled from an authentic addressed Admiral message and a public Observation. Questions/negative instructions do not grant attack or building authority. Unresolved references request clarification. The main-only admiralChatTask Command validates sender, recipient and a monotonic message cursor; renderer IPC rejects this internal command. Models cannot choose their command source or company permissions.
+
+AdmiralTask persists original message/channel, scope, progress, route restrictions and an optional Logistics collaborator. Engine-internal dispatch context stamps actual Directives with source=admiral, actorId=commander, executorAgentId, sourceMessageId and taskId. Physical commands retain normal validation, movement, combat, reservations and construction. New direct Admiral orders cancel related chat execution, including delegated cargo work. Outcomes grant executor XP/memory, while engine receipts enter chat. Construction prefers an idle, enabled, rested, cooperative Logistics peer with sufficient free cargo; otherwise the assigned ship transports actual batches. Career never restricts Action types.
+
+The provider JSON Schema is generated from the same Zod decision validators, including field/collection limits. Explicit unsupported errors negotiate and cache schema → JSON → text fallback per endpoint/model. NONE omits reasoning. A shared deadline bounds the initial decision plus two repairs. Safe field paths and command validation reasons are fed back with refreshed public observation. No action or chat commits before the entire decision passes validation, and new revisions cancel old requests. Raw provider bodies and credentials are never recorded. ACK messages carry replyTo and do not wake peers.
+
+Journey Planner accepts a persisted wormhole permission. Consecutive survey physically scans each specified sector and publicly revealed targets; task progression is deterministic engine work rather than per-tick model calls.
+
+Save schema/index 12 uses independent paths. First startup copies v11 branches, backups and daily snapshots before publishing the new index. Original files remain untouched; historical message cursors are sealed so old chat never replays. Damaged saves retain normal protection/backup behavior. Tasks, reply chains and directive authority references are validated. The notes below describe their historical versions.
+
 # Architecture
 
 ## Authority

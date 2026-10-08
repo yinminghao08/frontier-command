@@ -58,6 +58,7 @@ function startAgentService() {
     {
       snapshot: () => engine.snapshot(),
       controllerPort: (id) => engine.controllerPort(id),
+      validate: (command, actorId) => engine.validate(command, actorId),
       command: (command, actorId) => {
         if (saveBlocked) return { ok: false, reason: '当前存档受保护' };
         const result = engine.dispatchCommand(command, actorId);
@@ -165,6 +166,13 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('world:command', (event, command: unknown) => {
     trusted(event);
+    if (
+      command &&
+      typeof command === 'object' &&
+      'type' in command &&
+      command.type === 'admiralChatTask'
+    )
+      return { ok: false, reason: '聊天任务授权仅由主进程处理真实消息' };
     const session = z
       .object({ type: z.enum(['restorePreviousDay', 'beginNewFrontier']) })
       .strict()

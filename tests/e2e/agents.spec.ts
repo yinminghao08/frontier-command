@@ -15,7 +15,7 @@ import { COMMAND_CHANNEL, privateChannel } from '../../src/engine/chat';
 import type { Snapshot, WorldState } from '../../src/engine/types';
 import { AgentTestProvider } from './agent-provider';
 let app: ElectronApplication | undefined, provider: AgentTestProvider | undefined;
-const output = resolve('docs/verification/v11');
+const output = resolve('docs/verification/v12');
 const testKey = 'isolated-e2e-test-key';
 const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(directory: string) {
@@ -240,7 +240,7 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   app = undefined;
   const restarted = await launch(directory);
   const loaded = await state(restarted);
-  expect(loaded.version).toBe(11);
+  expect(loaded.version).toBe(12);
   expect(loaded.chatMessages).toEqual(persisted.chatMessages);
   expect(loaded.agents.find((a) => a.id === graduate.id)?.assignedShipId).toBe('verity');
   expect(loaded.agents.find((a) => a.id === 'ops-horizon')?.modelConfig.model).toBe(

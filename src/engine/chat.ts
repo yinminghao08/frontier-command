@@ -70,6 +70,7 @@ export function appendChat(
   content: string,
   mentions: string[] = [],
   kind: ChatMessage['kind'] = 'message',
+  metadata: Pick<ChatMessage, 'purpose' | 'replyTo'> = {},
 ) {
   const w = e.state,
     channel = w.chatChannels.find((c) => c.id === channelId)!;
@@ -82,6 +83,8 @@ export function appendChat(
     content: content.slice(0, 2000),
     mentions: ids,
     kind,
+    purpose: metadata.purpose ?? (kind === 'request' ? 'request' : 'information'),
+    replyTo: metadata.replyTo ?? null,
   };
   w.chatMessages.push(message);
   // The saved transcript is persistent; observations/memory are separately bounded.
@@ -95,7 +98,11 @@ export function appendChat(
       sender,
       ids.includes(agent.id) ? 6 : 2,
     );
-    if (kind !== 'error' && (sender === w.commander.id || ids.includes(agent.id)))
+    if (
+      kind !== 'error' &&
+      message.purpose !== 'acknowledgement' &&
+      (sender === w.commander.id || ids.includes(agent.id))
+    )
       wakeAgent(agent, 'chat:' + message.id, w.time, true);
   }
   return message;

@@ -4,7 +4,7 @@ import { COMMAND_CHANNEL, privateChannel } from './chat';
 import { worldSchema } from './save-schema';
 import type { AgentDecision, Command, WorldState } from './types';
 
-export const AGENT_DEMO_NAME = 'AGENT DEMO / v11 演示';
+export const AGENT_DEMO_NAME = 'AGENT DEMO / v12 演示';
 /** Authored save setup. Decisions are validated once; continuing uses normal simulation rules. */
 export function createAgentDemoWorld(): WorldState {
   const e = new SimulationEngine(createWorld());

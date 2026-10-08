@@ -25,9 +25,10 @@ export function journeyOptions(
   ship: ReadonlyDeep<Ship>,
   end: Point,
   riskTolerance = 40,
+  allowWormholes = true,
 ): JourneyPlan[] {
   const holes = w.wormholes
-    .filter((h) => h.discovered && h.surveyed && h.exit)
+    .filter((h) => allowWormholes && h.discovered && h.surveyed && h.exit)
     .sort(
       (a, b) =>
         dist(ship, a) + dist(a.exit!, end) - (dist(ship, b) + dist(b.exit!, end)) ||
@@ -127,8 +128,9 @@ export function planJourney(
   end: Point,
   route?: RouteKind,
   riskTolerance = 40,
+  allowWormholes = true,
 ) {
-  const options = journeyOptions(w, ship, end, riskTolerance);
+  const options = journeyOptions(w, ship, end, riskTolerance, allowWormholes);
   return route
     ? options[(['safe', 'direct', 'risky'] as const).indexOf(route)]
     : options.sort((a, b) => a.score - b.score || a.eta - b.eta)[0];

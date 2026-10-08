@@ -11,6 +11,7 @@ import { validateAutonomousAction } from './agents';
 import { capabilities, cargoUsed } from './capabilities';
 import { journeyOptions } from './journey';
 import { AGENT_RULES } from './definitions/agents';
+import { FACILITIES } from './definitions/progression';
 export function opportunities(e: SimulationEngine): Opportunity[] {
   const w = e.state,
     result: Opportunity[] = [];
@@ -86,6 +87,7 @@ export function snapshot(this: SimulationEngine): Snapshot {
     agents: w.agents,
     chatChannels: w.chatChannels,
     chatMessages: w.chatMessages,
+    admiralTasks: w.admiralTasks,
     escortRequests: w.escortRequests,
     losses: w.losses,
     ships: w.ships,
@@ -221,8 +223,11 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
     examples.push({ type: 'MOVE', point: { x: ship.x + 20, y: ship.y } }, { type: 'RETURN' });
     for (const sector of frontierSectors(snap.sectors))
       examples.push({ type: 'EXPLORE', sector: { q: sector.q, r: sector.r }, approach: 'remote' });
-    for (const t of [...snap.systems, ...snap.bodies].slice(0, 40))
+    for (const t of [...snap.systems, ...snap.bodies])
       examples.push({ type: 'SURVEY', targetId: t.id, approach: 'close', deep: false });
+    if (ship.modules.includes('deepScan'))
+      for (const t of [...snap.systems, ...snap.bodies])
+        examples.push({ type: 'SURVEY', targetId: t.id, approach: 'close', deep: true });
     for (const h of snap.wormholes) examples.push({ type: 'TRANSIT', targetId: h.id });
     for (const event of snap.events.filter((v) => ['reported', 'responding'].includes(v.stage)))
       examples.push({ type: 'ASSIST_EVENT', targetId: event.id });
@@ -295,12 +300,60 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
   const sources = snap.inventories
     .filter((i) => i.available.materials >= 10)
     .map((i) => i.locationId);
+  const admiralTask =
+    [...snap.admiralTasks]
+      .reverse()
+      .find((t) => t.agentId === operatorId || t.carrierAgentId === operatorId) ?? null;
+  const constructionOptions = snap.bodies
+    .filter((b) => b.kind === 'resource' || b.kind === 'planet')
+    .map((b) => {
+      const kind = b.kind === 'resource' ? ('mine' as const) : ('colony' as const);
+      const result = this.validate({ type: 'startConstruction', siteId: b.id, kind, name: b.name });
+      return {
+        siteId: b.id,
+        kind,
+        credits: FACILITIES[kind].cost.credits,
+        materials: FACILITIES[kind].cost.materials,
+        allowed: result.ok,
+        reason: result.reason,
+      };
+    });
+  const readableChat = snap.chatMessages.filter((m) =>
+    snap.chatChannels.some((ch) => ch.id === m.channelId && ch.members.includes(operatorId)),
+  );
+  const selectedChat = new Map<number, Snapshot['chatMessages'][number]>();
+  const candidates = [
+    ...readableChat
+      .filter((m) => m.channelId === 'private:' + operatorId)
+      .slice(-12)
+      .reverse(),
+    ...readableChat
+      .filter((m) => m.mentions.includes(operatorId))
+      .slice(-8)
+      .reverse(),
+    ...readableChat
+      .filter((m) => m.channelId === 'frontier-command')
+      .slice(-4)
+      .reverse(),
+    ...readableChat.slice(-AGENT_RULES.chatObservationLimit).reverse(),
+  ];
+  for (const message of candidates)
+    if (selectedChat.size < AGENT_RULES.chatObservationLimit && !selectedChat.has(message.id))
+      selectedChat.set(message.id, message);
   return structuredClone({
     time: snap.time,
     operatorId,
     self,
     ship,
     currentTask: ship?.current ?? null,
+    admiralTask,
+    constructionOptions,
+    actionAvailability: ship
+      ? examples.map((action) => {
+          const result = validateAutonomousAction(this, ship, action);
+          return { action, autonomous: result.ok, reason: result.ok ? null : result.reason };
+        })
+      : [],
     fleet: snap.agents.map((a) => ({
       id: a.id,
       name: a.name,
@@ -320,7 +373,13 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
     journeys: ship
       ? [...locations, ...snap.projects.filter((p) => !p.complete)].slice(0, 24).map((l) => ({
           targetId: l.id,
-          plans: journeyOptions(snap, ship, l, self?.personality.riskTolerance),
+          plans: journeyOptions(
+            snap,
+            ship,
+            l,
+            self?.personality.riskTolerance,
+            admiralTask?.allowWormholes ?? true,
+          ),
         }))
       : [],
     inventories: snap.inventories,
@@ -348,11 +407,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
       tension: snap.tension,
       status: snap.status,
     },
-    recentChat: snap.chatMessages
-      .filter((m) =>
-        snap.chatChannels.some((ch) => ch.id === m.channelId && ch.members.includes(operatorId)),
-      )
-      .slice(-AGENT_RULES.chatObservationLimit),
+    recentChat: [...selectedChat.values()].sort((a, b) => a.id - b.id),
     channels: snap.chatChannels.filter((ch) => ch.members.includes(operatorId)),
     escortRequests: snap.escortRequests
       .filter((r) => r.requesterId === operatorId || r.responderId === operatorId)

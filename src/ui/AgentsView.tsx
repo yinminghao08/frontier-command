@@ -126,6 +126,7 @@ function AgentDetail({
     ),
     [enabled, setEnabled] = useState(agent.enabled);
   const ship = world.ships.find((s) => s.id === agent.assignedShipId);
+  const admiralTask = [...world.admiralTasks].reverse().find((t) => t.agentId === agent.id);
   return (
     <section className="agent-detail" data-agent-id={agent.id}>
       <div className="inline-actions">
@@ -147,6 +148,16 @@ function AgentDetail({
         <b>{AGENT_STATUS[agent.status]}</b> · {agent.id}
       </p>
       <p>CURRENT GOAL / {agent.currentGoal}</p>
+      {admiralTask && (
+        <p className="agent-status-line">
+          ADMIRAL CHAT / #{admiralTask.messageId} · {admiralTask.status.toUpperCase()} ·{' '}
+          {admiralTask.kind === 'surveyRoute'
+            ? `${admiralTask.sectorIndex}/${admiralTask.sectors.length} 星区`
+            : admiralTask.kind.toUpperCase()}{' '}
+          · {admiralTask.allowWormholes ? '允许已确认虫洞' : '禁止虫洞'}
+          {admiralTask.reason ? ' · ' + admiralTask.reason : ''}
+        </p>
+      )}
       <p>
         当前任务：
         {ship?.current

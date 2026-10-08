@@ -1,8 +1,31 @@
 import { useEffect, useState } from 'react';
 import type { AgentRuntimeStats } from '../engine/agent-api';
 import { LcarsTextBar } from './components/Lcars';
-export function AgentCallStatus({ status }: { agentId: string; status: string }) {
-  return status === 'waiting' ? <p role="status">正在处理模型决策</p> : null;
+export function AgentCallStatus({ status, agentId }: { agentId: string; status: string }) {
+  const [stats, setStats] = useState<AgentRuntimeStats | null>(null);
+  useEffect(() => {
+    if (status !== 'waiting') return;
+    let mounted = true;
+    const update = () =>
+      void window.frontier.agentRuntime().then((s) => {
+        if (mounted) setStats(s);
+      });
+    update();
+    const timer = setInterval(update, 500);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [agentId, status]);
+  const current = stats?.activeRequests.find((r) => r.agentId === agentId);
+  return status === 'waiting' ? (
+    <span role="status">
+      {current?.phase === 'receiving' ? '正在接收回复' : '正在等待模型回复'}
+      {current
+        ? ` · 已用 ${Math.max(0, (Date.now() - Math.min(current.startedAt, current.deadlineAt - 20000)) / 1000).toFixed(1)} 秒 / 最多 20 秒`
+        : ''}
+    </span>
+  ) : null;
 }
 export function AgentRuntime() {
   const [stats, setStats] = useState<AgentRuntimeStats | null>(null);
@@ -30,6 +53,14 @@ export function AgentRuntime() {
           当前并发 {stats.concurrency}
         </p>
       )}
+      {stats?.recentRequests.slice(-3).map((r) => (
+        <p key={r.id}>
+          #{r.id} · {r.requestBytes} bytes · 响应{' '}
+          {r.firstByteAt ? ((r.firstByteAt - r.startedAt) / 1000).toFixed(2) : '—'} 秒 · 总耗时{' '}
+          {r.endedAt ? ((r.endedAt - r.startedAt) / 1000).toFixed(2) : '—'} 秒 · 校验{' '}
+          {r.validationMs} ms{r.reason ? ' · ' + r.reason : ''}
+        </p>
+      ))}
     </section>
   );
 }

@@ -166,7 +166,7 @@ export function createWorld(seed = 236807): WorldState {
     makeShip(s.id, s.name, s.classId, 'starfleet', { x: BASE.x + (i - 1.5) * 28, y: BASE.y + 45 }),
   );
   const w: WorldState = {
-    version: 14,
+    version: 15,
     orion: createOrionState(),
     piracyIncidents: [],
     tick: 0,

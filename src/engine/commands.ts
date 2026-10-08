@@ -140,7 +140,24 @@ export const commandSchema = z.discriminatedUnion('type', [
       enabled: z.boolean(),
     })
     .strict(),
-  z.object({ type: z.literal('retryAgent'), agentId: id }).strict(),
+  z
+    .object({
+      type: z.literal('retryAgent'),
+      agentId: id,
+      messageId: n.int().positive().optional(),
+    })
+    .strict(),
+  z
+    .object({ type: z.literal('cancelAgentReply'), agentId: id, messageId: n.int().positive() })
+    .strict(),
+  z
+    .object({
+      type: z.literal('proposeDirective'),
+      shipIds: members,
+      mode: z.enum(['REPLACE', 'QUEUE', 'INTERRUPT']),
+      action: actionSchema,
+    })
+    .strict(),
   z
     .object({
       type: z.literal('sendChat'),
@@ -164,6 +181,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       type: z.literal('agentDecision'),
       agentId: id,
       revision: n.int().min(0),
+      observedAt: n.min(0).optional(),
       decision: agentDecisionSchema,
     })
     .strict(),
@@ -190,6 +208,7 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('cancelDirective'), shipId: id }).strict(),
+  z.object({ type: z.literal('modifyCurrentTask'), shipId: id, action: actionSchema }).strict(),
   z.object({ type: z.literal('standingOrders'), shipId: id, orders: standingSchema }).strict(),
   z.object({ type: z.literal('setCloak'), shipId: id, enabled: z.boolean() }).strict(),
   z.object({ type: z.literal('createGroup'), ...groupFields }).strict(),

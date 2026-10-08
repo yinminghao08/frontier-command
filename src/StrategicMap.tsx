@@ -51,6 +51,7 @@ export function StrategicMap({
   destination,
   commandTarget,
   selectedShipIds,
+  selectedTargetIds,
   command,
   followShipId,
   onManualCamera,
@@ -61,6 +62,7 @@ export function StrategicMap({
   selection: Selection | null;
   onSelect: (s: Selection, additive?: boolean) => void;
   selectedShipIds: string[];
+  selectedTargetIds: string[];
   command: CommandSender;
   followShipId: string | null;
   onManualCamera: () => void;
@@ -208,7 +210,12 @@ export function StrategicMap({
   }, []);
   const active = (id: string) =>
       selectedShipIds.includes(id) ||
-      (selection && selection.type !== 'ship' && 'id' in selection && selection.id === id),
+      selectedTargetIds.includes(id) ||
+      (selection &&
+        selection.type !== 'ship' &&
+        selection.type !== 'contact' &&
+        'id' in selection &&
+        selection.id === id),
     level =
       camera.k < 0.15
         ? 'OVERVIEW'
@@ -256,7 +263,7 @@ export function StrategicMap({
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         audio.play('navigation');
-        onSelect(s);
+        onSelect(s, e.ctrlKey);
       }
     },
   });
@@ -716,7 +723,11 @@ export function StrategicMap({
                     className="selection-reticle"
                     r="20"
                     fill="none"
-                    stroke={MAP_PALETTE.decoration.selection}
+                    stroke={
+                      selectedTargetIds.includes(m.id)
+                        ? MAP_PALETTE.decoration.danger
+                        : MAP_PALETTE.decoration.selection
+                    }
                     strokeWidth="2"
                   />
                 )}

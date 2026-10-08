@@ -304,7 +304,7 @@ export function LcarsShell({
           <span>
             LCARS / 2368
             <br />
-            AGENT LINK / V14
+            AGENT LINK / V15
           </span>
           <LcarsButton
             shape="flat"

@@ -245,7 +245,7 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   app = undefined;
   const restarted = await launch(directory);
   const loaded = await state(restarted);
-  expect(loaded.version).toBe(14);
+  expect(loaded.version).toBe(15);
   expect(loaded.chatMessages).toEqual(persisted.chatMessages);
   expect(loaded.agents.find((a) => a.id === graduate.id)?.assignedShipId).toBe('verity');
   expect(loaded.agents.find((a) => a.id === 'ops-horizon')?.modelConfig.model).toBe(
@@ -382,7 +382,7 @@ test('Electron v14: old demo files stay untouched; a new demo awaits genuine mod
   const p = await launch(directory);
   const initial = await state(p);
   expect(initial.paused).toBe(true);
-  expect(initial.version).toBe(14);
+  expect(initial.version).toBe(15);
   expect(initial.speed).toBe(1);
   expect((await p.evaluate(() => window.frontier.agentSettings())).hasKey).toBe(false);
   expect(readFileSync(join(directory, 'timeline-v11.json'), 'utf8')).toBe(

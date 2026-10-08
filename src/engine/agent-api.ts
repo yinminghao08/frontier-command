@@ -19,6 +19,8 @@ export interface AgentApiResult {
   reason: string;
 }
 export interface AgentRuntimeStats {
+  activeRequests: AgentRequestTiming[];
+  recentRequests: AgentRequestTiming[];
   concurrency: number;
   requests: number;
   repairs: number;
@@ -27,4 +29,17 @@ export interface AgentRuntimeStats {
   tokens: number | null;
   windowRequests: number;
   byAgent: Record<string, number>;
+}
+export interface AgentRequestTiming {
+  id: number;
+  agentId: string;
+  kind: string;
+  phase: 'requesting' | 'receiving' | 'completed' | 'failed';
+  startedAt: number;
+  deadlineAt: number;
+  requestBytes: number;
+  firstByteAt: number | null;
+  endedAt: number | null;
+  validationMs: number;
+  reason: string | null;
 }

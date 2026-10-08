@@ -150,7 +150,14 @@ function AgentDetail({
       <p className="agent-status-line">
         <b>{AGENT_STATUS[agent.status]}</b> · {agent.id}
       </p>
-      <AgentCallStatus agentId={agent.id} status={agent.status} />
+      <AgentCallStatus
+        agentId={agent.id}
+        status={
+          world.chatMessages.some((m) => m.responses?.[agent.id] === 'pending')
+            ? 'waiting'
+            : agent.status
+        }
+      />
       <p>CURRENT GOAL / {agent.currentGoal}</p>
       <p>LONG TERM / {agent.longTermGoal.summary}</p>
       <p>
@@ -213,9 +220,45 @@ function AgentDetail({
           ['Logistics / 物流技能', agent.skills.logistics],
           ['Navigation / 导航技能', agent.skills.navigation],
         ].map(([label, value]) => (
-          <LcarsMeter key={label} label={String(label)} value={Number(value)} max={100} />
+          <LcarsMeter
+            key={label}
+            label={String(label)}
+            value={Number(value)}
+            max={100}
+            decimals={
+              String(label).match(/Trust|Fatigue|Morale|Stress|Confidence|Resentment/) ? 1 : 0
+            }
+          />
         ))}
       </div>
+      <p aria-label="状态变化速率">
+        当前活动{' '}
+        {
+          { work: '工作', combat: '交战', idle: '闲置', docked: '安全停靠', rest: '休息' }[
+            agent.stateDynamics.activity
+          ]
+        }{' '}
+        · 每游戏分钟：疲劳 {agent.stateDynamics.fatigueRate > 0 ? '+' : ''}
+        {agent.stateDynamics.fatigueRate.toFixed(2)} · 压力{' '}
+        {agent.stateDynamics.stressRate > 0 ? '+' : ''}
+        {agent.stateDynamics.stressRate.toFixed(2)} · 不满{' '}
+        {agent.stateDynamics.resentmentRate > 0 ? '+' : ''}
+        {agent.stateDynamics.resentmentRate.toFixed(2)}
+      </p>
+      {agent.stateDynamics.recent
+        .slice(-4)
+        .reverse()
+        .map((r) => (
+          <p key={r.id}>
+            {r.cause} ·{' '}
+            {Object.entries(r.changes)
+              .map(
+                ([key, value]) =>
+                  `${({ fatigue: '疲劳', stress: '压力', resentment: '不满', confidence: '信心', morale: '士气', trust: '信任' } as Record<string, string>)[key]} ${value && value > 0 ? '+' : ''}${value?.toFixed(1)}`,
+              )
+              .join(' / ')}
+          </p>
+        ))}
       <LcarsTextBar literal>ASSIGNMENT / 舰船</LcarsTextBar>
       <LcarsField>
         分配舰船

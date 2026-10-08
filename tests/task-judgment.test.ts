@@ -102,7 +102,9 @@ describe('short LLM task judgments', () => {
       response: 'accept',
       conditions: [],
     });
-    expect(d.messages).toEqual([]);
+    expect(d.messages).toMatchObject([
+      { channelId: privateChannel(id), replyTo: e.state.admiralTasks[0].messageId },
+    ]);
     expect(e.state.chatMessages.some((m) => m.content.includes('等待自主判断'))).toBe(false);
   });
   it('an actual model refusal cancels the task and gives its reason without executing', async () => {

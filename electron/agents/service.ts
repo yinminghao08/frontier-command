@@ -12,11 +12,24 @@ export class AgentDecisionService {
   private readonly flights = new Map<string, { controller: AbortController; revision: number }>();
   private disposed = false;
   private retries = new Map<string, { at: number; attempts: number }>();
+  private readonly messageDeadlines = new Map<string, number>();
   constructor(
     private readonly host: DecisionHost,
     private readonly config: () => ConnectionConfig,
     private readonly client = new ChatCompletionsClient(),
   ) {}
+  received() {
+    const pending = this.host.snapshot().chatMessages.flatMap((m) =>
+      Object.entries(m.responses ?? {})
+        .filter(([, status]) => status === 'pending')
+        .map(([id]) => `${m.id}:${id}`),
+    );
+    const keys = new Set(pending);
+    for (const key of this.messageDeadlines.keys())
+      if (!keys.has(key)) this.messageDeadlines.delete(key);
+    for (const key of pending)
+      if (!this.messageDeadlines.has(key)) this.messageDeadlines.set(key, Date.now() + 20000);
+  }
   dispose() {
     this.disposed = true;
     for (const flight of this.flights.values()) flight.controller.abort();
@@ -24,6 +37,7 @@ export class AgentDecisionService {
   }
   pump() {
     if (this.disposed) return;
+    this.received();
     const snapshot = this.host.snapshot();
     for (const [id, flight] of this.flights) {
       if (snapshot.agents.find((a) => a.id === id)?.decision.revision !== flight.revision) {
@@ -65,10 +79,26 @@ export class AgentDecisionService {
     }
     const config = this.config();
     for (const a of latest.agents) {
+      const awaitingMessage = latest.chatMessages.some((m) => m.responses?.[a.id] === 'pending');
+      if (!a.enabled && awaitingMessage) {
+        this.host.command(
+          {
+            type: 'agentDecisionState',
+            agentId: a.id,
+            revision: a.decision.revision,
+            state: 'offline',
+            error: '该 Agent 的自主控制已关闭。请开启自主控制后重试，或直接接管舰船。',
+          },
+          a.id,
+        );
+        continue;
+      }
       const manual =
         a.decision.events.some((event) => ['manual', 'configuration'].includes(event.kind)) ||
         a.decision.pendingReasons.some((reason) => /^(manual|configuration)/.test(reason));
-      const input = a.decision.events.some((event) => ['chat', 'request'].includes(event.kind));
+      const input =
+        awaitingMessage ||
+        a.decision.events.some((event) => ['chat', 'request', 'state'].includes(event.kind));
       if (manual || (input && !/认证失败/.test(a.decision.lastError ?? '')))
         this.retries.delete(a.id);
       if (
@@ -81,7 +111,7 @@ export class AgentDecisionService {
       if (
         a.status === 'admiral' &&
         !a.decision.events.some((event) =>
-          ['chat', 'manual', 'configuration', 'request', 'danger'].includes(event.kind),
+          ['chat', 'manual', 'configuration', 'request', 'danger', 'state'].includes(event.kind),
         )
       )
         continue;
@@ -100,15 +130,16 @@ export class AgentDecisionService {
             ['active', 'blocked'].includes(t.status),
         ) &&
         !a.decision.events.some((event) =>
-          ['chat', 'manual', 'request', 'danger'].includes(event.kind),
+          ['chat', 'manual', 'request', 'danger', 'state'].includes(event.kind),
         )
       )
         continue;
-      if (!config.apiKey && a.status === 'offline') continue;
+      if (!config.apiKey && a.status === 'offline' && !awaitingMessage) continue;
       if (
         latest.paused &&
+        !awaitingMessage &&
         !a.decision.events.some((event) =>
-          ['chat', 'manual', 'configuration', 'request'].includes(event.kind),
+          ['chat', 'manual', 'configuration', 'request', 'state'].includes(event.kind),
         ) &&
         !a.decision.pendingReasons.some((r) => /^(chat:|manual|configuration)/.test(r))
       )
@@ -116,8 +147,13 @@ export class AgentDecisionService {
       const observation = this.host.controllerPort(a.id).getObservation();
       if (!observation?.self) continue;
       const revision = observation.self.decision.revision;
+      const message = latest.chatMessages.find((m) => m.responses?.[a.id] === 'pending');
+      const messageKey = message ? `${message.id}:${a.id}` : null;
+      if (messageKey && !this.messageDeadlines.has(messageKey))
+        this.messageDeadlines.set(messageKey, Date.now() + 20000);
+      const deadlineAt = messageKey ? this.messageDeadlines.get(messageKey) : undefined;
       if (!config.apiKey) {
-        if (a.status !== 'offline')
+        if (a.status !== 'offline' || awaitingMessage)
           this.host.command(
             {
               type: 'agentDecisionState',
@@ -148,20 +184,36 @@ export class AgentDecisionService {
         this.host.validate
           ? (decision) =>
               this.host.validate!(
-                { type: 'agentDecision', agentId: a.id, revision, decision },
+                {
+                  type: 'agentDecision',
+                  agentId: a.id,
+                  revision,
+                  observedAt: observation.time,
+                  decision,
+                },
                 a.id,
               )
           : undefined,
+        deadlineAt,
       )
         .then((decision) => {
           if (this.disposed || controller.signal.aborted) return;
           const current = this.host.controllerPort(a.id).getObservation();
           if (current?.self?.decision.revision !== revision) return;
           const result = this.host.command(
-            { type: 'agentDecision', agentId: a.id, revision, decision },
+            {
+              type: 'agentDecision',
+              agentId: a.id,
+              revision,
+              observedAt: observation.time,
+              decision,
+            },
             a.id,
           );
-          if (result.ok) this.retries.delete(a.id);
+          if (result.ok) {
+            this.retries.delete(a.id);
+            if (messageKey) this.messageDeadlines.delete(messageKey);
+          }
           if (!result.ok)
             this.host.command(
               {
@@ -180,6 +232,7 @@ export class AgentDecisionService {
               (this.host.snapshot().agents.find((agent) => agent.id === a.id)?.decision.failures ??
                 0) + 1;
             if (
+              !message &&
               attempts < 3 &&
               !(error instanceof AgentApiError && /认证|未配置|schema|纠错/.test(error.message))
             )
@@ -200,6 +253,7 @@ export class AgentDecisionService {
               },
               a.id,
             );
+            if (messageKey) this.messageDeadlines.delete(messageKey);
           }
         })
         .finally(() => {

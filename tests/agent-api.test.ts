@@ -302,7 +302,7 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     expect(e.state.chatMessages.at(-1)?.kind).toBe('error');
     run(e, 1);
     for (let i = 0; i < 30; i++) service.pump();
-    expect(calls).toBe(3);
+    expect(calls).toBe(2);
     expect(JSON.stringify(e.snapshot())).not.toContain(config.apiKey);
     e.dispatchCommand({ type: 'retryAgent', agentId: 'ops-meridian' });
     service.pump();

@@ -21,9 +21,13 @@ import {
 } from './agents';
 import { hasAdmiralWork } from './fleet';
 import { wakeAgent } from './chat';
-import { addressedAdmiralMessage, cancelAdmiralTasks, receiveAdmiralTask } from './admiral-tasks';
+import {
+  addressedAdmiralMessage,
+  cancelAdmiralTasks,
+  receiveAdmiralTask,
+  proposeDirective,
+} from './admiral-tasks';
 import { applyResolution, cancelContracts, validateResolution } from './contracts';
-import { personalFeedback } from './personality';
 export const ok = (reason = '命令已接受'): CommandResult => ({ ok: true, reason });
 export const no = (reason: string): CommandResult => ({ ok: false, reason });
 export { inventory, available } from './inventory';
@@ -45,6 +49,13 @@ export function pay(e: SimulationEngine, c: Cost, locationId = 'base') {
 export function validateAction(e: SimulationEngine, s: Ship, a: Action): CommandResult {
   const w = e.state;
   if (a.type === 'MOVE' || a.type === 'RETURN') return ok();
+  if (a.type === 'ATTACK_SET') {
+    for (const targetId of a.targetIds) {
+      const result = validateAction(e, s, { type: 'ATTACK', targetId });
+      if (!result.ok) return result;
+    }
+    return ok();
+  }
   if (a.type === 'ASSIST_EVENT') {
     const event = w.events.find(
       (v) => v.id === a.targetId && ['reported', 'responding'].includes(v.stage),
@@ -103,7 +114,8 @@ export function validateAction(e: SimulationEngine, s: Ship, a: Action): Command
     const src = inventory(w, a.sourceId),
       dst = inventory(w, a.targetId);
     if (!src || !dst || src.id === dst.id) return no('请选择不同的己方库存或建设项目');
-    if (a.amount > capabilities(s).cargo) return no('货舱容量不足，请分批或安装 Expanded Cargo');
+    if (a.loadPolicy !== 'auto' && a.amount > capabilities(s).cargo)
+      return no('货舱容量不足，请分批或安装 Expanded Cargo');
     if (a.repeat && !w.upgrades.logistics) return no('持续货运需要 Logistics 升级');
     return ok();
   }
@@ -198,6 +210,23 @@ export function validate(
     return no('该操作者无此命令权限');
   const agentResult = validateAgentCommand(this, c, actorId);
   if (agentResult) return agentResult;
+  if (c.type === 'modifyCurrentTask') {
+    if (!w.ships.some((s) => s.id === c.shipId && s.current)) return no('没有可修改的当前任务');
+    return this.validate(
+      { type: 'issueDirective', shipIds: [c.shipId], mode: 'REPLACE', action: c.action },
+      actorId,
+    );
+  }
+  if (c.type === 'proposeDirective') {
+    for (const shipId of c.shipIds) {
+      const ship = w.ships.find((s) => s.id === shipId);
+      if (!ship || !w.agents.some((a) => a.enabled && a.assignedShipId === shipId))
+        return no('所选舰船没有可用 Agent，请直接接管或调整舰船选择');
+      const result = validateAction(this, ship, c.action);
+      if (!result.ok) return result;
+    }
+    return ok();
+  }
   if (c.type === 'respondPiracy') {
     return w.ships.some((s) => s.id === c.shipId) &&
       w.piracyIncidents.some(
@@ -221,7 +250,7 @@ export function validate(
         if (agent && !agent.enabled) return no('Agent 自主控制已关闭');
         const autonomous = validateAutonomousAction(this, s, c.action);
         if (!autonomous.ok) return autonomous;
-        if (agent && c.action.type === 'HAUL') {
+        if (agent && c.action.type === 'HAUL' && c.action.loadPolicy !== 'auto') {
           const action = c.action;
           const ownReservation =
             c.mode === 'REPLACE' &&
@@ -445,6 +474,15 @@ export function dispatchCommand(
     return ok('Admiral 消息已解析');
   }
   if (c.type === 'resolveProposal') return applyResolution(this, c);
+  if (c.type === 'proposeDirective') {
+    proposeDirective(this, c);
+    return ok('已提交给舰上 Agent 判断，回复将在原会话显示');
+  }
+  if (c.type === 'modifyCurrentTask')
+    return this.dispatchCommand(
+      { type: 'issueDirective', shipIds: [c.shipId], mode: 'REPLACE', action: c.action },
+      actorId,
+    );
   const agentApplied = applyAgentCommand(this, c, actorId);
   if (agentApplied) return agentApplied;
   const applied = applyFrontierCommand(this, c);
@@ -476,6 +514,30 @@ export function dispatchCommand(
     for (const id of c.shipIds) {
       const s = w.ships.find((s) => s.id === id)!,
         d = makeDirective(this, c.action);
+      const previous = s.current;
+      const retained =
+        c.mode === 'REPLACE' &&
+        c.action.type === 'HAUL' &&
+        previous?.action.type === 'HAUL' &&
+        c.action.cargoKind === previous.action.cargoKind
+          ? Math.max(
+              0,
+              Math.min(
+                s.cargo[c.action.cargoKind],
+                previous.carried - previous.delivered - (previous.lost ?? 0),
+                c.action.loadPolicy === 'auto' ? Infinity : c.action.amount,
+              ),
+            )
+          : 0;
+      d.carried = retained;
+      if (
+        c.action.type === 'HAUL' &&
+        retained > 0 &&
+        (c.action.loadPolicy === 'auto'
+          ? cargoUsed(s) >= capabilities(s).cargo
+          : retained >= c.action.amount)
+      )
+        d.phase = 'delivering';
       if (actorId === w.commander.id) {
         if (c.mode !== 'QUEUE')
           for (const incident of w.piracyIncidents.filter(
@@ -530,9 +592,8 @@ export function dispatchCommand(
         d.allowWormholes = chatTask.allowWormholes;
       }
       const agent = w.agents.find((a) => a.assignedShipId === s.id);
+      if (agent && d.source === 'admiral') d.executorAgentId ??= agent.id;
       if (agent && d.source === 'admiral' && d.controlMode !== 'voluntary') {
-        if (!this.executingAdmiralTaskId)
-          personalFeedback(agent, d.id + ':takeover', { trust: -3, morale: -3, resentment: 4 });
         wakeAgent(agent, 'admiralDirective', w.time, true);
         agent.status = 'admiral';
       }
@@ -541,7 +602,14 @@ export function dispatchCommand(
         d.reserved.quantum = d.action.load.quantum;
         d.phase = 'reserved';
       }
-      if (s.current === d && d.source === 'agent' && d.action.type === 'HAUL') {
+      // Explicit autonomous quantities claim scarce stock atomically. Automatic
+      // loading is deliberately calculated when the vessel reaches its source.
+      if (
+        s.current === d &&
+        d.source === 'agent' &&
+        d.action.type === 'HAUL' &&
+        d.action.loadPolicy !== 'auto'
+      ) {
         d.reserved[d.action.cargoKind] = d.action.amount;
         d.phase = 'loading';
       }

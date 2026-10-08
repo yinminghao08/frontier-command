@@ -3,7 +3,14 @@ import { SECTOR_SIZE } from './definitions/locations';
 
 export type TaskIntent = Pick<
   AdmiralTask,
-  'kind' | 'action' | 'targetId' | 'shipId' | 'facilityKind' | 'sectors' | 'allowWormholes'
+  | 'kind'
+  | 'action'
+  | 'targetId'
+  | 'shipId'
+  | 'facilityKind'
+  | 'sectors'
+  | 'allowWormholes'
+  | 'factionId'
 >;
 export interface IntentResult {
   intent: TaskIntent | null;
@@ -63,9 +70,14 @@ export function compileAdmiralIntent(
       : ask('请明确要分配的舰船名称；当前无法唯一识别。');
   }
   if (
-    /开火|干掉|消灭|攻击|击毁|attack|open fire|destroy|kill/i.test(text) &&
+    /开火|干掉|消灭|摧毁|歼灭|清剿|打击|攻击|击毁|attack|open fire|destroy|kill/i.test(text) &&
     !/不要开火|停止开火|别开火|do not fire|don't fire/i.test(text)
   ) {
+    if (
+      /所有|全部|清剿|剩下|剩余|继续|all|remaining/i.test(text) &&
+      (/orion|猎户座/i.test(text) || observation.admiralTask?.kind === 'factionAssault')
+    )
+      return yes({ ...base, kind: 'factionAssault', factionId: 'orion' });
     const targets = [
       ...observation.contacts,
       ...observation.locations.filter((l) => l.owner !== 'starfleet'),
@@ -146,37 +158,78 @@ export function compileAdmiralIntent(
       targetId: 'base',
       action: /卸货|unload/i.test(text) ? { type: 'UNLOAD', targetId: 'base' } : { type: 'RETURN' },
     });
-  if (/运输|运送|搬运|运回|haul|deliver/i.test(text)) {
-    const sources = observation.inventories.filter((i) => i.available.materials >= 1);
+  if (/运输|运送|搬运|运回|装满|满载|haul|deliver|full cargo/i.test(text)) {
+    const ongoing =
+      observation.currentTask?.action.type === 'HAUL'
+        ? observation.currentTask.action
+        : observation.admiralTask?.action?.type === 'HAUL'
+          ? observation.admiralTask.action
+          : null;
+    const requestedKind = /quantum|量子/i.test(text)
+      ? 'quantum'
+      : /photon|光子/i.test(text)
+        ? 'photon'
+        : /special.?find|特殊发现/i.test(text)
+          ? 'specialFinds'
+          : /materials|材料|物资/i.test(text)
+            ? 'materials'
+            : (ongoing?.cargoKind ?? 'materials');
+    const sourceClause = text.match(/(?:从|from\s+)\s*(.+?)(?=运|装|搬|送|到|至|\bto\b)/i)?.[1];
+    const destinationClause = text.match(/(?:到|至|\bto\s+)\s*(.+?)(?=[，,。！!]|$)/i)?.[1];
+    const sources = observation.inventories;
     const named = sources.filter(
       (i) =>
-        normalized(text).includes(normalized(i.locationId)) ||
+        normalized(sourceClause ?? text).includes(normalized(i.locationId)) ||
         observation.locations.some(
-          (l) => l.id === i.locationId && normalized(text).includes(normalized(l.name)),
+          (l) =>
+            l.id === i.locationId && normalized(sourceClause ?? text).includes(normalized(l.name)),
         ),
     );
     const source =
       named.length === 1
         ? named[0]
-        : sources.filter((i) =>
+        : sourceClause
+          ? /矿场|mine/i.test(sourceClause) &&
+            sources.filter((i) =>
               observation.locations.some((l) => l.id === i.locationId && l.kind === 'mine'),
             ).length === 1
-          ? sources.find((i) =>
-              observation.locations.some((l) => l.id === i.locationId && l.kind === 'mine'),
-            )
-          : null;
-    const destination = /基地|Dawn|base|运回/i.test(text)
+            ? sources.find((i) =>
+                observation.locations.some((l) => l.id === i.locationId && l.kind === 'mine'),
+              )
+            : null
+          : ongoing
+            ? observation.inventories.find((i) => i.locationId === ongoing.sourceId)
+            : sources.filter((i) =>
+                  observation.locations.some((l) => l.id === i.locationId && l.kind === 'mine'),
+                ).length === 1
+              ? sources.find((i) =>
+                  observation.locations.some((l) => l.id === i.locationId && l.kind === 'mine'),
+                )
+              : null;
+    const destination = /基地|Dawn|base|运回/i.test(destinationClause ?? (sourceClause ? '' : text))
       ? observation.locations.find((l) => l.id === 'base')
-      : resolve(
-          text,
+      : (resolve(
+          destinationClause ?? (sourceClause ? '' : text),
           observation.locations.filter((l) => l.id !== source?.locationId),
-        );
+        ) ??
+        (destinationClause
+          ? /矿场|mine/i.test(destinationClause) &&
+            observation.locations.filter((l) => l.kind === 'mine').length === 1
+            ? observation.locations.find((l) => l.kind === 'mine')
+            : null
+          : ongoing
+            ? (observation.locations.find((l) => l.id === ongoing.targetId) ??
+              observation.projects.find((p) => p.id === ongoing.targetId))
+            : null));
     if (!source || !destination || source.locationId === destination.id)
       return ask('请明确货物运输的起点和目的地。');
-    const requested = text.match(/(\d+)\s*(?:Materials|材料|物资)/i)?.[1];
+    const requested =
+      text.match(
+        /(\d+)\s*(?:Materials|材料|物资|Photon|光子|Quantum|量子|Special.?Finds|特殊发现)/i,
+      )?.[1] ?? text.match(/(?:运送?|运输|装载)\s*(\d+)/)?.[1];
     const amount = requested
       ? Number(requested)
-      : Math.min(50, Math.floor(source.available.materials));
+      : Math.max(1, observation.ship ? 10000 : Math.floor(source.available.materials));
     return yes({
       ...base,
       targetId: destination.id,
@@ -184,10 +237,17 @@ export function compileAdmiralIntent(
         type: 'HAUL',
         sourceId: source.locationId,
         targetId: destination.id,
-        cargoKind: 'materials',
+        cargoKind: requestedKind,
         amount,
-        route: /直达|direct/i.test(text) ? 'direct' : /冒险|risky/i.test(text) ? 'risky' : 'safe',
-        repeat: /循环|持续|repeat/i.test(text),
+        loadPolicy: requested ? 'fixed' : 'auto',
+        route: /直达|direct/i.test(text)
+          ? 'direct'
+          : /冒险|risky/i.test(text)
+            ? 'risky'
+            : /安全|safe/i.test(text)
+              ? 'safe'
+              : (ongoing?.route ?? 'safe'),
+        repeat: /循环|持续|repeat/i.test(text) || (ongoing?.repeat ?? false),
       },
     });
   }

@@ -15,13 +15,13 @@ afterEach(() => {
   for (const d of directories.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 describe('v14 isolated generation replaces legacy migration', () => {
-  it.each([9, 10, 11, 12, 13, 15])('rejects version %s without altering input', (version) => {
+  it.each([9, 10, 11, 12, 13, 16])('rejects version %s without altering input', (version) => {
     const old = { ...quietEngine().state, version },
       bytes = JSON.stringify(old);
     expect(() => parseSave(old)).toThrow('Unsupported save version: ' + version);
     expect(JSON.stringify(old)).toBe(bytes);
   });
-  it('preserves all older timelines, heads, failures and API bytes while starting v14', () => {
+  it('preserves all older timelines, heads, failures and API bytes while starting v15', () => {
     const d = directory(),
       bytes = readFileSync('tests/fixtures/v12/in-progress.json', 'utf8');
     for (const version of [11, 12, 13]) {
@@ -35,7 +35,7 @@ describe('v14 isolated generation replaces legacy migration', () => {
     const store = new SaveStore(d);
     expect(store.read()).toMatchObject({ world: null, blocked: false });
     store.write(quietEngine().state);
-    expect(store.read().world?.version).toBe(14);
+    expect(store.read().world?.version).toBe(15);
     for (const version of [11, 12, 13]) {
       for (const name of ['head.json', 'head.json.bak', 'day-1.json', 'failure.json'])
         expect(
@@ -59,7 +59,7 @@ describe('v14 isolated generation replaces legacy migration', () => {
     expect(readFileSync(failure, 'utf8')).toBe('damaged-terminal');
   });
   it('corrupt current and future indexes protect their files', () => {
-    for (const version of [14, 15]) {
+    for (const version of [15, 16]) {
       const d = directory(),
         file = join(d, 'timeline-v' + version + '.json');
       writeFileSync(file, 'broken');
@@ -67,7 +67,7 @@ describe('v14 isolated generation replaces legacy migration', () => {
       expect(store.read().blocked).toBe(true);
       expect(() => store.write(quietEngine().state)).toThrow();
       expect(readFileSync(file, 'utf8')).toBe('broken');
-      if (version === 15) expect(existsSync(store.indexPath)).toBe(false);
+      if (version === 16) expect(existsSync(store.indexPath)).toBe(false);
     }
   });
   it('retains contract, sequence and escrow validation in the new schema', () => {

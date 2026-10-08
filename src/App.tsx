@@ -34,6 +34,7 @@ export function App() {
     [selection, setSelection] = useState<Selection | null>({ type: 'location', id: 'base' });
   const [focus, setFocus] = useState<{ point: Point; serial: number } | null>(null);
   const [selectedShipIds, setSelectedShipIds] = useState<string[]>([]);
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
   const [followShipId, setFollowShipId] = useState<string | null>(null);
   const [chatRequest, setChatRequest] = useState<{ channelId: string; serial: number } | null>(
     null,
@@ -73,6 +74,12 @@ export function App() {
       const alive = ids.filter((id) => world.ships.some((s) => s.id === id));
       return alive.length === ids.length ? ids : alive;
     });
+    setSelectedTargetIds((ids) => {
+      const known = ids.filter((id) =>
+        world.contacts.some((c) => c.id === id && !c.resolved && world.time - c.lastSeen <= 30),
+      );
+      return known.length === ids.length ? ids : known;
+    });
   }, [world]);
   useEffect(
     () =>
@@ -105,6 +112,11 @@ export function App() {
   const select = (s: Selection, locate = false, additive = false) => {
     if (s.type !== 'ship' || s.id !== followShipId) setFollowShipId(null);
     setSelection(s);
+    if (s.type === 'contact')
+      setSelectedTargetIds((ids) =>
+        additive ? (ids.includes(s.id) ? ids.filter((id) => id !== s.id) : [...ids, s.id]) : [s.id],
+      );
+    if (s.type === 'point') setSelectedTargetIds([]);
     if (s.type === 'ship' || s.type === 'group') {
       if (s.type === 'ship')
         setSelectedShipIds((ids) =>
@@ -190,6 +202,7 @@ export function App() {
     setDestination(null);
     setCommandTarget(null);
     setSelectedShipIds([]);
+    setSelectedTargetIds([]);
     setFollowShipId(null);
     setManagerCreate(false);
     setMoveMode('REPLACE');
@@ -211,6 +224,18 @@ export function App() {
     }
   };
   const openComposer = (request: ComposerRequest) => {
+    if (
+      request.action.type === 'ATTACK' &&
+      selection?.type === 'contact' &&
+      selectedTargetIds.length
+    )
+      request = {
+        ...request,
+        action:
+          selectedTargetIds.length > 1
+            ? { type: 'ATTACK_SET', targetIds: [...selectedTargetIds] }
+            : { type: 'ATTACK', targetId: selectedTargetIds[0] },
+      };
     if (request.shipId || request.groupId || request.shipIds) {
       setComposer(request);
       return;
@@ -313,6 +338,7 @@ export function App() {
               world={world}
               selection={selection}
               selectedShipIds={selectedShipIds}
+              selectedTargetIds={selectedTargetIds}
               select={select}
               command={command}
               create={openComposer}
@@ -370,6 +396,7 @@ export function App() {
           commandTarget={commandTarget}
           onSelect={(s, additive) => select(s, false, additive)}
           selectedShipIds={selectedShipIds}
+          selectedTargetIds={selectedTargetIds}
           command={command}
           followShipId={followShipId}
           onManualCamera={() => setFollowShipId(null)}

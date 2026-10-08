@@ -289,7 +289,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
         (l) => l.id !== src.locationId,
       )) {
         for (const cargoKind of GOODS) {
-          const amount = Math.min(50, free, Math.floor(src.available[cargoKind]));
+          const amount = Math.min(free, Math.floor(src.available[cargoKind]));
           if (amount > 0)
             examples.push({
               type: 'HAUL',
@@ -297,6 +297,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
               targetId: dst.id,
               cargoKind,
               amount,
+              loadPolicy: 'auto',
               route: 'safe',
               repeat: false,
             });
@@ -348,6 +349,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
   );
   const selectedChat = new Map<number, Snapshot['chatMessages'][number]>();
   const candidates = [
+    ...readableChat.filter((m) => m.responses?.[operatorId] === 'pending').reverse(),
     ...readableChat
       .filter((m) => m.channelId === 'private:' + operatorId)
       .slice(-12)

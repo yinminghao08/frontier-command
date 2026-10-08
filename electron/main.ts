@@ -116,7 +116,7 @@ app.whenReady().then(async () => {
   engine = new SimulationEngine(loaded.world ?? createWorld());
   agentConfig = new AgentConfigStore(app.getPath('userData'), safeStorage);
   agentTracker = new RequestTracker();
-  agentClient = new ChatCompletionsClient(fetch, 45000, agentTracker);
+  agentClient = new ChatCompletionsClient(fetch, 20000, agentTracker);
   startAgentService();
   if (engine.state.status === 'active') engine.state.paused = true;
   if (!loaded.world && !loaded.blocked) store.write(engine.state);
@@ -211,6 +211,7 @@ app.whenReady().then(async () => {
       return { ok: false, reason: '请关闭存档管理器后手动继续模拟' };
     const previousReasons = engine.state.pauseReasons.length;
     const result = engine.dispatchCommand(command);
+    if (result.ok) agentService?.received();
     if (
       result.ok &&
       typeof command === 'object' &&
@@ -390,7 +391,7 @@ app.whenReady().then(async () => {
       }
     }
     send();
-    if (!saveBlocked && !managerOpen) agentService?.pump();
+    if (!saveBlocked) agentService?.pump();
     const publicEvents = events.filter((event) => event.type === 'shipTransited');
     if (publicEvents.length && window && !window.isDestroyed())
       window.webContents.send('world:events', publicEvents);

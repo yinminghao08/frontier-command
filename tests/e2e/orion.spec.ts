@@ -78,7 +78,7 @@ test('Electron v14: real new-game reconnaissance, natural freight and private Or
   mkdirSync(output, { recursive: true });
   const dir = mkdtempSync(join(tmpdir(), 'frontier-orion-new-')),
     p = await launch(dir);
-  expect((await state(p)).version).toBe(14);
+  expect((await state(p)).version).toBe(15);
   const r = await p.evaluate(() =>
     window.frontier.command({
       type: 'issueDirective',

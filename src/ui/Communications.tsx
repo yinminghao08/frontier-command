@@ -7,6 +7,7 @@ import { LcarsButton, LcarsFrame } from './components/Lcars';
 import { AGENT_STATUS } from './AgentsView';
 import { useLcars } from './lcars/LcarsProvider';
 import { AgentRequests } from './AgentRequests';
+import { AgentCallStatus } from './AgentRuntime';
 const POSITION_KEY = 'frontier.comms.position.v1';
 const clamp = (p: Point): Point => {
   const box = document.querySelector('.communications-launcher')?.getBoundingClientRect();
@@ -144,7 +145,12 @@ export function Communications({
         ? 'ADMIRAL'
         : (world.agents.find((a) => a.id === id)?.name ?? id);
   const waiting = world.agents.filter(
-    (a) => channel.members.includes(a.id) && a.status === 'waiting',
+    (a) =>
+      channel.members.includes(a.id) &&
+      (a.status === 'waiting' ||
+        world.chatMessages.some(
+          (m) => m.channelId === channelId && m.responses?.[a.id] === 'pending',
+        )),
   );
   const textUnit = parseFloat(getComputedStyle(document.documentElement).fontSize);
   const panelWidth = Math.min(Math.max(850, textUnit * 45), innerWidth - 24),
@@ -340,6 +346,52 @@ export function Communications({
                             )}
                           </header>
                           <p>{highlightMentions(m.content, world)}</p>
+                          {m.responses &&
+                            Object.entries(m.responses).map(([agentId, status]) => (
+                              <div
+                                key={agentId}
+                                className="inline-actions"
+                                aria-label="消息回复状态"
+                              >
+                                <small>
+                                  {name(agentId)} ·{' '}
+                                  {
+                                    {
+                                      pending: '待回复',
+                                      replied: '已回复',
+                                      failed: '回复失败',
+                                      superseded: '已被新指令替代',
+                                      cancelled: '已取消',
+                                    }[status]
+                                  }
+                                </small>
+                                {status === 'pending' && (
+                                  <LcarsButton
+                                    tone="secondary"
+                                    onClick={() =>
+                                      void command(
+                                        { type: 'cancelAgentReply', agentId, messageId: m.id },
+                                        true,
+                                      )
+                                    }
+                                  >
+                                    取消等待
+                                  </LcarsButton>
+                                )}
+                                {status === 'failed' && (
+                                  <LcarsButton
+                                    onClick={() =>
+                                      void command(
+                                        { type: 'retryAgent', agentId, messageId: m.id },
+                                        true,
+                                      )
+                                    }
+                                  >
+                                    重试回复
+                                  </LcarsButton>
+                                )}
+                              </div>
+                            ))}
                         </article>
                       );
                     })}
@@ -347,7 +399,11 @@ export function Communications({
                   </div>
                   <div className={'chat-typing' + (waiting.length ? '' : ' idle')} role="status">
                     {waiting.length
-                      ? waiting.map((a) => a.name).join(' / ') + ' 正在处理模型决策…'
+                      ? waiting.map((a) => (
+                          <span key={a.id}>
+                            {a.name} <AgentCallStatus agentId={a.id} status="waiting" />{' '}
+                          </span>
+                        ))
                       : 'SUBSPACE LINK / 频道在线'}
                   </div>
                   {channel.kind === 'reports' ? (

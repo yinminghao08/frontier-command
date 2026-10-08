@@ -3,6 +3,7 @@ import { capabilities, cargoUsed } from './capabilities';
 import { available } from './inventory';
 import { dist } from './navigation';
 import { RULES } from './definitions/rules';
+import { freshAgentDynamics } from './definitions/agents';
 export function decisionWorldKey(a: Agent, w: WorldState) {
   return JSON.stringify({
     discoveries: [...w.bodies, ...w.systems]
@@ -99,6 +100,7 @@ export function personalState(id: string, career: Agent['career'], seed = 236807
     taskPreferences,
     rewardCredits: 0,
     feedbackEvents: [] as string[],
+    stateDynamics: freshAgentDynamics(),
   };
 }
 export function decisionContext(a: Agent, w: WorldState): Observation['decisionContext'] {
@@ -181,9 +183,12 @@ export function personalFeedback(
     activity?: Activity;
     preference?: number;
   },
+  time = 0,
+  cause = eventId,
 ) {
   if (a.feedbackEvents.includes(eventId)) return false;
   a.feedbackEvents.push(eventId);
+  const before = { fatigue: a.fatigue, ...a.psychology, trust: a.trust, morale: a.morale };
   for (const key of ['stress', 'confidence', 'resentment'] as const)
     a.psychology[key] = clampMood(a.psychology[key] + (change[key] ?? 0));
   a.trust = clampMood(a.trust + (change.trust ?? 0));
@@ -192,5 +197,21 @@ export function personalFeedback(
     a.taskPreferences[change.activity] = clampMood(
       a.taskPreferences[change.activity] + (change.preference ?? 0),
     );
+  const after = { fatigue: a.fatigue, ...a.psychology, trust: a.trust, morale: a.morale };
+  const changes = Object.fromEntries(
+    Object.entries(before).flatMap(([key, value]) => {
+      const delta = after[key as keyof typeof after] - value;
+      return delta ? [[key, delta]] : [];
+    }),
+  );
+  if (Object.keys(changes).length) {
+    a.stateDynamics.recent.push({
+      id: eventId.slice(0, 160),
+      time,
+      cause: cause.slice(0, 240),
+      changes,
+    });
+    a.stateDynamics.recent = a.stateDynamics.recent.slice(-12);
+  }
   return true;
 }

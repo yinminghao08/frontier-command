@@ -3,6 +3,7 @@ import { agentDecisionSchema } from './commands';
 
 /** Provider schema is derived from the actual validator; local validation remains authoritative. */
 export function protocolSchema(schema: z.ZodTypeAny): Record<string, unknown> {
+  if (schema instanceof z.ZodEffects) return protocolSchema(schema.innerType());
   if (schema instanceof z.ZodDefault) return protocolSchema(schema.removeDefault());
   if (schema instanceof z.ZodOptional)
     return { anyOf: [protocolSchema(schema.unwrap()), { type: 'null' }] };

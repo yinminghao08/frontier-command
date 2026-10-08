@@ -58,6 +58,7 @@ export const actionSchema = z.discriminatedUnion('type', [
       amount: count,
       route: z.enum(['safe', 'direct', 'risky']),
       repeat: z.boolean(),
+      loadPolicy: z.enum(['auto', 'fixed']).optional(),
     })
     .strict(),
   z
@@ -65,6 +66,16 @@ export const actionSchema = z.discriminatedUnion('type', [
       type: z.enum(['ATTACK', 'DISABLE', 'DRIVE_OFF', 'INTERCEPT', 'SHADOW']),
       targetId: id,
       subsystem: z.enum(['engines', 'weapons']).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('ATTACK_SET'),
+      targetIds: z
+        .array(id)
+        .min(1)
+        .max(100)
+        .refine((ids) => new Set(ids).size === ids.length),
     })
     .strict(),
   z.object({ type: z.literal('ESCORT'), targetId: id }).strict(),

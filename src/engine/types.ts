@@ -42,7 +42,15 @@ export interface Commitment {
 }
 export type DecisionEvent = {
   id: string;
-  kind: 'chat' | 'request' | 'danger' | 'opportunity' | 'manual' | 'configuration' | 'recovery';
+  kind:
+    | 'chat'
+    | 'request'
+    | 'danger'
+    | 'state'
+    | 'opportunity'
+    | 'manual'
+    | 'configuration'
+    | 'recovery';
   time: number;
 };
 export interface AgentMemory {
@@ -52,6 +60,29 @@ export interface AgentMemory {
   summary: string;
   entityId: string | null;
   salience: number;
+}
+export type AgentStateMetric =
+  | 'fatigue'
+  | 'stress'
+  | 'resentment'
+  | 'confidence'
+  | 'morale'
+  | 'trust';
+export interface AgentStateDynamics {
+  activity: 'work' | 'combat' | 'idle' | 'docked' | 'rest';
+  fatigueRate: number;
+  stressRate: number;
+  resentmentRate: number;
+  engagementTick: number | null;
+  lastDangerAt: number;
+  hullBands: number[];
+  thresholds: string[];
+  recent: {
+    id: string;
+    time: number;
+    cause: string;
+    changes: Partial<Record<AgentStateMetric, number>>;
+  }[];
 }
 export interface Agent {
   /** The same stable actor ID is used by Operator and Assignment. */
@@ -65,6 +96,7 @@ export interface Agent {
   taskPreferences: Record<Activity, number>;
   rewardCredits: number;
   feedbackEvents: string[];
+  stateDynamics: AgentStateDynamics;
   skills: { battle: number; logistics: number; navigation: number };
   experience: number;
   trust: number;
@@ -113,13 +145,17 @@ export interface ChatMessage {
   eventId?: string | null;
   requestId?: string | null;
   controlMode?: 'voluntary' | 'direct';
+  responses?: Record<string, 'pending' | 'replied' | 'failed' | 'superseded' | 'cancelled'>;
 }
 export interface AdmiralTask {
   id: string;
   agentId: string;
   messageId: number;
   channelId: string;
-  kind: 'action' | 'assign' | 'construction' | 'surveyRoute' | 'cancel';
+  kind: 'action' | 'assign' | 'construction' | 'surveyRoute' | 'cancel' | 'factionAssault';
+  factionId?: 'orion';
+  searchedTargets?: Record<string, number>;
+  directiveMode?: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
   status: 'active' | 'blocked' | 'completed' | 'cancelled' | 'failed';
   action: Action | null;
   targetId: string | null;
@@ -464,7 +500,9 @@ export type Action =
       amount: number;
       route: RouteKind;
       repeat: boolean;
+      loadPolicy?: 'auto' | 'fixed';
     }
+  | { type: 'ATTACK_SET'; targetIds: readonly string[] }
   | {
       type: 'ATTACK' | 'DISABLE' | 'DRIVE_OFF' | 'INTERCEPT' | 'SHADOW';
       targetId: string;
@@ -508,6 +546,8 @@ export interface Directive {
   groupTotal: number;
   groupSpacing: number;
   origin: Point;
+  targetIndex?: number;
+  unconfirmedTargets?: string[];
 }
 export interface Ship extends Point {
   id: string;
@@ -845,7 +885,7 @@ export interface SiteIntel extends Point {
   lastSeen: number;
 }
 export interface WorldState {
-  version: 14;
+  version: 15;
   orion: OrionState;
   piracyIncidents: PiracyIncident[];
   tick: number;
@@ -911,7 +951,7 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 14;
+  version: 15;
   piracyIncidents: PiracyIncident[];
   tick: number;
   time: number;
@@ -970,7 +1010,15 @@ export type Command =
   | { type: 'admiralChatTask'; agentId: string; messageId: number }
   | { type: 'assignAgent'; agentId: string; shipId: string | null }
   | { type: 'configureAgent'; agentId: string; modelConfig: Agent['modelConfig']; enabled: boolean }
-  | { type: 'retryAgent'; agentId: string }
+  | { type: 'retryAgent'; agentId: string; messageId?: number }
+  | { type: 'cancelAgentReply'; agentId: string; messageId: number }
+  | { type: 'modifyCurrentTask'; shipId: string; action: Action }
+  | {
+      type: 'proposeDirective';
+      shipIds: string[];
+      mode: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
+      action: Action;
+    }
   | {
       type: 'sendChat';
       channelId: string;
@@ -986,7 +1034,13 @@ export type Command =
     }
   | { type: 'readChat'; channelId: string; throughId: number }
   /** Main-process ports only; the Admiral/renderer cannot impersonate an Agent. */
-  | { type: 'agentDecision'; agentId: string; revision: number; decision: AgentDecision }
+  | {
+      type: 'agentDecision';
+      agentId: string;
+      revision: number;
+      observedAt?: number;
+      decision: AgentDecision;
+    }
   | {
       type: 'agentDecisionState';
       agentId: string;

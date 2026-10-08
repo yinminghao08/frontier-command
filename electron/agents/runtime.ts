@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AgentRuntimeStats } from '../../src/engine/agent-api';
+import type { AgentRuntimeStats, AgentRequestTiming } from '../../src/engine/agent-api';
 export type RequestKind = 'initial' | 'repair' | 'compatibility' | 'test';
 
 /** App-wide telemetry only. Requests never wait for application quotas or slots. */
@@ -16,10 +16,48 @@ export class RequestTracker {
     unknownUsage: 0,
   };
   private byAgent: Record<string, number> = {};
+  private timings: AgentRequestTiming[] = [];
+  track(agentId: string, kind: string, requestBytes: number, deadlineAt: number) {
+    const timing: AgentRequestTiming = {
+      id: this.counts.requests,
+      agentId,
+      kind,
+      phase: 'requesting',
+      startedAt: this.now(),
+      deadlineAt,
+      requestBytes,
+      firstByteAt: null,
+      endedAt: null,
+      validationMs: 0,
+      reason: null,
+    };
+    this.timings.push(timing);
+    this.timings = [
+      ...this.timings.filter((t) => t.endedAt === null),
+      ...this.timings.filter((t) => t.endedAt !== null).slice(-20),
+    ];
+    return timing;
+  }
+  validation(agentId: string, milliseconds: number) {
+    const timing = [...this.timings].reverse().find((t) => t.agentId === agentId);
+    if (timing) timing.validationMs += milliseconds;
+  }
+  rejected(agentId: string, reason: string) {
+    const timing = [...this.timings].reverse().find((t) => t.agentId === agentId);
+    if (timing) {
+      timing.phase = 'failed';
+      timing.reason = reason.slice(0, 400);
+    }
+  }
   constructor(private readonly now = () => Date.now()) {}
   stats(): AgentRuntimeStats {
     this.recent = this.recent.filter((at) => this.now() - at < 60000);
     return {
+      activeRequests: this.timings.filter((t) => t.endedAt === null).map((t) => ({ ...t })),
+      recentRequests: this.timings
+        .filter((t) => t.endedAt !== null)
+        .slice(-20)
+        .map((t) => ({ ...t })),
       concurrency: this.active,
       requests: this.counts.requests,
       repairs: this.counts.repairs,

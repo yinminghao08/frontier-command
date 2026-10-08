@@ -13,7 +13,8 @@ export interface TestCompletionRequest {
 export class AgentTestProvider {
   server: Server;
   requests: TestCompletionRequest[] = [];
-  mode: 'cooperate' | 'refuse' | 'invalid' | 'negotiate' | 'piracy' | 'piracyRefuse' = 'cooperate';
+  mode: 'cooperate' | 'refuse' | 'invalid' | 'negotiate' | 'piracy' | 'piracyRefuse' | 'hang' =
+    'cooperate';
   constructor() {
     this.server = createServer((request, response) => {
       let text = '';
@@ -42,6 +43,7 @@ export class AgentTestProvider {
           return;
         }
         let content: string;
+        if (this.mode === 'hang') return; // Deliberately stalled local socket for deadline tests.
         if (input.messages[0].content.includes('Reply only JSON:')) content = '{"ok":true}';
         else if (input.messages[0].content.startsWith('TASK_JUDGMENT:')) {
           content = JSON.stringify({

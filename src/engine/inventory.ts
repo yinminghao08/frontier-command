@@ -1,5 +1,7 @@
 import type { CargoKind, Directive, Stock, WorldState } from './types';
 import type { SimulationEngine } from './engine';
+import { capabilities, cargoUsed } from './capabilities';
+import type { Ship, Action } from './types';
 export function inventory(w: WorldState, id: string) {
   const location = w.locations.find((l) => l.id === id && l.owner === 'starfleet' && l.hull > 0);
   if (location) return location;
@@ -44,6 +46,52 @@ export function available(w: WorldState, id: string, key: CargoKind) {
 }
 export function space(holder: { stock: Stock; capacity: Stock }, key: CargoKind) {
   return Math.max(0, holder.capacity[key] - holder.stock[key]);
+}
+/** The same physical load calculation is used by projections and actual loading. */
+export function haulLoad(
+  w: WorldState,
+  ship: Ship,
+  action: Extract<Action, { type: 'HAUL' }>,
+  retained = 0,
+) {
+  const dest = inventory(w, action.targetId);
+  if (!dest) return 0;
+  const incoming = heldDirectives(w)
+    .filter(
+      (d) =>
+        d !== ship.current &&
+        d.action.type === 'HAUL' &&
+        d.action.targetId === action.targetId &&
+        d.action.cargoKind === action.cargoKind,
+    )
+    .reduce(
+      (sum, d) =>
+        sum + Math.max(0, d.carried - d.delivered - (d.lost ?? 0)) + d.reserved[action.cargoKind],
+      0,
+    );
+  const demand =
+    action.loadPolicy !== 'auto'
+      ? Infinity
+      : 'cost' in dest
+        ? ['materials', 'specialFinds'].includes(action.cargoKind)
+          ? Math.max(
+              0,
+              dest.cost[action.cargoKind === 'materials' ? 'materials' : 'specialFinds'] -
+                dest.stock[action.cargoKind],
+            )
+          : 0
+        : space(dest, action.cargoKind);
+  return Math.max(
+    0,
+    Math.floor(
+      Math.min(
+        action.loadPolicy === 'auto' ? Infinity : Math.max(0, action.amount - retained),
+        capabilities(ship).cargo - cargoUsed(ship),
+        available(w, action.sourceId, action.cargoKind),
+        demand - retained - incoming,
+      ),
+    ),
+  );
 }
 export function deposit(holder: { stock: Stock; capacity: Stock }, key: CargoKind, amount: number) {
   const n = Math.max(0, Math.min(amount, space(holder, key)));

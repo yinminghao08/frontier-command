@@ -5,6 +5,35 @@ export const COMMAND_CHANNEL = 'frontier-command';
 export const REPORT_CHANNEL = 'system-reports';
 export const SYSTEM_ACTOR = 'system';
 export const privateChannel = (agentId: string) => 'private:' + agentId;
+export function pendingReply(w: Pick<WorldState, 'chatMessages'>, agentId: string) {
+  return [...w.chatMessages].reverse().find((m) => m.responses?.[agentId] === 'pending');
+}
+export function finishReply(
+  e: SimulationEngine,
+  agentId: string,
+  messageId: number,
+  status: 'failed' | 'superseded' | 'cancelled',
+  reason: string,
+) {
+  const m = e.state.chatMessages.find((m) => m.id === messageId);
+  if (!m?.responses || m.responses[agentId] !== 'pending') return;
+  m.responses[agentId] = status;
+  for (const task of e.state.admiralTasks.filter(
+    (t) =>
+      status !== 'failed' &&
+      t.messageId === messageId &&
+      t.agentId === agentId &&
+      ['proposed', 'negotiating'].includes(t.consent),
+  )) {
+    task.status = 'cancelled';
+    task.reason = status === 'superseded' ? '新的玩家消息替代了尚未接受的提议' : reason;
+  }
+  appendChat(e, agentId, m.channelId, reason, [], status === 'failed' ? 'error' : 'reply', {
+    origin: 'engine',
+    replyTo: messageId,
+    eventId: `reply:${messageId}:${agentId}:${status}`,
+  });
+}
 export function remember(
   w: WorldState,
   agent: Agent,
@@ -32,17 +61,19 @@ export function wakeAgent(agent: Agent, reason: string, now: number, invalidate 
   if (!agent.decision.pendingReasons.includes(reason)) agent.decision.pendingReasons.push(reason);
   const kind = reason.startsWith('chat:')
     ? 'chat'
-    : /request|escort|proposal/i.test(reason)
-      ? 'request'
-      : /danger/.test(reason)
-        ? 'danger'
-        : /manual|retry/.test(reason)
-          ? 'manual'
-          : /configuration/.test(reason)
-            ? 'configuration'
-            : reason === 'recovery'
-              ? 'recovery'
-              : 'opportunity';
+    : reason.startsWith('state:')
+      ? 'state'
+      : /request|escort|proposal/i.test(reason)
+        ? 'request'
+        : /danger/.test(reason)
+          ? 'danger'
+          : /manual|retry/.test(reason)
+            ? 'manual'
+            : /configuration/.test(reason)
+              ? 'configuration'
+              : reason === 'recovery'
+                ? 'recovery'
+                : 'opportunity';
   if (!agent.decision.events.some((event) => event.id === reason))
     agent.decision.events.push({ id: reason.slice(0, 160), kind, time: now });
   agent.decision.events = agent.decision.events.slice(-8);
@@ -128,6 +159,10 @@ export function appendChat(
     controlMode: metadata.controlMode ?? 'voluntary',
   };
   w.chatMessages.push(message);
+  if (origin === 'agent' && message.replyTo) {
+    const parent = w.chatMessages.find((m) => m.id === message.replyTo);
+    if (parent?.responses?.[sender] === 'pending') parent.responses[sender] = 'replied';
+  }
   if (origin === 'engine' || channel.kind === 'reports') return message;
   // The saved transcript is persistent; observations/memory are separately bounded.
   const name = w.agents.find((a) => a.id === sender)?.name ?? 'Admiral';
@@ -145,8 +180,21 @@ export function appendChat(
       message.purpose !== 'acknowledgement' &&
       sender === w.commander.id &&
       (channel.kind === 'private' || ids.includes(agent.id))
-    )
+    ) {
+      const previous = w.chatMessages.filter(
+        (m) => m.id < message.id && m.responses?.[agent.id] === 'pending',
+      );
+      for (const m of previous)
+        finishReply(
+          e,
+          agent.id,
+          m.id,
+          'superseded',
+          '此消息已被新的指令替代，尚未执行的决策已取消。',
+        );
+      (message.responses ??= {})[agent.id] = 'pending';
       wakeAgent(agent, 'chat:' + message.id, w.time, true);
+    }
   }
   return message;
 }

@@ -1,4 +1,17 @@
-# Frontier Command v14 验收
+# Frontier Command v15 验收
+
+全部修复及固定选择见 [完整计划](plan-v15.md)，验证路径与供应商遥测范围见 [v15 记录](verification/v15/README.md)。
+
+| 验收行为                                                                                 | 自动验证                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 原句清剿、实际火力/伤害、连续/新增公开目标、RETURN FIRE 授权、有序多目标与取消接管       | `tests/v15-command-feedback.test.ts`、`tests/e2e/v15.spec.ts`、`tests/e2e/admiral-chat.spec.ts`                                                             |
+| 原会话关联回复、失败/取消/替代/重试、短 JSON 协议、共享 20 秒截止及一次纠错              | `tests/v15-command-feedback.test.ts`、`tests/task-judgment.test.ts`、`tests/v13-budget.test.ts`、`tests/e2e/task-feedback.spec.ts`、`tests/e2e/v15.spec.ts` |
+| Ctrl 敌舰多选并保留己方、五种按钮共用指挥方式、记忆默认、真实拒绝和 Agent 缺失反馈       | `tests/e2e/v15.spec.ts`                                                                                                                                     |
+| 当前趟继承路线/改单补装、600 满载、明确数量、库存/仓位/需求/在途约束、循环重算及预留守恒 | `tests/v15-command-feedback.test.ts`、`tests/v13-contracts.test.ts`、`tests/e2e/v15.spec.ts`                                                                |
+| 实际活动速率、受击/舰体阈值去重、过劳不满、意愿变化、暂停、等时速度及状态界面            | `tests/v15-command-feedback.test.ts`、`tests/v13-contracts.test.ts`、`tests/e2e/v15.spec.ts`                                                                |
+| 冻结 v14 校验后迁移全部时间线、保留原字节/历史、坏档保护和迁移中断恢复                   | `tests/v15-command-feedback.test.ts`、`tests/persistence.test.ts`、`tests/v13-migration.test.ts`                                                            |
+
+## 历史 v14 验收
 
 本轮替换 Orion 单舰与瞬时补舰逻辑，保留主进程权威、固定步长、经济、Agent 和 LCARS。新世界与存档独立使用 v14，旧文件不迁移、不删除。实测数据与 Electron 截图见 [v14 验证记录](verification/v14/README.md)。
 

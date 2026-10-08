@@ -3,6 +3,7 @@ import type { Action, Ship, Snapshot, ReadonlyDeep } from '../engine/types';
 import { capabilities } from '../engine/capabilities';
 import { dist, currentMovementSpeed } from '../engine/navigation';
 export const ACTION_LABELS: Record<Action['type'], string> = {
+  ATTACK_SET: '攻击所有选定目标',
   MOVE: '移动',
   EXPLORE: '探索星区',
   SURVEY: '调查',

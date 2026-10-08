@@ -84,7 +84,8 @@ export function defaultAction(
             ? 'base'
             : (w.projects.find((p) => p.id === id)?.id ?? facility?.id ?? 'colony'),
         cargoKind: 'materials',
-        amount: 20,
+        amount: 10000,
+        loadPolicy: 'auto',
         route: 'safe',
         repeat: false,
       };
@@ -94,6 +95,8 @@ export function defaultAction(
     case 'INTERCEPT':
     case 'SHADOW':
       return { type, targetId: id || w.contacts[0]?.id || '' };
+    case 'ATTACK_SET':
+      return { type, targetIds: id ? [id] : w.contacts.slice(0, 1).map((c) => c.id) };
     case 'ESCORT':
       return {
         type,
@@ -160,6 +163,15 @@ export function OrderComposer({
     ),
     [mode, setMode] = useState<'REPLACE' | 'QUEUE' | 'INTERRUPT'>('REPLACE');
   const [formError, setFormError] = useState('');
+  const [controlMode, setControlMode] = useState<'direct' | 'voluntary'>(() => {
+    try {
+      return localStorage.getItem('frontier.order-control-mode.v1') === 'voluntary'
+        ? 'voluntary'
+        : 'direct';
+    } catch {
+      return 'direct';
+    }
+  });
   const update = (patch: Partial<Action>) => {
     setFormError('');
     setAction((a) => ({ ...a, ...patch }) as Action);
@@ -169,6 +181,9 @@ export function OrderComposer({
       ...world.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0),
       ...world.projects.filter((p) => !p.complete),
     ];
+  const missingAgents = ships.filter(
+    (s) => !world.agents.some((a) => a.enabled && a.assignedShipId === s.id),
+  );
   const targets =
     action.type === 'CAPTURE'
       ? world.locations.filter((l) => l.occupation === 'ruined' && l.owner !== 'starfleet')
@@ -248,6 +263,27 @@ export function OrderComposer({
       <LcarsTextBar>INTENT / FINAL COMMAND AUTHORITY</LcarsTextBar>
       <div className="composer-grid">
         <LcarsField>
+          指挥方式
+          <select
+            aria-label="指挥方式"
+            value={controlMode}
+            onChange={(e) => {
+              const value = e.target.value as 'direct' | 'voluntary';
+              setControlMode(value);
+              try {
+                localStorage.setItem('frontier.order-control-mode.v1', value);
+              } catch {
+                /* The selection still applies. */
+              }
+            }}
+          >
+            <option value="direct">Admiral 直接接管</option>
+            <option value="voluntary" disabled={missingAgents.length > 0}>
+              交给 Agent 判断后执行
+            </option>
+          </select>
+        </LcarsField>
+        <LcarsField>
           ACTIVITY
           <select
             aria-label="指令类型"
@@ -296,6 +332,16 @@ export function OrderComposer({
               ))}
             </select>
           </LcarsField>
+        )}
+        {action.type === 'ATTACK_SET' && (
+          <section aria-label="攻击目标序列">
+            <p>集中火力，依次攻击全部选定目标：</p>
+            <ol>
+              {action.targetIds.map((id) => (
+                <li key={id}>{world.contacts.find((c) => c.id === id)?.name ?? id}</li>
+              ))}
+            </ol>
+          </section>
         )}
         {action.type === 'EXPLORE' && (
           <LcarsField>
@@ -371,13 +417,47 @@ export function OrderComposer({
               </select>
             </LcarsField>
             <LcarsField>
+              <input
+                type="checkbox"
+                aria-label="自动装满可用货舱"
+                checked={action.loadPolicy === 'auto'}
+                onChange={(e) =>
+                  update({
+                    loadPolicy: e.target.checked ? 'auto' : 'fixed',
+                    amount: e.target.checked
+                      ? 10000
+                      : Math.max(
+                          1,
+                          Math.min(
+                            ...ships.map((s) => Math.floor(capabilities(s).cargo - cargoUsed(s))),
+                            origin?.stock[action.cargoKind] ?? 1,
+                          ),
+                        ),
+                  })
+                }
+              />
+              自动装满可用货舱
+            </LcarsField>
+            <LcarsField>
               {request.groupId ? 'TOTAL AMOUNT / 编队总量' : 'AMOUNT PER VESSEL / 每舰数量'}
               <input
                 aria-label="货物数量"
                 type="number"
                 min="1"
-                value={action.amount}
-                onChange={(e) => update({ amount: Number(e.target.value) })}
+                disabled={action.loadPolicy === 'auto'}
+                value={
+                  action.loadPolicy === 'auto'
+                    ? Math.max(
+                        0,
+                        Math.min(
+                          ...ships.map((s) => Math.floor(capabilities(s).cargo - cargoUsed(s))),
+                          world.inventories.find((i) => i.locationId === action.sourceId)
+                            ?.available[action.cargoKind] ?? 0,
+                        ),
+                      )
+                    : action.amount
+                }
+                onChange={(e) => update({ amount: Number(e.target.value), loadPolicy: 'fixed' })}
               />
             </LcarsField>
             <LcarsField>
@@ -612,20 +692,31 @@ export function OrderComposer({
           {formError}
         </p>
       )}
+      {controlMode === 'voluntary' && missingAgents.length > 0 && (
+        <p role="alert">
+          没有可用 Agent：{missingAgents.map((s) => s.name).join('、')}。请直接接管或调整舰船选择。
+        </p>
+      )}
       <div className="dialog-actions">
         <LcarsButton
-          disabled={shipIds.length === 0 || !!rearm?.error}
+          disabled={
+            shipIds.length === 0 ||
+            !!rearm?.error ||
+            (controlMode === 'voluntary' && missingAgents.length > 0)
+          }
           onClick={async () => {
             const r = await command(
-              request.groupId
-                ? { type: 'issueGroupDirective', groupId: request.groupId, mode, action }
-                : { type: 'issueDirective', shipIds, mode, action },
+              controlMode === 'voluntary'
+                ? { type: 'proposeDirective', shipIds, mode, action }
+                : request.groupId
+                  ? { type: 'issueGroupDirective', groupId: request.groupId, mode, action }
+                  : { type: 'issueDirective', shipIds, mode, action },
             );
             if (r.ok) onClose();
             else setFormError(r.reason);
           }}
         >
-          下达 Admiral 指令
+          {controlMode === 'direct' ? '下达 Admiral 指令' : '提交给 Agent'}
         </LcarsButton>
         <LcarsButton tone="secondary" onClick={onClose}>
           取消

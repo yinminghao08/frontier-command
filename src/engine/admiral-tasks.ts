@@ -1,11 +1,12 @@
 import type { SimulationEngine } from './engine';
 import type { Action, AdmiralTask, Command, Directive, Ship } from './types';
 import { compileAdmiralIntent } from './admiral-intent';
+import type { TaskIntent } from './admiral-intent';
 import { appendChat, COMMAND_CHANNEL, privateChannel, remember, wakeAgent } from './chat';
 import { capabilities, cargoUsed } from './capabilities';
-import { available } from './inventory';
+import { available, haulLoad, inventory } from './inventory';
 import { FACILITIES } from './definitions/progression';
-import { dist } from './navigation';
+import { dist, routeEstimate } from './navigation';
 import { admiralTaskSchema } from './admiral-task-schema';
 import {
   makeRequest,
@@ -15,7 +16,6 @@ import {
   cancelDescendants,
 } from './contracts';
 import { hasAdmiralWork } from './fleet';
-import { personalFeedback } from './personality';
 
 export function addressedAdmiralMessage(e: SimulationEngine, agentId: string, messageId: number) {
   const w = e.state;
@@ -59,7 +59,8 @@ export function cancelAdmiralTasks(
         task.reason +
         (stopExecution ? '' : '；当前行动完成后执行新队列'),
       [],
-      'report',
+      'reply',
+      { origin: 'engine', replyTo: task.messageId, eventId: task.id + ':cancelled' },
     );
   }
 }
@@ -80,8 +81,13 @@ function report(
     task.channelId,
     reason,
     [],
-    status === 'failed' ? 'danger' : status === 'blocked' ? 'request' : 'report',
-    { requestId: task.id, eventId: `${task.id}:${status}:${reason}`.slice(0, 160) },
+    status === 'failed' ? 'danger' : status === 'blocked' ? 'request' : 'reply',
+    {
+      origin: 'engine',
+      replyTo: task.messageId,
+      requestId: task.id,
+      eventId: `${task.id}:${status}:${reason}`.slice(0, 160),
+    },
   );
   if (status === 'completed') {
     if (task.kind === 'surveyRoute' || (task.kind === 'construction' && task.projectId !== null)) {
@@ -92,19 +98,31 @@ function report(
     a.decision.revision++;
   }
 }
-export function receiveAdmiralTask(e: SimulationEngine, agentId: string, messageId: number) {
+export function receiveAdmiralTask(
+  e: SimulationEngine,
+  agentId: string,
+  messageId: number,
+  intent?: TaskIntent,
+  directiveMode: 'REPLACE' | 'QUEUE' | 'INTERRUPT' = 'REPLACE',
+) {
   const w = e.state,
     agent = w.agents.find((a) => a.id === agentId)!;
   const message = addressedAdmiralMessage(e, agentId, messageId)!;
   const direct =
     message.controlMode === 'direct' ||
     /^\s*(?:@[^\s]+\s+)?直接接管[，,:：\s]*/.test(message.content);
-  const result = compileAdmiralIntent(e.getObservation(agentId)!, {
-    content: message.content.replace(/^\s*(?:@[^\s]+\s+)?直接接管[，,:：\s]*/, ''),
-  });
+  const result = intent
+    ? { intent, clarification: null }
+    : compileAdmiralIntent(e.getObservation(agentId)!, {
+        content: message.content.replace(/^\s*(?:@[^\s]+\s+)?直接接管[，,:：\s]*/, ''),
+      });
   agent.decision.lastAdmiralMessageId = messageId;
   if (result.clarification) {
-    appendChat(e, agentId, message.channelId, result.clarification, [], 'request');
+    appendChat(e, agentId, message.channelId, result.clarification, [], 'request', {
+      origin: 'engine',
+      replyTo: message.id,
+    });
+    if (direct && message.responses) message.responses[agentId] = 'replied';
     return;
   }
   if (!result.intent) return;
@@ -128,8 +146,11 @@ export function receiveAdmiralTask(e: SimulationEngine, agentId: string, message
     rounds: 0,
     turnAgentId: agentId,
     creditsApproved: false,
+    directiveMode,
+    searchedTargets: {},
   };
   if (!admiralTaskSchema.safeParse(task).success) {
+    if (direct && message.responses) message.responses[agentId] = 'replied';
     appendChat(
       e,
       agentId,
@@ -137,10 +158,12 @@ export function receiveAdmiralTask(e: SimulationEngine, agentId: string, message
       '指令参数超出合法范围，请调整数量、时长或星区坐标。',
       [],
       'request',
+      { origin: 'engine', replyTo: message.id },
     );
     return;
   }
   if (task.controlMode === 'direct') cancelAdmiralTasks(e, null, agentId);
+  if (task.controlMode === 'direct' && message.responses) message.responses[agentId] = 'replied';
   w.nextId++;
   w.admiralTasks.push(task);
   agent.currentGoal = message.content.slice(0, 240);
@@ -158,6 +181,39 @@ export function receiveAdmiralTask(e: SimulationEngine, agentId: string, message
   );
   advanceAdmiralTask(e, task);
 }
+export function proposeDirective(
+  e: SimulationEngine,
+  c: Extract<Command, { type: 'proposeDirective' }>,
+) {
+  for (const shipId of c.shipIds) {
+    const agent = e.state.agents.find((a) => a.enabled && a.assignedShipId === shipId)!;
+    const ship = e.state.ships.find((s) => s.id === shipId)!;
+    const m = appendChat(
+      e,
+      e.state.commander.id,
+      privateChannel(agent.id),
+      `请 ${ship.name} 执行 ${c.action.type}：${'targetIds' in c.action ? c.action.targetIds.join(' → ') : 'targetId' in c.action ? c.action.targetId : '所选任务'}`,
+      [],
+      'message',
+      { controlMode: 'voluntary' },
+    );
+    receiveAdmiralTask(
+      e,
+      agent.id,
+      m.id,
+      {
+        kind: 'action',
+        action: c.action,
+        targetId: 'targetId' in c.action ? c.action.targetId : null,
+        shipId: null,
+        facilityKind: null,
+        sectors: [],
+        allowWormholes: true,
+      },
+      c.mode,
+    );
+  }
+}
 function command(e: SimulationEngine, task: AdmiralTask, c: Command) {
   const previous = e.executingAdmiralTaskId;
   e.executingAdmiralTaskId = task.id;
@@ -168,12 +224,18 @@ function command(e: SimulationEngine, task: AdmiralTask, c: Command) {
   }
 }
 function issue(e: SimulationEngine, task: AdmiralTask, ship: Ship, action: Action) {
-  const result = command(e, task, {
-    type: 'issueDirective',
-    shipIds: [ship.id],
-    mode: 'REPLACE',
-    action,
-  });
+  const result = command(
+    e,
+    task,
+    ship.current && (task.directiveMode ?? 'REPLACE') === 'REPLACE'
+      ? { type: 'modifyCurrentTask', shipId: ship.id, action }
+      : {
+          type: 'issueDirective',
+          shipIds: [ship.id],
+          mode: task.directiveMode ?? 'REPLACE',
+          action,
+        },
+  );
   if (!result.ok) {
     report(e, task, '任务等待：' + result.reason, 'blocked');
     return;
@@ -181,23 +243,42 @@ function issue(e: SimulationEngine, task: AdmiralTask, ship: Ship, action: Actio
   task.status = 'active';
   task.reason = null;
   const a = e.state.agents.find((a) => a.id === task.agentId)!;
-  if (task.controlMode === 'direct')
-    personalFeedback(a, task.id + ':takeover', { trust: -3, morale: -3, resentment: 4 });
   a.status = task.controlMode === 'direct' ? 'admiral' : 'executing';
+  let execution =
+    action.type === 'ATTACK' || action.type === 'ATTACK_SET'
+      ? '进入武器射程后实际开火，确认战果后处理下一目标。'
+      : '由引擎执行，完成后报告。';
+  if (action.type === 'HAUL') {
+    const source = inventory(e.state, action.sourceId),
+      destination = inventory(e.state, action.targetId);
+    if (source && destination) {
+      const carried = ship.current?.carried ?? 0;
+      const extra = haulLoad(e.state, ship, action, carried);
+      const arrival = routeEstimate(e.state, ship, source, action.route);
+      const delivery = routeEstimate(
+        e.state,
+        { ...ship, x: source.x, y: source.y },
+        destination,
+        action.route,
+      );
+      const delivering = ship.current?.phase === 'delivering';
+      execution = `路线 ${source.name} → ${destination.name}；现有 ${ship.cargo[action.cargoKind]} ${action.cargoKind}，预计补装 ${extra}（到场重新计算）。下一步：${delivering ? '直接交付现有货物' : dist(ship, source) <= 8 ? '在原起点补装，再送往原目的地' : '返回原起点补装，再送往原目的地'}。引擎预计 ${Math.ceil(delivering ? routeEstimate(e.state, ship, destination, action.route).eta : arrival.eta + delivery.eta - 4)} 游戏分钟。`;
+    }
+  }
+  if (ship.current?.taskId !== task.id)
+    execution = '任务已排入队列；开始执行时重新计算装载量和航线预计时间。';
   appendChat(
     e,
     a.id,
     task.channelId,
-    'Admiral 命令已接受：' +
-      ship.name +
-      ' / ' +
-      action.type +
-      '。' +
-      (action.type === 'ATTACK'
-        ? '跟踪公开接触，进入武器射程后开火。'
-        : '由引擎执行，完成后报告。'),
+    'Admiral 命令已接受：' + ship.name + ' / ' + action.type + '。' + execution,
     [],
-    'report',
+    'reply',
+    {
+      origin: 'engine',
+      replyTo: task.messageId,
+      eventId: task.id + ':issued:' + ('targetId' in action ? action.targetId : action.type),
+    },
   );
 }
 export function advanceAdmiralTask(e: SimulationEngine, task: AdmiralTask) {
@@ -249,6 +330,7 @@ export function advanceAdmiralTask(e: SimulationEngine, task: AdmiralTask) {
   }
   if (
     task.controlMode === 'voluntary' &&
+    task.directiveMode === 'QUEUE' &&
     hasAdmiralWork(ship) &&
     ship.current?.taskId !== task.id
   ) {
@@ -257,6 +339,7 @@ export function advanceAdmiralTask(e: SimulationEngine, task: AdmiralTask) {
   }
   if (
     task.controlMode === 'voluntary' &&
+    task.directiveMode === 'QUEUE' &&
     ship.current &&
     ship.current.taskId !== task.id &&
     ship.current.contractId !== task.id
@@ -270,6 +353,39 @@ export function advanceAdmiralTask(e: SimulationEngine, task: AdmiralTask) {
     return;
   if (task.kind === 'action') {
     if (task.action) issue(e, task, ship, task.action);
+    return;
+  }
+  if (task.kind === 'factionAssault') {
+    const contacts = w.intel.filter(
+      (i) =>
+        i.factionId === 'orion' &&
+        !i.resolved &&
+        w.time - i.lastSeen <= 30 &&
+        (task.searchedTargets?.[i.id] ?? -1) < i.lastSeen,
+    );
+    const targets = [
+      ...contacts,
+      ...w.locations.filter((l) => l.owner === 'orion' && l.discovered && l.hull > 0),
+    ];
+    targets.sort((l, r) => {
+      const threat = (t: (typeof targets)[number]) =>
+        'lastAttackAt' in t && t.lastAttackAt !== undefined && w.time - t.lastAttackAt <= 12
+          ? 1
+          : 0;
+      const live = (t: (typeof targets)[number]) => ('live' in t ? Number(t.live) : 1);
+      return (
+        threat(r) - threat(l) ||
+        live(r) - live(l) ||
+        dist(ship!, l) - dist(ship!, r) ||
+        l.id.localeCompare(r.id)
+      );
+    });
+    if (!targets[0]) {
+      report(e, task, '清剿保持中：暂无可攻击的已知 Orion 目标，等待新情报。', 'blocked');
+      return;
+    }
+    task.targetId = targets[0].id;
+    issue(e, task, ship, { type: 'ATTACK', targetId: targets[0].id });
     return;
   }
   if (task.kind === 'surveyRoute') {
@@ -398,6 +514,7 @@ export function advanceAdmiralTask(e: SimulationEngine, task: AdmiralTask) {
               targetId: project.id,
               cargoKind: 'materials',
               amount: need,
+              loadPolicy: 'auto',
               route: 'safe',
               repeat: false,
             },
@@ -453,6 +570,7 @@ export function advanceAdmiralTask(e: SimulationEngine, task: AdmiralTask) {
     targetId: project.id,
     cargoKind: 'materials',
     amount,
+    loadPolicy: 'auto',
     route: 'safe',
     repeat: false,
   });
@@ -469,6 +587,24 @@ export function admiralTaskOutcome(
 ) {
   const task = e.state.admiralTasks.find((t) => t.id === directive.taskId);
   if (!task || task.status === 'cancelled') return;
+  if (task.kind === 'factionAssault') {
+    if (failed && task.targetId) {
+      (task.searchedTargets ??= {})[task.targetId] =
+        e.state.intel.find((i) => i.id === task.targetId)?.lastSeen ?? e.state.time;
+    }
+    task.status = 'active';
+    task.reason = failed ? '未确认战果：' + text : '确认目标解除：' + text;
+    appendChat(
+      e,
+      task.agentId,
+      task.channelId,
+      task.reason + '；继续处理其他已知目标。',
+      [],
+      'reply',
+      { origin: 'engine', replyTo: task.messageId, eventId: directive.id + ':assault-outcome' },
+    );
+    return;
+  }
   if (failed) {
     report(e, task, '任务实际失败：' + text, 'failed');
     settleContract(e, task, false, text);

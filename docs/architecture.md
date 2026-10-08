@@ -1,4 +1,16 @@
-# v14 Orion ecology and authority
+# v15 responsive Agents and authoritative execution
+
+Main-process Agent requests use a short JSON-object prompt and a task-oriented public projection. Task judgments return consent, rationale and a same-channel reply together. Initial receipt, compatibility, one repair and refreshed validation share one absolute 20-second wall-clock deadline. Fetch and body reads are abortable even for an uncooperative provider. Runtime telemetry records request bytes, phase, first body byte, elapsed time, validation and failure/repair reason without credentials. Public reply lifecycle is indexed by message and Agent; player errors wait for an explicit retry.
+
+`proposeDirective` persists the complete structured button task; no natural-language round trip reconstructs the action. `modifyCurrentTask` validates and delegates an immediate replacement through the same command executor. Fleet direct authority is preserved. HAUL replacements carry forward their real remaining manifest only when replacing, so queues and suspended orders cannot double-claim goods. Automatic loading is computed and reserved at the source against free hold, unreserved stock and destination space/remaining construction demand. Explicit autonomous fixed orders retain their atomic scarce-stock reservation.
+
+`ATTACK_SET` persists ordered target progress and unconfirmed outcomes. A faction assault is a cancellable persistent Admiral task fed solely by fresh public Orion contacts and discovered facilities. Lost contacts approach the last observation, search or expire honestly; unseen destruction cannot count as a confirmed victory until real wreck observation. Actual fire, loss and obstruction feedback returns to the initiating conversation and deduplicates directive/cycle transitions.
+
+`agent-state.ts` classifies physical work, confirmed combat including cooldowns, safe idle/docking and arrived REST. Rates are centralized in definitions and integrated with game time. Real shield/hull hits, engagement bands, state threshold hysteresis and feedback evidence persist; no model can set these values. Dynamic states influence willingness and risk observations. Continuous small changes do not create chat or per-tick model work.
+
+Strict world/index version 15 uses `frontiers-v15` and `timeline-v15.json`. Frozen v14 validators run before migration. Heads, readable backups, terminal records and every daily snapshot are staged together; the new directory is published as a unit with a recovery marker, then the index. Original v14 files remain untouched. Historical Admiral input is sealed; retained orders, cargo, stable profiles and histories are preserved without replaying damage/emotion events. Older v9–v13 archives remain untouched. See [v15 verification](verification/v15/README.md).
+
+## Retained v14 Orion ecology and authority
 
 Electron main retains the only `SimulationEngine`, 0.1 game-minute fixed steps and seeded combat RNG. Orion uses deterministic game AI, with no model calls. Romulan political decisions remain in `threats.ts`; Orion is now isolated in `orion/`.
 
@@ -14,7 +26,7 @@ Electron main retains the only `SimulationEngine`, 0.1 game-minute fixed steps a
 
 Only experienced/received `PiracyIncident` data enters Snapshot/Observation: demand, deadline, response, boarding progress, loss and observable outcome. Hidden plans, destinations, base stock, black market, RNG and tracking evidence remain private. A deduplicated danger event supplies the assigned Logistics Agent with valid Battle reinforcement options. Existing voluntary `requestTask/reinforce` contracts govern acceptance, refusal and real ESCORT execution, while Admiral commands retain priority. LCARS Inspector, fleet, map, events and Priority Communications project these public facts.
 
-Strict world/index version 14 uses `frontiers-v14` and `timeline-v14.json`. Earlier save directories and files are preserved, never migrated or loaded. Schema validation covers observation times/references, operation membership/target exclusivity, manifests and cargo losses, physical capacities, paid job recipes, fleet reservations, sales and permanent losses. Restart preserves in-progress actions and exactly-once settlement. See [v14 verification](verification/v14/README.md).
+The v14 increment introduced strict validation of observation times/references, operation membership/target exclusivity, manifests and cargo losses, physical capacities, paid job recipes, fleet reservations, sales and permanent losses. These validations remain in v15. See [historical v14 verification](verification/v14/README.md).
 
 ## Historical v13 autonomy and contract execution
 

@@ -9,6 +9,8 @@ import { SHIP_CLASSES, WEAPONS } from './definitions/ships';
 import { dist } from './navigation';
 import { RULES } from './definitions/rules';
 import { agentVesselLost } from './agents';
+import { agentDamageFeedback } from './agent-state';
+import { directiveFeedback } from './directive-feedback';
 export function regenerate(s: Ship, time: number, dt: number) {
   const d = capabilities(s);
   for (const k of Object.keys(s.cooldowns)) s.cooldowns[k] = Math.max(0, s.cooldowns[k] - dt);
@@ -35,6 +37,7 @@ export function applyDamage(
   t.attackedAt = e.state.time;
   t.lastAttackerId = attacker?.id ?? null;
   if ('classId' in t) {
+    if (t.factionId === 'starfleet') agentDamageFeedback(e, t, before);
     t.lastAttackerId = attacker?.id ?? null;
     if (
       t.factionId === 'starfleet' &&
@@ -170,8 +173,10 @@ export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
     w.enemies = w.enemies.filter((x) => x.id !== s.id);
     const i = w.intel.find((i) => i.id === s.id);
     if (i) {
-      i.resolved = true;
-      if (i.live) e.record('factionLoss', '确认 ' + s.name + ' 已摧毁', s.id);
+      if (i.live) {
+        i.resolved = true;
+        e.record('factionLoss', '确认 ' + s.name + ' 已摧毁', s.id);
+      }
     }
   }
   const stock = emptyStock();
@@ -213,6 +218,11 @@ export function fire(
     s.core -= weapon.cost;
     if (weapon.ammo) s[weapon.ammo]--;
     s.cooldowns[key] = weapon.cooldown;
+    if (s.factionId === 'starfleet') {
+      s.cooldowns.agentFiring = 2;
+      s.cooldowns.agentEngaged = 10;
+      if (s.current) directiveFeedback(e, s.current, `已向 ${t.id} 实际开火。`, 'fired:' + t.id);
+    }
     if (s.factionId !== 'starfleet') {
       const enemy = s as Enemy,
         record = w.intel.find((i) => i.id === s.id);

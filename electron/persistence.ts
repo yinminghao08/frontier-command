@@ -8,6 +8,7 @@ import {
   readdirSync,
   statSync,
   rmSync,
+  rmdirSync,
 } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -27,7 +28,7 @@ const metaSchema = z
   })
   .strict();
 const indexSchema = z
-  .object({ version: z.literal(14), activeId: branchId, branches: z.array(metaSchema) })
+  .object({ version: z.literal(15), activeId: branchId, branches: z.array(metaSchema) })
   .strict();
 type Index = z.infer<typeof indexSchema>;
 function atomic(path: string, data: unknown) {
@@ -46,12 +47,12 @@ export class SaveStore {
   private blocked = false;
   private indexBlocked = false;
   constructor(readonly directory: string) {
-    this.root = join(directory, 'frontiers-v14');
-    this.indexPath = join(directory, 'timeline-v14.json');
+    this.root = join(directory, 'frontiers-v15');
+    this.indexPath = join(directory, 'timeline-v15.json');
     if (
       existsSync(directory) &&
       readdirSync(directory).some(
-        (file) => Number(/^timeline-v(\d+)\.json$/.exec(file)?.[1] ?? 0) > 14,
+        (file) => Number(/^timeline-v(\d+)\.json$/.exec(file)?.[1] ?? 0) > 15,
       )
     ) {
       this.blocked = true;
@@ -60,6 +61,15 @@ export class SaveStore {
       return;
     }
     mkdirSync(this.root, { recursive: true });
+    if (!existsSync(this.indexPath) && existsSync(join(directory, 'timeline-v14.json'))) {
+      try {
+        this.migrateV14();
+      } catch {
+        this.blocked = true;
+        this.indexBlocked = true;
+        return;
+      }
+    }
     if (existsSync(this.indexPath))
       try {
         this.index = indexSchema.parse(JSON.parse(readFileSync(this.indexPath, 'utf8')));
@@ -90,6 +100,85 @@ export class SaveStore {
         this.blocked = true;
         this.indexBlocked = true;
       }
+    }
+  }
+  private migrateV14() {
+    const old = indexSchema
+      .extend({ version: z.literal(14) })
+      .parse(JSON.parse(readFileSync(join(this.directory, 'timeline-v14.json'), 'utf8')));
+    if (
+      !old.branches.some((b) => b.id === old.activeId) ||
+      new Set(old.branches.map((b) => b.id)).size !== old.branches.length
+    )
+      throw Error('旧时间线无效');
+    for (const b of old.branches) {
+      const seen = new Set<string>();
+      let at: string | null = b.id;
+      while (at) {
+        if (seen.has(at)) throw Error('旧时间线父引用循环');
+        seen.add(at);
+        const parent = old.branches.find((b) => b.id === at);
+        if (!parent) throw Error('旧时间线父引用失效');
+        at = parent.parent?.id ?? null;
+      }
+    }
+    const next = { ...old, version: 15 as const };
+    const marker = join(this.root, '.migration-v15.json');
+    if (existsSync(marker)) {
+      const prepared = indexSchema.parse(JSON.parse(readFileSync(marker, 'utf8')));
+      if (JSON.stringify(prepared) !== JSON.stringify(next)) throw Error('迁移时间线发生变化');
+      // A crash after the directory rename can resume without overwriting any file.
+      for (const branch of prepared.branches) {
+        const dir = this.branchDirectory(branch.id);
+        let readable = false;
+        for (const file of readdirSync(dir)) {
+          if (!/^(?:head\.json(?:\.bak)?|failure\.json|day-\d+\.json)$/.test(file)) continue;
+          try {
+            loadWorld(join(dir, file));
+            if (/^(?:head\.json(?:\.bak)?|failure\.json)$/.test(file)) readable = true;
+          } catch (error) {
+            if (file !== 'head.json') throw error;
+          }
+        }
+        if (!readable) throw Error('未完成的迁移无法读取');
+      }
+      atomic(this.indexPath, prepared);
+      rmSync(marker);
+      return;
+    }
+    if (readdirSync(this.root).length) throw Error('迁移目标已存在，禁止覆盖');
+    const stage = join(this.directory, '.migrate-v15-' + randomUUID());
+    if (!resolve(stage).startsWith(resolve(this.directory) + sep)) throw Error('非法迁移路径');
+    mkdirSync(stage);
+    try {
+      for (const branch of old.branches) {
+        const source = join(this.directory, 'frontiers-v14', branchId.parse(branch.id));
+        const target = join(stage, branch.id);
+        mkdirSync(target);
+        let readable = false;
+        for (const file of readdirSync(source)) {
+          if (!/^(?:head\.json(?:\.bak)?|failure\.json|day-\d+\.json)$/.test(file)) continue;
+          try {
+            atomic(join(target, file), loadWorld(join(source, file)));
+            if (/^(head\.json(?:\.bak)?|failure\.json)$/.test(file)) readable = true;
+          } catch (error) {
+            if (file !== 'head.json') throw error;
+            copyFileSync(join(source, file), join(target, file));
+          }
+        }
+        if (!readable) throw Error('旧存档无法读取');
+        atomic(join(target, 'branch.json'), branch);
+      }
+      // Publish every branch together, then the index. The marker makes the gap recoverable.
+      atomic(join(stage, '.migration-v15.json'), next);
+      if (resolve(this.root) !== resolve(this.directory, 'frontiers-v15'))
+        throw Error('非法迁移目标');
+      rmdirSync(this.root); // Verified empty directory; no existing saves are removed.
+      renameSync(stage, this.root);
+      atomic(this.indexPath, next);
+      rmSync(marker);
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
     }
   }
   /** Only validated IDs can be resolved into paths used by management operations. */
@@ -203,12 +292,12 @@ export class SaveStore {
         message: '时间线索引损坏或版本不支持；已保留原文件并阻止覆盖。',
         blocked: true,
       };
-    if (!this.index) return { world: null, message: 'v14 持久海盗边疆就绪。', blocked: false };
+    if (!this.index) return { world: null, message: 'v15 持久海盗边疆就绪。', blocked: false };
     try {
       const loaded = this.readBranch(this.index.activeId);
       return {
         world: loaded.world,
-        message: loaded.backup ? '已从同代备份恢复' : '已恢复 v14 时间线',
+        message: loaded.backup ? '已从同代备份恢复' : '已恢复 v15 时间线',
         blocked: false,
       };
     } catch (error) {
@@ -264,7 +353,7 @@ export class SaveStore {
       writeFileSync(journal, '', { flag: 'wx' });
       renameSync(dir, destination);
       moved = true;
-      this.commit({ version: 14, activeId: id, branches: [...(this.index?.branches ?? []), meta] });
+      this.commit({ version: 15, activeId: id, branches: [...(this.index?.branches ?? []), meta] });
     } catch (error) {
       rmSync(dir, { recursive: true, force: true });
       if (moved) rmSync(destination, { recursive: true, force: true });

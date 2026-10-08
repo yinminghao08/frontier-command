@@ -1,6 +1,9 @@
 import { unlockProductionDiscount } from './production';
 import { BASE_REFIT } from './definitions/progression';
-import { deposit } from './inventory';
+import { deposit, haulLoad } from './inventory';
+import { directiveFeedback } from './directive-feedback';
+import { agentOutcome } from './agents';
+import type { Action } from './types';
 import {
   advanceStanding,
   autonomousAllowed,
@@ -17,7 +20,6 @@ import { capabilities, cargoUsed } from './capabilities';
 import { dist, move, routeSpeedMultiplier } from './navigation';
 import { planJourney } from './journey';
 import { transit } from './transit';
-import { agentOutcome } from './agents';
 import { regenerate } from './combat';
 import { available, inventory, validateAction } from './command-system';
 import { RULES } from './definitions/rules';
@@ -220,7 +222,20 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
     autonomousFire(e, s);
     return;
   }
-  const a = d.action,
+  if (d.action.type === 'ATTACK_SET' && (d.targetIndex ?? 0) >= d.action.targetIds.length) {
+    e.complete(
+      s,
+      '所选目标序列已处理' +
+        (d.unconfirmedTargets?.length
+          ? '；未确认战果：' + d.unconfirmedTargets.join('、')
+          : '；已确认摧毁'),
+    );
+    return;
+  }
+  const a: Action =
+      d.action.type === 'ATTACK_SET'
+        ? { type: 'ATTACK', targetId: d.action.targetIds[d.targetIndex ?? 0] }
+        : d.action,
     c = capabilities(s);
   if (a.type === 'RETURN') {
     if (go(e, s, d, e.base, dt, 'safe', 12)) {
@@ -409,13 +424,27 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
           return;
         }
       }
-      const amount = Math.min(
-        a.amount,
-        Math.floor(c.cargo - cargoUsed(s)),
-        Math.floor(available(w, src.id, a.cargoKind)),
-      );
+      const amount = haulLoad(w, s, a, Math.max(0, d.carried - d.delivered - (d.lost ?? 0)));
       if (amount <= 0 && d.phase === 'starting') {
-        d.note = cargoUsed(s) >= c.cargo ? '货舱已满，请卸货或改令' : '等待实际生产或库存';
+        if (d.carried > d.delivered && s.cargo[a.cargoKind] > 0) {
+          d.phase = 'delivering';
+          d.journey = null;
+          return;
+        }
+        d.note =
+          cargoUsed(s) >= c.cargo
+            ? '货舱已满，请卸货或改令'
+            : dest.stock[a.cargoKind] >= dest.capacity[a.cargoKind]
+              ? '目的仓库已满，等待仓位或改令'
+              : 'cost' in dest &&
+                  ['materials', 'specialFinds'].includes(a.cargoKind) &&
+                  dest.stock[a.cargoKind] >=
+                    dest.cost[a.cargoKind === 'materials' ? 'materials' : 'specialFinds']
+                ? '建设需求已满足，无需继续装载'
+                : available(w, src.id, a.cargoKind) < 1
+                  ? '等待实际生产或库存'
+                  : '目的地空位已被在途交付占用，等待仓位或改令';
+        directiveFeedback(e, d, d.note, 'load-blocked');
         return;
       }
       if (available(w, src.id, a.cargoKind) + 1e-8 < amount) {
@@ -440,13 +469,14 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         }
         src.stock[a.cargoKind] -= n;
         s.cargo[a.cargoKind] += n;
-        d.carried = n;
+        d.carried += n;
         d.reserved[a.cargoKind] = 0;
         d.phase = 'delivering';
         d.journey = null;
         d.work = 0;
         s.path = [];
         const text = s.name + ' 装载 ' + n + ' ' + a.cargoKind + '；真实航线启用';
+        directiveFeedback(e, d, text + '；本次实际运输 ' + d.carried, 'loaded');
         e.record('cargo', text, s.id, false);
         appendChat(e, d.actorId, COMMAND_CHANNEL, text, [], 'report', {
           eventId: `${d.id}:${d.cycle}:loaded`,
@@ -593,20 +623,32 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         (l) => l.id === a.targetId && l.discovered && l.owner !== 'starfleet',
       );
     if (intel?.resolved || facility?.hull === 0) {
-      e.complete(s, '目标已确认摧毁或解除');
+      if (d.action.type === 'ATTACK_SET') finishSelectedTarget(e, s, d, '目标已确认摧毁', false);
+      else e.complete(s, '目标已确认摧毁或解除');
       return;
     }
     if (!intel && !facility) {
-      e.complete(s, '无法获得目标情报', true);
+      if (d.action.type === 'ATTACK_SET')
+        finishSelectedTarget(e, s, d, '无法获得目标情报，未确认战果', true);
+      else e.complete(s, '无法获得目标情报', true);
       return;
     }
     const sensed = intel?.live && w.time - intel.lastSeen < 2,
       p = facility ?? intel!;
     if (!sensed && !facility) {
-      d.search += dt;
+      directiveFeedback(e, d, '目标失联，正在前往最后观测位置；尚未确认击毁。', 'lost-contact');
+      if (w.time - intel!.lastSeen > RULES.intelTTL) {
+        if (d.action.type === 'ATTACK_SET')
+          finishSelectedTarget(e, s, d, '目标情报已过期，未确认战果', true);
+        else e.complete(s, '目标情报已过期，未确认战果', true);
+        return;
+      }
+      if (dist(s, p) <= 12) d.search += dt;
       d.note = '跟随最后观测位置；搜索接触';
       if (d.search > RULES.searchMinutes) {
-        e.complete(s, '丢失接触，未确认战果', true);
+        if (d.action.type === 'ATTACK_SET')
+          finishSelectedTarget(e, s, d, '丢失接触，未确认战果', true);
+        else e.complete(s, '丢失接触，未确认战果', true);
         return;
       }
     } else d.search = 0;
@@ -614,7 +656,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       a.type === 'INTERCEPT' && intel
         ? { x: p.x + intel.velocity.x * 4, y: p.y + intel.velocity.y * 4 }
         : p;
-    const range = 65;
+    const range = sensed || facility ? 65 : 12;
     go(e, s, d, predicted, dt, 'direct', range);
     if (s.current !== d) return;
     const enemy = sensed ? w.enemies.find((x) => x.id === a.targetId) : undefined,
@@ -623,6 +665,15 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       d.note = 'Intercept / 根据观测速度迎击';
       if (sensed && dist(s, p) < 90) e.complete(s, '已截获接触；可攻击、驱离或继续 Shadow');
     } else if (target && dist(s, target) <= c.sensors) {
+      if (s.weapons <= 0 || !SHIP_CLASSES[s.classId].weapons.length) {
+        d.note = '武器系统不可用，无法开火；可立即维修、改令或接管';
+        directiveFeedback(e, d, d.note, 'blocked-weapons');
+        return;
+      }
+      d.note =
+        dist(s, target) > 165
+          ? '追击目标，尚未进入武器射程'
+          : '攻击目标；射程、火控、能量及冷却由引擎结算';
       e.fire(
         s,
         target,
@@ -817,9 +868,29 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
   if (
     w.ships.some((x) => x.id === s.id) &&
     s.current &&
-    !['ATTACK', 'DISABLE', 'DRIVE_OFF', 'SHADOW'].includes(s.current.action.type)
+    !['ATTACK', 'ATTACK_SET', 'DISABLE', 'DRIVE_OFF', 'SHADOW'].includes(s.current.action.type)
   )
     autonomousFire(e, s);
+}
+function finishSelectedTarget(
+  e: SimulationEngine,
+  s: Ship,
+  d: Directive,
+  text: string,
+  failed: boolean,
+) {
+  if (d.action.type !== 'ATTACK_SET') return;
+  const id = d.action.targetIds[d.targetIndex ?? 0];
+  directiveFeedback(e, d, id + '：' + text + '；继续下一个选定目标。', 'target-result:' + id);
+  if (failed) (d.unconfirmedTargets ??= []).push(id);
+  else if (e.state.chatMessages.some((m) => m.eventId === `${d.id}:${d.cycle}:fired:${id}`))
+    agentOutcome(e, s, d, text, false, true);
+  d.targetIndex = (d.targetIndex ?? 0) + 1;
+  d.cycle++;
+  d.search = 0;
+  d.journey = null;
+  s.path = [];
+  d.note = '切换下一个选定目标';
 }
 export function autonomousFire(e: SimulationEngine, s: Ship, protectedObject?: Point) {
   if (s.standing.roe === 'HOLD FIRE') return;

@@ -300,23 +300,24 @@ export function validateNegotiation(e: SimulationEngine, a: Agent, d: AgentDecis
   }
   return ok();
 }
-export function acceptContract(e: SimulationEngine, c: Contract) {
+export function acceptContract(e: SimulationEngine, c: Contract, hasModelReply = false) {
   if (isTask(c)) c.consent = 'accepted';
   else
     c.status =
       c.conditions.some((c) => c.type === 'reward') && !c.creditsApproved
         ? 'awaitingApproval'
         : 'accepted';
-  notice(
-    e,
-    c,
-    c.conditions.some((c) => c.type === 'reward') && !c.creditsApproved
-      ? '已同意条件，等待 Admiral 确认奖励预算。'
-      : isTask(c) && !c.conditions.length
-        ? '接受指令。'
-        : '自愿接受任务，准备条件由引擎执行。',
-    'reply',
-  );
+  if (!hasModelReply)
+    notice(
+      e,
+      c,
+      c.conditions.some((c) => c.type === 'reward') && !c.creditsApproved
+        ? '已同意条件，等待 Admiral 确认奖励预算。'
+        : isTask(c) && !c.conditions.length
+          ? '接受指令。'
+          : '自愿接受任务，准备条件由引擎执行。',
+      'reply',
+    );
   if (c.conditions.some((c) => c.type === 'reward') && !c.creditsApproved) return;
   createCommitments(e, c);
 }
@@ -394,17 +395,40 @@ export function settleContract(
     if (success && p.condition.type === 'reward') {
       if (a) {
         a.rewardCredits += p.escrow;
-        personalFeedback(a, p.id, { trust: 4, morale: 4, resentment: -3 });
+        personalFeedback(
+          a,
+          p.id,
+          { trust: 6, morale: 5, resentment: -5 },
+          e.state.time,
+          '真实奖励兑现',
+        );
       }
       p.escrow = 0;
       p.status = 'fulfilled';
     } else {
+      if (
+        a &&
+        consequence === 'cancel' &&
+        p.condition.type !== 'reward' &&
+        (!isTask(c) || c.consent === 'accepted')
+      )
+        personalFeedback(
+          a,
+          p.id + ':broken',
+          { resentment: 8, trust: -6 },
+          e.state.time,
+          '已确认的准备约定中止',
+        );
       e.state.resources.credits += p.escrow;
       p.escrow = 0;
       p.status = p.condition.type === 'reward' ? 'refunded' : 'broken';
     }
   }
-  if (a && (success || consequence === 'failure'))
+  if (
+    a &&
+    (success || consequence === 'failure') &&
+    !(isTask(c) && ['action', 'factionAssault'].includes(c.kind))
+  )
     personalFeedback(a, c.id + ':result', {
       morale: success ? 3 : -2,
       confidence: success ? 3 : -3,
@@ -490,7 +514,8 @@ export function applyNegotiation(e: SimulationEngine, a: Agent, d: AgentDecision
         const other = e.state.agents.find((a) => a.id === c.turnAgentId);
         if (other) wakeAgent(other, `request:${c.id}:${c.conditionVersion}`, e.state.time, true);
       }
-    } else if (response.response === 'accept') acceptContract(e, c);
+    } else if (response.response === 'accept')
+      acceptContract(e, c, isTask(c) && d.messages.some((m) => m.replyTo === c.messageId));
     else {
       const promised = isTask(c)
         ? c.consent === 'accepted'
@@ -817,7 +842,7 @@ export function applyResolution(
     for (const ship of e.state.ships)
       if (ship.current?.taskId === c.id) ship.current.controlMode = 'direct';
     const a = e.state.agents.find((a) => a.id === c.agentId)!;
-    personalFeedback(a, c.id + ':takeover', { trust: -3, morale: -3, resentment: 4 });
+
     wakeAgent(a, 'admiralDirective', e.state.time, true);
     a.decision.pendingReasons = [];
     a.decision.events = [];

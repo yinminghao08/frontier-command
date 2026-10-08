@@ -108,6 +108,8 @@ const directive = z
     groupTotal: n.min(0),
     groupSpacing: nn,
     origin: pointSchema,
+    targetIndex: integer.optional(),
+    unconfirmedTargets: z.array(id).max(100).optional(),
   })
   .strict();
 const ship = pointSchema
@@ -183,7 +185,7 @@ const communication = z
   .strict();
 export const worldSchema = z
   .object({
-    version: z.literal(14),
+    version: z.literal(15),
     orion: orionSchema,
     piracyIncidents: z.array(piracyIncidentSchema),
     tick: integer,
@@ -677,6 +679,20 @@ export const worldSchema = z
         a.decision.events.some((event) => event.time > w.time)
       )
         bad('Invalid consumed Agent events');
+      const dynamics = a.stateDynamics;
+      if (
+        dynamics.lastDangerAt > w.time ||
+        (dynamics.engagementTick !== null && dynamics.engagementTick > w.tick) ||
+        new Set(dynamics.hullBands).size !== dynamics.hullBands.length ||
+        dynamics.hullBands.some((v) => ![75, 50, 30].includes(v)) ||
+        new Set(dynamics.thresholds).size !== dynamics.thresholds.length ||
+        dynamics.thresholds.some(
+          (v) => !['fatigue50', 'fatigue80', 'stress60', 'resentment50'].includes(v),
+        ) ||
+        new Set(dynamics.recent.map((v) => v.id)).size !== dynamics.recent.length ||
+        dynamics.recent.some((v) => v.time > w.time)
+      )
+        bad('Invalid Agent state feedback');
       if (
         new Set(a.memory.map((m) => m.id)).size !== a.memory.length ||
         a.memory.some((m) => m.time > w.time)
@@ -729,6 +745,18 @@ export const worldSchema = z
       if (ch?.kind === 'reports' && m.origin !== 'engine' && m.origin !== 'legacy')
         bad('Forged system report');
       if (
+        m.responses &&
+        (m.sender !== w.commander.id ||
+          m.origin !== 'admiral' ||
+          Object.keys(m.responses).some(
+            (id) =>
+              !agentIds.has(id) ||
+              !ch?.members.includes(id) ||
+              !(ch.kind === 'private' || m.mentions.includes(id)),
+          ))
+      )
+        bad('Invalid reply recipients');
+      if (
         m.replyTo &&
         !w.chatMessages.some(
           (previous) =>
@@ -756,7 +784,9 @@ export const worldSchema = z
         (task.kind === 'action' && !task.action) ||
         (task.kind === 'assign' && !task.shipId) ||
         (task.kind === 'construction' && (!task.targetId || !task.facilityKind)) ||
-        (task.kind === 'surveyRoute' && !task.sectors.length)
+        (task.kind === 'surveyRoute' && !task.sectors.length) ||
+        (task.kind === 'factionAssault' && task.factionId !== 'orion') ||
+        Object.values(task.searchedTargets ?? {}).some((time) => time > w.time)
       )
         bad('Invalid Admiral task authority');
     }
@@ -1056,8 +1086,16 @@ export const worldSchema = z
       const targets = [
         ...('targetId' in a ? [a.targetId] : []),
         ...('sourceId' in a ? [a.sourceId] : []),
+        ...(a.type === 'ATTACK_SET' ? a.targetIds : []),
       ];
       if (targets.some((target) => !refs.has(target))) bad('Dangling directive target');
+      if (
+        a.type === 'ATTACK_SET' &&
+        ((d.targetIndex ?? 0) > a.targetIds.length ||
+          new Set(d.unconfirmedTargets ?? []).size !== (d.unconfirmedTargets ?? []).length ||
+          d.unconfirmedTargets?.some((id) => !a.targetIds.includes(id)))
+      )
+        bad('Invalid attack sequence progress');
       if (GOODS.some((k) => d.reserved[k] > 0) && !['HAUL', 'REARM'].includes(a.type))
         bad('Invalid directive reservation');
       if (

@@ -12,7 +12,6 @@ import { cancelAdmiralTasks } from './admiral-tasks';
 import { agentOutcome } from './agents';
 import { wakeAgent } from './chat';
 import { cancelContracts } from './contracts';
-import { personalFeedback } from './personality';
 export function validateFrontierCommand(e: SimulationEngine, c: Command): CommandResult | null {
   const w = e.state;
   if (c.type === 'createGroup' || c.type === 'updateGroup') {
@@ -191,7 +190,6 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
       }
       const agent = w.agents.find((a) => a.assignedShipId === s.id);
       if (agent) {
-        personalFeedback(agent, d.id + ':takeover', { trust: -3, morale: -3, resentment: 4 });
         wakeAgent(agent, 'admiralDirective', w.time, true);
         agent.status = 'admiral';
       }

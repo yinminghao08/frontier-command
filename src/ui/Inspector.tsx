@@ -50,6 +50,7 @@ export function Inspector({
   world,
   selection,
   selectedShipIds,
+  selectedTargetIds,
   select,
   command,
   create,
@@ -57,6 +58,7 @@ export function Inspector({
   world: Snapshot;
   selection: Selection | null;
   selectedShipIds: string[];
+  selectedTargetIds: string[];
   select: (s: Selection) => void;
   command: CommandSender;
   create: (r: ComposerRequest) => void;
@@ -695,6 +697,9 @@ export function Inspector({
     if (!c) return <p>接触已过期；未确认击毁。</p>;
     return (
       <>
+        {selectedTargetIds.length > 1 && (
+          <p>已选 {selectedTargetIds.length} 个敌方目标 · 攻击将按选择顺序集中火力清除</p>
+        )}
         <LcarsTextBar>{displayName(c.name ?? '未知接触')}</LcarsTextBar>
         <p>
           情报级别：
@@ -724,6 +729,7 @@ export function Inspector({
             <LcarsButton
               key={t}
               tone={t === 'ATTACK' ? 'danger' : 'primary'}
+              disabled={t === 'ATTACK' && !selectedTargetIds.length}
               onClick={() => launch(t)}
             >
               {ACTION_LABELS[t]}

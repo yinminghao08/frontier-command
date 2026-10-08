@@ -95,7 +95,7 @@ test('Electron v13: explicit direct fire preserves final Admiral authority over 
   expect(done.history.some((h) => h.kind === 'factionLoss' && h.entityId === target.id)).toBe(true);
   await p
     .getByRole('dialog', { name: '舰队通讯' })
-    .locator('[data-channel-id="system-reports"]')
+    .locator('[data-channel-id="private:ops-horizon"]')
     .click();
   await expect(p.getByRole('log')).toContainText('聊天任务完成');
   await p.screenshot({ path: join(output, 'admiral-fire.png') });

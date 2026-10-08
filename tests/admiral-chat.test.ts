@@ -37,7 +37,9 @@ function order(
       controlMode: 'direct',
     }).ok,
   ).toBe(true);
-  const messageId = e.state.chatMessages.at(-1)!.id;
+  const messageId = [...e.state.chatMessages]
+    .reverse()
+    .find((m) => m.sender === e.state.commander.id)!.id;
   expect(e.dispatchCommand({ type: 'admiralChatTask', agentId, messageId }).ok).toBe(true);
   return e.state.admiralTasks.at(-1)!;
 }
@@ -352,8 +354,7 @@ describe('Schema constraints and bounded repairs', () => {
     expect(decision.memory).toBeNull();
     expect(requests).toHaveLength(2);
     expect(requests[0].response_format).toMatchObject({
-      type: 'json_schema',
-      json_schema: { strict: true, schema: decisionJsonSchema },
+      type: 'json_object',
     });
     expect(JSON.stringify(requests[1])).toContain('action.deep');
     expect(JSON.stringify(requests)).not.toContain(config.apiKey);
@@ -369,8 +370,8 @@ describe('Schema constraints and bounded repairs', () => {
     const obs = quietEngine().getObservation(battle)!;
     await client.decide(config, obs);
     await client.decide(config, obs);
-    expect(bodies).toHaveLength(4);
-    expect(bodies[3]).not.toHaveProperty('response_format');
+    expect(bodies).toHaveLength(3);
+    expect(bodies[2]).not.toHaveProperty('response_format');
     expect(bodies.every((b) => !('reasoning_effort' in b))).toBe(true);
   });
   it('repairs invalid engine targets without applying anything before final validation', async () => {
@@ -422,7 +423,7 @@ describe('v14 starts an independent world and preserves historical chat files', 
     expect(store.read().world).toBeNull();
     expect(store.read().blocked).toBe(false);
     store.write(quietEngine().state);
-    expect(store.read().world?.version).toBe(14);
+    expect(store.read().world?.version).toBe(15);
     expect(store.read().world?.admiralTasks).toEqual([]);
     expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(old);
     expect(readFileSync(join(dir, 'timeline-v11.json'), 'utf8')).toBe(index);

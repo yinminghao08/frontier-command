@@ -142,5 +142,10 @@ export function updateSensors(e: SimulationEngine) {
     if (!wreck.discovered && sources.some((s) => dist(s, wreck) < s.range)) {
       wreck.discovered = true;
       e.record('discovery', '发现 ' + wreck.name, wreck.id);
+      const intel = w.intel.find((i) => wreck.id === 'wreck:' + i.id && !i.resolved);
+      if (intel) {
+        intel.resolved = true;
+        e.record('factionLoss', '现场残骸确认目标已摧毁：' + (intel.name ?? intel.id), intel.id);
+      }
     }
 }

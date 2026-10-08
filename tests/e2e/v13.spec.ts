@@ -300,7 +300,7 @@ test('v14 starts independently from an isolated old fixture and preserves files 
   );
   let p = await launch(dir);
   const before = await state(p);
-  expect(before.version).toBe(14);
+  expect(before.version).toBe(15);
   expect(before.escortRequests).toEqual([]);
   expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(original);
   await p.evaluate(() => window.frontier.save());

@@ -140,14 +140,14 @@ describe('unlimited HTTP telemetry', () => {
     await Promise.all(requests);
     expect(b.stats().concurrency).toBe(0);
   });
-  it('all repairs share a single 45 second network budget while hung requests release their slots', async () => {
+  it('one repair shares the same 20 second network deadline and releases its slot', async () => {
     fakeClock();
     const b = budget();
     let calls = 0;
     const fetcher: typeof fetch = (_url, init) =>
       new Promise((resolve, reject) => {
         calls++;
-        const timer = setTimeout(() => resolve(reply('bad-json')), 20000);
+        const timer = setTimeout(() => resolve(reply('bad-json')), calls === 1 ? 12000 : 20000);
         init?.signal?.addEventListener(
           'abort',
           () => {
@@ -157,15 +157,15 @@ describe('unlimited HTTP telemetry', () => {
           { once: true },
         );
       });
-    const result = new ChatCompletionsClient(fetcher, 45000, b)
+    const result = new ChatCompletionsClient(fetcher, 20000, b)
       .decide(config, quietEngine().getObservation('ops-meridian')!)
       .catch((error) => error as Error);
     await flush();
-    await vi.advanceTimersByTimeAsync(45000);
+    await vi.advanceTimersByTimeAsync(20000);
     const error = await result;
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain('超时');
-    expect(calls).toBe(3);
+    expect(calls).toBe(2);
     expect(b.stats().concurrency).toBe(0);
   });
   it.each([1, 4, 16] as const)(

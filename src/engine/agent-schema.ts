@@ -1,6 +1,40 @@
 import { z } from 'zod';
 import { activitySchema, conditionsSchema } from './condition-schema';
 import { actionSchema } from './action-schema';
+import { freshAgentDynamics } from './definitions/agents';
+export const agentDynamicsSchema = z
+  .object({
+    activity: z.enum(['work', 'combat', 'idle', 'docked', 'rest']),
+    fatigueRate: z.number().finite(),
+    stressRate: z.number().finite(),
+    resentmentRate: z.number().finite(),
+    engagementTick: z.number().int().min(0).nullable(),
+    lastDangerAt: z.number().finite().min(0),
+    hullBands: z.array(z.number()).max(3),
+    thresholds: z.array(z.string()).max(4),
+    recent: z
+      .array(
+        z
+          .object({
+            id: z.string().max(160),
+            time: z.number().min(0),
+            cause: z.string().max(240),
+            changes: z
+              .object({
+                fatigue: z.number().optional(),
+                stress: z.number().optional(),
+                resentment: z.number().optional(),
+                confidence: z.number().optional(),
+                morale: z.number().optional(),
+                trust: z.number().optional(),
+              })
+              .strict(),
+          })
+          .strict(),
+      )
+      .max(12),
+  })
+  .strict();
 export const agentCareerSchema = z.enum(['battle', 'logistics']);
 export const reasoningSchema = z.enum(['none', 'low', 'medium', 'high']);
 const id = z.string().min(1).max(160),
@@ -51,6 +85,7 @@ export const agentSchema = z
       .strict(),
     rewardCredits: n,
     feedbackEvents: z.array(id),
+    stateDynamics: agentDynamicsSchema.default(freshAgentDynamics),
     skills: z.object({ battle: percent, logistics: percent, navigation: percent }).strict(),
     experience: n,
     trust: percent,
@@ -101,6 +136,7 @@ export const agentSchema = z
                   'chat',
                   'request',
                   'danger',
+                  'state',
                   'opportunity',
                   'manual',
                   'configuration',
@@ -139,6 +175,9 @@ export const chatMessageSchema = z
     eventId: id.nullable().default(null),
     requestId: id.nullable().default(null),
     controlMode: z.enum(['voluntary', 'direct']).default('voluntary'),
+    responses: z
+      .record(id, z.enum(['pending', 'replied', 'failed', 'superseded', 'cancelled']))
+      .optional(),
   })
   .strict();
 export const escortRequestSchema = z

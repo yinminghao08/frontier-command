@@ -39,7 +39,9 @@ function choose(e: SimulationEngine, id: string, changes: Partial<AgentDecision>
 }
 function propose(e: SimulationEngine, content = '巡逻基地 2 分钟') {
   e.dispatchCommand({ type: 'sendChat', channelId: privateChannel(talia), content, mentions: [] });
-  const messageId = e.state.chatMessages.at(-1)!.id;
+  const messageId = [...e.state.chatMessages]
+    .reverse()
+    .find((m) => m.sender === e.state.commander.id)!.id;
   expect(e.dispatchCommand({ type: 'admiralChatTask', agentId: talia, messageId }).ok).toBe(true);
   return e.state.admiralTasks.at(-1)!;
 }
@@ -93,12 +95,13 @@ function dockCrew(e: SimulationEngine) {
 }
 
 describe('v13 engine reports, decisions and personality', () => {
-  it('model-wait evidence survives a paused restart and concurrent proposals remain actionable once', () => {
+  it('model-wait evidence survives a paused restart and a superseded proposal cannot execute', () => {
     const e = quietEngine();
     const first = propose(e),
       second = propose(e, '巡逻基地 3 分钟');
     const a = e.state.agents.find((a) => a.id === talia)!;
-    expect(e.getObservation(talia)!.taskProposals.map((t) => t.id)).toEqual([first.id, second.id]);
+    expect(first.status).toBe('cancelled');
+    expect(e.getObservation(talia)!.taskProposals.map((t) => t.id)).toEqual([second.id]);
     e.dispatchCommand(
       {
         type: 'agentDecisionState',
@@ -128,8 +131,8 @@ describe('v13 engine reports, decisions and personality', () => {
         },
       }).ok,
     ).toBe(true);
-    expect(e.getObservation(talia)!.admiralTask?.id).toBe(first.id);
-    expect(a.decision.pendingReasons).toEqual([`proposal:${first.id}:1`]);
+    expect(e.getObservation(talia)!.admiralTask).toBeNull();
+    expect(a.decision.pendingReasons).toEqual([]);
     expect(
       choose(e, talia, {
         coordination: {
@@ -141,10 +144,9 @@ describe('v13 engine reports, decisions and personality', () => {
           reason: 'preference',
         },
       }).ok,
-    ).toBe(true);
-    expect(a.decision.pendingReasons).toEqual([]);
+    ).toBe(false);
     run(e, 5);
-    expect(first.status).toBe('completed');
+    expect(first.status).toBe('cancelled');
     expect(second.consent).toBe('rejected');
     expect(a.decision.pendingReasons).toEqual([]);
   });
@@ -542,7 +544,7 @@ describe('v13 voluntary tasks and enforceable commitments', () => {
     ).toBe(true);
     run(e, 1);
     expect(e.state.ships.find((s) => s.id === 'horizon')!.current?.controlMode).toBe('direct');
-    expect(a.trust).toBeLessThan(trust);
+    expect(a.trust).toBe(trust);
     expect(a.decision.revision).toBeGreaterThan(old);
     expect(e.state.resources.credits).toBeGreaterThan(0);
     expect(a.rewardCredits).toBe(0);
@@ -564,8 +566,10 @@ describe('v13 voluntary tasks and enforceable commitments', () => {
     until(e, () => ship.current?.id === rest.id);
     run(e, 2);
     expect(ship.current?.id).toBe(rest.id);
+    const resumedXp = a.experience;
+    expect(resumedXp).toBe(xp + 3); // The completed direct MOVE has its own real outcome.
     until(e, () => ship.current === null);
-    expect(a.experience).toBe(xp + 3);
+    expect(a.experience).toBe(resumedXp + 3);
     expect(() => parseSave(e.state)).not.toThrow();
   });
 });

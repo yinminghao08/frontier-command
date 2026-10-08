@@ -247,6 +247,10 @@ html[data-console-layout='compact'] .sector-workspace::before,
 html[data-console-layout='compact'] .sector-workspace::after {
   display: none;
 }
+html[data-console-layout='compact'] .body-band {
+  margin-left: 0;
+  width: 100%;
+}
 html[data-console-layout='compact'] .nav-cap {
   display: none;
 }

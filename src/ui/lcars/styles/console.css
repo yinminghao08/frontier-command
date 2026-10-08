@@ -311,6 +311,9 @@
 .body-band {
   grid-column: 2 / -1;
   grid-row: 2;
+  /* Overlap the rail to avoid a fractional-pixel background seam. */
+  margin-left: -1px;
+  width: calc(100% + 1px);
 }
 .sector-workspace {
   grid-column: 2;
@@ -334,6 +337,8 @@
 }
 .sector-workspace::before {
   background: var(--red);
+  left: -1px;
+  width: calc(var(--inner) + 1px);
 }
 .sector-workspace::after {
   border-top-left-radius: var(--inner);

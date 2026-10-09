@@ -48,7 +48,17 @@ describe('LAST LIGHT second-act demo', () => {
     }
     const remaining = e.state.enemies.filter((s) =>
       s.factionId === 'orion' && s.id !== 'orion-escape' && s.hull > 0);
-    expect(remaining.map((s) => s.id)).toEqual([]);
+    expect(remaining.map((s) => s.id), JSON.stringify({
+      tick: e.state.tick, status: e.state.status,
+      survivors: remaining.map((s) => ({
+        id: s.id, x: s.x, y: s.y, hull: s.hull,
+        intent: s.intent, destination: s.destination, role: s.role,
+      })),
+      fleet: e.state.ships.filter((s) => ['horizon', 'resolute'].includes(s.id))
+        .map((s) => ({ id: s.id, hull: s.hull, status: s.status,
+          current: s.current?.action, targetIndex: s.current?.targetIndex, x: s.x, y: s.y })),
+      losses: e.state.losses.map((x) => x.shipId),
+    })).toEqual([]);
     expect(e.state.history.some((h) => h.kind === 'lastLightBattleFinished')).toBe(true);
     expect(e.state.agents.find((a) => a.id === 'ops-horizon')?.enabled).toBe(true);
     expect(e.state.agents.find((a) => a.id === 'ops-resolute-demo')?.enabled).toBe(true);

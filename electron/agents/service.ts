@@ -28,8 +28,8 @@ export class AgentDecisionService {
    if(!meaningful)continue;
    const acceptedWork=snapshot.agentRuntime.tasks.some(t=>t.status!=='proposed'&&['accepted','running','blocked','interrupted'].includes(t.status)&&(t.ownerAgentId===a.id||t.assignedShipIds.includes(a.assignedShipId??'')));
    if(acceptedWork&&!pending&&!a.decision.events.some(event=>['chat','request','danger','manual','configuration'].includes(event.kind))){this.host.command({type:'agentDecisionState',agentId:a.id,revision:a.decision.revision,state:'ready',error:null},a.id);continue;}
-   if(snapshot.paused&&!pending&&!a.decision.events.some(event=>['request','manual','configuration','proposal'].includes(event.kind)))continue;
-   if(!config.apiKey){this.host.command({type:'agentDecisionState',agentId:a.id,revision:a.decision.revision,state:'offline',error:'Agent API 未配置，请配置后重试。'},a.id);continue;}
+   if(snapshot.paused&&!pending&&!a.decision.events.some(event=>['request','danger','manual','configuration','proposal'].includes(event.kind)))continue;
+   if(!config.apiKey){if(a.decision.lastError!=='Agent API 未配置，请配置后重试。')this.host.command({type:'agentDecisionState',agentId:a.id,revision:a.decision.revision,state:'offline',error:'Agent API 未配置，请配置后重试。'},a.id);continue;}
    let request:CognitionRequest|null;
    try{request=this.host.cognitionPort(a.id).prepare();}catch{this.host.command({type:'agentDecisionState',agentId:a.id,revision:a.decision.revision,state:'error',error:'必要任务上下文超出预算；未提交模型请求。'},a.id);continue;}
    if(!request)continue;

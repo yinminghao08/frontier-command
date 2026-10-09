@@ -1,3 +1,4 @@
+import {askIntent,conversation} from './provider-harness';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,8 @@ import { AgentDecisionService } from '../electron/agents/service';
 import { quietEngine, issue, run } from './helpers';
 import { appendChat, COMMAND_CHANNEL, privateChannel } from '../src/engine/chat';
 import type { ConnectionConfig } from '../electron/agents/config';
-import { decisionJsonSchema } from '../src/engine/decision-protocol';
+import {cognitionJsonSchema} from '../src/engine/cognition-protocol';
+const strategicWait=()=>({opportunityId:null,riskPreference:'cautious',reason:'等待有意义的新机会'});
 const config: ConnectionConfig = {
   baseUrl: 'http://127.0.0.1/v1',
   defaultModel: 'isolated-test',
@@ -23,7 +25,7 @@ function budget(directory?: string) {
   return b;
 }
 const reply = (
-  content = '{"goal":"等待实质变化","rationale":"当前无新的选择","action":null}',
+  content=JSON.stringify(conversation('当前无新的选择')),
   usage?: number,
 ) =>
   new Response(
@@ -101,16 +103,13 @@ describe('unlimited HTTP telemetry', () => {
     let calls = 0;
     const fetcher: typeof fetch = async () => {
       calls++;
-      if (calls === 1) return new Response('reasoning_effort unsupported', { status: 400 });
+      if(calls===1)return new Response('stream unsupported',{status:400});
       if (calls === 2) return new Response('response_format unsupported', { status: 400 });
       if (calls === 3) return reply('not-json');
       return reply(undefined, 7);
     };
     const client = new ChatCompletionsClient(fetcher, b);
-    await client.decide(
-      { ...config, reasoningEffort: 'high' },
-      quietEngine().getObservation('ops-meridian')!,
-    );
+    await askIntent(client, config, quietEngine().getObservation('ops-meridian')!);
     expect(b.stats()).toMatchObject({ requests: 4, repairs: 1, tokens: null });
     const testing = new ChatCompletionsClient(async () => reply('{"ok":true}', 3), b);
     await testing.test(config);
@@ -127,7 +126,7 @@ describe('unlimited HTTP telemetry', () => {
       return reply();
     }, b);
     const requests = Array.from({ length: 3 }, () =>
-      client.decide(config, quietEngine().getObservation('ops-meridian')!),
+      askIntent(client, config, quietEngine().getObservation('ops-meridian')!),
     );
     await flush();
     expect(calls).toBe(3);
@@ -156,13 +155,12 @@ describe('unlimited HTTP telemetry', () => {
           { once: true },
         );
       });
-    const result = new ChatCompletionsClient(fetcher, b)
-      .decide(config, quietEngine().getObservation('ops-meridian')!)
+    const result = askIntent(new ChatCompletionsClient(fetcher, b), config, quietEngine().getObservation('ops-meridian')!)
       .catch((error) => error as Error);
     await flush();
     await vi.advanceTimersByTimeAsync(32000);
     const decision = await result;
-    expect(decision).toHaveProperty('action', null);
+    expect(decision).toHaveProperty('proposal',null);
     expect(b.stats().recentRequests.map((r) => r.decisionStartedAt)).toEqual([
       Date.now() - 32000,
       Date.now() - 32000,
@@ -176,13 +174,8 @@ describe('unlimited HTTP telemetry', () => {
       fakeClock();
       const b = budget(),
         e = quietEngine();
-      e.state.speed = speed;
-      e.state.paused = false;
-      let calls = 0;
-      const client = new ChatCompletionsClient(async () => {
-        calls++;
-        return reply();
-      }, b);
+      e.state.speed=speed;e.state.paused=false;for(const body of e.state.bodies)body.remaining=0;
+      let calls=0;const client=new ChatCompletionsClient(async()=>{calls++;return reply(JSON.stringify(strategicWait()));},b);
       const service = new AgentDecisionService(
         {
           snapshot: () => e.snapshot(),
@@ -200,13 +193,13 @@ describe('unlimited HTTP telemetry', () => {
         service.pump();
       }
       await flush();
-      expect(calls).toBe(2);
+      expect(calls).toBe(0);
       for (let i = 0; i < 8; i++) {
         e.dispatchCommand({ type: 'retryAgent', agentId: 'ops-meridian' });
         service.pump();
         await flush();
       }
-      expect(calls).toBe(10);
+      expect(calls).toBe(8);
       expect(b.stats().concurrency).toBe(0);
       service.dispose();
       await flush();
@@ -235,13 +228,13 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
         const obs = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
         if (calls === 1) {
           await new Promise<void>((done) => resolves.push(done));
-          return reply('{"goal":"stale","rationale":"old","action":null}');
+          return reply(JSON.stringify(strategicWait()));
         }
-        const task = obs.task;
+        const task=obs.objective;
         expect(task.consent).toBe('proposed');
-        expect(JSON.parse(String(init?.body)).messages[0].content).toMatch(/^TASK_JUDGMENT:/);
+        expect(JSON.parse(String(init?.body)).messages[0].content).toMatch(/^TaskJudgment:/);
         return reply(
-          JSON.stringify({ accept: true, rationale: '风险可接受', reason: 'preference' }),
+          JSON.stringify({response:'accept',reply:'风险可接受',reason:'preference',conditions:[]}),
         );
       }),
     );
@@ -305,27 +298,14 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     expect(calls).toBe(5);
     service.dispose();
   });
-  it('more than three decision messages pass provider schema and commit to the engine', async () => {
-    const e = quietEngine();
-    const target = 'ops-meridian';
-    const messages = Array.from({ length: 6 }, (_, i) => ({
-      channelId: privateChannel(target),
-      content: '独立信息 ' + i,
-      mentions: [],
-    }));
-    const client = new ChatCompletionsClient(async () =>
-      reply(JSON.stringify({ goal: '交流', rationale: '六条独立信息', action: null, messages })),
-    );
-    const decision = await client.decide(config, e.getObservation(target)!);
-    const schema = decisionJsonSchema.properties as Record<string, Record<string, unknown>>;
-    expect(schema.messages).not.toHaveProperty('maxItems');
-    const revision = e.state.agents.find((a) => a.id === target)!.decision.revision;
-    expect(
-      e.dispatchCommand({ type: 'agentDecision', agentId: target, revision, decision }, target).ok,
-    ).toBe(true);
-    expect(
-      e.state.chatMessages.filter((m) => m.sender === target && m.origin === 'agent'),
-    ).toHaveLength(6);
+  it('one input cannot bundle replies, while six independent player inputs each get one primary reply',async()=>{
+    const e=quietEngine(),target='ops-meridian';e.state.agents[0].enabled=false;
+    const schema=cognitionJsonSchema('communication');expect(JSON.stringify(schema)).not.toContain('"messages"');expect(JSON.stringify(schema)).not.toContain('"action"');
+    const invalid=new ChatCompletionsClient(async()=>reply(JSON.stringify({...conversation('x'),messages:[{content:'extra'}]})));
+    await expect(askIntent(invalid,config,e.getObservation(target)!)).rejects.toThrow('格式');
+    let calls=0;const service=new AgentDecisionService({snapshot:()=>e.snapshot(),cognitionPort:id=>e.cognitionPort(id),command:(c,id)=>e.dispatchCommand(c,id)},()=>config,new ChatCompletionsClient(async()=>{calls++;return reply(JSON.stringify(conversation('第 '+calls+' 条独立解释')));}));
+    for(let i=0;i<6;i++){e.dispatchCommand({type:'sendChat',channelId:privateChannel(target),content:'请评价边疆机会 '+i,mentions:[]});const parent=e.state.chatMessages.find(m=>m.content==='请评价边疆机会 '+i)!;service.pump();await flush();expect(e.state.chatMessages.filter(m=>m.replyTo===parent.id&&m.sender===target)).toHaveLength(1);}
+    expect(calls).toBe(6);expect(e.state.objectives).toHaveLength(0);service.dispose();
   });
   it('engine completion and @ reports cost zero calls; stale HTTP results cannot overwrite a takeover', async () => {
     const b = budget(),
@@ -340,7 +320,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
         release = r;
       });
       return reply(
-        '{"goal":"过期动作","rationale":"旧观察","action":{"type":"MOVE","point":{"x":0,"y":0}}}',
+        JSON.stringify(strategicWait()),
       );
     }, b);
     const service = new AgentDecisionService(
@@ -352,6 +332,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
       () => config,
       client,
     );
+    e.dispatchCommand({type:'retryAgent',agentId:'ops-meridian'});
     service.pump();
     await flush();
     expect(calls).toBe(1);
@@ -363,7 +344,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     run(e, 80);
     service.pump();
     await flush();
-    expect(calls).toBe(1);
+    expect(calls,JSON.stringify(e.state.agents.find(a=>a.id==='ops-meridian')!.decision)).toBe(1);
     appendChat(e, 'ops-meridian', COMMAND_CHANNEL, '@Talia 本轮已完成', [], 'report', {
       eventId: 'zero-call-report',
     });
@@ -373,46 +354,12 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     service.dispose();
     expect(b.stats().cancellations).toBe(1);
   });
-  it('transient failures retry in real time with bounded exponential backoff, never on sim acceleration', async () => {
-    fakeClock();
-    const b = budget(),
-      e = quietEngine();
-    e.state.agents[0].enabled = false;
-    e.state.paused = false;
-    let calls = 0;
-    const client = new ChatCompletionsClient(async () => {
-      calls++;
-      throw Error('network test');
-    }, b);
-    const service = new AgentDecisionService(
-      {
-        snapshot: () => e.snapshot(),
-        cognitionPort: (id) => e.cognitionPort(id),
-        command: (c, id) => e.dispatchCommand(c, id),
-      },
-      () => config,
-      client,
-    );
-    service.pump();
-    await flush();
-    expect(calls).toBe(1);
-    run(e, 500);
-    service.pump();
-    await flush();
-    expect(calls).toBe(1);
-    await vi.advanceTimersByTimeAsync(60000);
-    service.pump();
-    await flush();
-    expect(calls).toBe(2);
-    await vi.advanceTimersByTimeAsync(120000);
-    service.pump();
-    await flush();
-    expect(calls).toBe(3);
-    await vi.advanceTimersByTimeAsync(600000);
-    service.pump();
-    await flush();
-    expect(calls).toBe(3);
-    service.dispose();
+  it('network failures do not retry on time or acceleration without a new meaningful event',async()=>{
+    fakeClock();const b=budget(),e=quietEngine();e.state.agents[0].enabled=false;e.state.paused=false;let calls=0;
+    const service=new AgentDecisionService({snapshot:()=>e.snapshot(),cognitionPort:id=>e.cognitionPort(id),command:(c,id)=>e.dispatchCommand(c,id)},()=>config,new ChatCompletionsClient(async()=>{calls++;throw Error('network test');},b));
+    e.dispatchCommand({type:'retryAgent',agentId:'ops-meridian'});service.pump();await flush();expect(calls).toBe(1);
+    run(e,500);service.pump();await flush();await vi.advanceTimersByTimeAsync(780000);service.pump();await flush();expect(calls).toBe(1);
+    e.dispatchCommand({type:'sendChat',channelId:privateChannel('ops-meridian'),content:'请重新评估这项风险',mentions:[]});service.pump();await flush();expect(calls).toBe(2);service.dispose();
   });
   it('authentication failure waits for configuration/manual retry, with no automatic repeated errors', async () => {
     fakeClock();
@@ -433,6 +380,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
         return new Response('unauthorized', { status: 401 });
       }, b),
     );
+    e.dispatchCommand({type:'retryAgent',agentId:'ops-meridian'});
     service.pump();
     await flush();
     const messages = e.state.chatMessages.filter((m) => m.kind === 'error').length;
@@ -442,15 +390,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     await flush();
     expect(calls).toBe(1);
     expect(e.state.chatMessages.filter((m) => m.kind === 'error')).toHaveLength(messages);
-    e.dispatchCommand({
-      type: 'sendChat',
-      channelId: privateChannel('ops-meridian'),
-      content: '请重新考虑风险。',
-      mentions: [],
-    });
-    service.pump();
-    await flush();
-    expect(calls).toBe(1);
+    service.pump();await flush();expect(calls).toBe(1);
     e.dispatchCommand({ type: 'retryAgent', agentId: 'ops-meridian' });
     service.pump();
     await flush();

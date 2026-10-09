@@ -69,7 +69,7 @@ test('scouted capture keeps running through three autosaves and restores the cap
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.locator('.operation-chip[data-ship-id="' + ship.id + '"]').click();
-  await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
+  await page.getByRole('button', { name: /^新指令 \/ 改令/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Admiral 指令' });
   await dialog.getByLabel('指令类型', { exact: true }).selectOption('CAPTURE');
   await dialog.getByLabel('指令目标', { exact: true }).selectOption(site.id);

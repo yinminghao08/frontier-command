@@ -5,11 +5,11 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
-import { mkdtempSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync,writeFileSync,readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { SaveStore } from '../../electron/persistence';
-import { quietEngine, issue } from '../helpers';
+import { quietEngine, issue,v15Fixture } from '../helpers';
 import { createEvent } from '../../src/engine/world-events';
 import type { WorldState } from '../../src/engine/types';
 
@@ -18,7 +18,9 @@ const output = resolve('.test-data/verification/v14/mine-accidents');
 const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(world: WorldState) {
   const directory = mkdtempSync(join(tmpdir(), 'frontier-mine-repair-'));
-  new SaveStore(directory).write(world);
+  const previous=v15Fixture(world),bytes=JSON.stringify(previous),branch='frontier-000001',legacy=join(directory,'frontiers-v15',branch);mkdirSync(legacy,{recursive:true});
+  for(const file of ['head.json','head.json.bak','day-1.json'])writeFileSync(join(legacy,file),bytes);
+  writeFileSync(join(directory,'timeline-v15.json'),JSON.stringify({version:15,activeId:branch,branches:[{id:branch,parent:null,name:'冻结旧矿场'}]}));
   app = await electron.launch({
     args: [resolve('.')],
     env: { ...process.env, FRONTIER_USER_DATA: directory, FRONTIER_HEADLESS: '1' },
@@ -38,6 +40,7 @@ async function launch(world: WorldState) {
   await p.getByRole('navigation', { name: '主导航' }).waitFor();
   await p.evaluate(() => document.fonts.ready);
   mkdirSync(output, { recursive: true });
+  for(const file of ['head.json','head.json.bak','day-1.json'])expect(readFileSync(join(legacy,file),'utf8')).toBe(bytes);
   return p;
 }
 test.afterEach(async () => {
@@ -45,115 +48,18 @@ test.afterEach(async () => {
   app = undefined;
 });
 
-test('old blocked mine exposes repair shortage, prefilled real freight, and restored production in Electron', async () => {
-  const e = quietEngine();
-  const mine = e.state.locations.find((l) => l.id === 'mine')!;
-  const site = e.state.bodies.find((b) => b.id === mine.siteId)!;
-  site.hazard = 0;
-  mine.stock.materials = 0;
-  const ship = e.state.ships.find((s) => s.id === 'verity')!;
-  ship.x = mine.x;
-  ship.y = mine.y;
-  ship.cargo.materials = 0;
-  const event = createEvent(e, 'accident', mine.id, '累计开采暴露超出安全阈值，设备停工');
-  issue(e, { type: 'ASSIST_EVENT', targetId: event.id }, ship.id);
-  event.work = 91;
-  event.deadline = 0;
-  event.stage = 'responding';
-  ship.current!.work = 91;
-  const ore = site.remaining;
-  const baseMaterials = e.base.stock.materials;
-  const p = await launch(e.state);
-  await p.locator('.strategic-map [data-entity-id="mine"]').click();
-  const inspector = p.getByRole('complementary', { name: '对象详情' });
-  await expect(inspector).toContainText('事故停工：等待设备修复');
-  await expect(inspector.getByLabel('矿场事故响应状态')).toContainText('等待维修材料');
-  await expect(inspector.getByLabel('矿场事故响应状态')).toContainText('20/20');
-  await expect(inspector.getByLabel('矿场事故响应状态')).toContainText('还缺 5 材料');
-  await expect(inspector).not.toContainText('响应期限');
-  await p.screenshot({ path: join(output, 'blocked-mine.png') });
-
-  await p
-    .getByRole('navigation')
-    .getByRole('button', { name: /OPERATIONS/ })
-    .click();
-  const row = p.locator('.record-row[data-entity-id="' + event.id + '"]');
-  await expect(row).toContainText('修复前持续停工');
-  await expect(row).not.toContainText('响应期限');
-  await row.getByRole('button', { name: '运送维修材料到矿场', exact: true }).click();
-  const dialog = p.getByRole('dialog', { name: 'Admiral 指令' });
-  await expect(dialog.getByLabel('指令类型', { exact: true })).toHaveValue('HAUL');
-  await expect(dialog.getByLabel('货运起点', { exact: true })).toHaveValue('base');
-  await expect(dialog.getByLabel('指令目标', { exact: true })).toHaveValue(mine.id);
-  await expect(dialog.getByLabel('货物种类', { exact: true })).toHaveValue('materials');
-  await expect(dialog.getByLabel('货物数量', { exact: true })).toHaveValue('5');
-  await expect(dialog.getByLabel('循环货运', { exact: true })).not.toBeChecked();
-  // The supply entry opens a composer; it has not issued or replaced any directive.
-  expect((await state(p)).ships.find((s) => s.id === ship.id)!.current!.action.type).toBe(
-    'ASSIST_EVENT',
-  );
-  for (const vessel of e.state.ships) {
-    await dialog
-      .getByLabel('分配 ' + vessel.id, { exact: true })
-      .setChecked(vessel.id === 'meridian');
-  }
-  await p.screenshot({ path: join(output, 'supply-composer.png') });
-  await dialog.getByRole('button', { name: '下达 Admiral 指令', exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await p.getByRole('button', { name: '16×', exact: true }).click();
-  await p.getByRole('button', { name: '继续', exact: true }).click();
-  await expect
-    .poll(async () => (await state(p)).events.find((v) => v.id === event.id)!.stage, {
-      timeout: 45000,
-      intervals: [100],
-    })
-    .toBe('resolved');
-  await expect
-    .poll(async () => (await state(p)).bodies.find((b) => b.id === site.id)!.remaining, {
-      timeout: 10000,
-      intervals: [100],
-    })
-    .toBeLessThan(ore);
-  if (!(await state(p)).paused) await p.getByRole('button', { name: '暂停', exact: true }).click();
-  expect((await state(p)).baseResources.stock.materials).toBe(baseMaterials - 5);
-  expect((await state(p)).events.find((v) => v.id === event.id)!.work).toBe(20);
-  await p
-    .getByRole('navigation')
-    .getByRole('button', { name: /SECTOR/ })
-    .click();
-  await p.locator('.strategic-map [data-entity-id="mine"]').click();
-  await expect(inspector).toContainText('实际仓储 / 运行中');
-  await expect(inspector.getByLabel('矿场事故响应状态')).toHaveCount(0);
-  await p.screenshot({ path: join(output, 'restored-mine.png') });
+test('frozen v15 blocked mine migrates to running production and preserves original files in Electron',async()=>{
+ const e=quietEngine(),mine=e.state.locations.find(l=>l.id==='mine')!,site=e.state.bodies.find(b=>b.id===mine.siteId)!,ship=e.state.ships.find(s=>s.id==='verity')!;
+ mine.stock.materials=0;site.hazard=1;ship.x=mine.x;ship.y=mine.y;const event=createEvent(e,'accident',mine.id,'旧事故：累计开采后设备停工');issue(e,{type:'ASSIST_EVENT',targetId:event.id},ship.id);event.stage='responding';event.work=19;ship.current!.work=19;
+ const cargo=ship.cargo.materials,experience=e.state.agents.map(a=>({id:a.id,experience:a.experience})),base=e.base.stock.materials,p=await launch(e.state);
+ const migrated=await state(p);expect(migrated.version).toBe(16);expect(migrated.events.find(v=>v.id===event.id)).toMatchObject({stage:'resolved',work:19});expect(migrated.events.find(v=>v.id===event.id)!.outcome).toContain('规则移除');expect(migrated.ships.find(s=>s.id===ship.id)?.current).toBeNull();expect(migrated.ships.find(s=>s.id===ship.id)?.cargo.materials).toBe(cargo);expect(migrated.agents.map(a=>({id:a.id,experience:a.experience}))).toEqual(experience);
+ await p.locator('.strategic-map [data-entity-id="mine"]').click();const inspector=p.getByRole('complementary',{name:'对象详情'});await expect(inspector).toContainText('实际仓储 / 运行中');await expect(inspector.getByLabel('矿场事故响应状态')).toHaveCount(0);
+ await p.evaluate(()=>window.frontier.command({type:'speed',speed:16}));await p.evaluate(()=>window.frontier.command({type:'pause',paused:false}));await expect.poll(async()=> (await state(p)).locations.find(l=>l.id==='mine')!.stock.materials,{timeout:10000}).toBeGreaterThan(0);await p.evaluate(()=>window.frontier.command({type:'pause',paused:true}));
+ const running=await state(p);expect(running.baseResources.stock.materials).toBe(base);expect(running.events.filter(v=>v.kind==='accident')).toHaveLength(1);expect(running.bodies.find(b=>b.id===site.id)!.remaining).toBeLessThan(site.remaining);await p.screenshot({path:join(output,'v15-rule-removed-production.png')});
 });
-
-test('onsite responder cargo repairs without remote inventory and renders travelling and working states', async () => {
-  const e = quietEngine();
-  const mine = e.state.locations.find((l) => l.id === 'mine')!;
-  const site = e.state.bodies.find((b) => b.id === mine.siteId)!;
-  site.hazard = 0;
-  mine.stock.materials = 0;
-  const ship = e.state.ships.find((s) => s.id === 'verity')!;
-  ship.x = mine.x + 100;
-  ship.y = mine.y;
-  ship.cargo.materials = 5;
-  const event = createEvent(e, 'accident', mine.id, '设备停工');
-  issue(e, { type: 'ASSIST_EVENT', targetId: event.id }, ship.id);
-  const baseStock = structuredClone(e.base.stock);
-  const p = await launch(e.state);
-  await p.locator('.strategic-map [data-entity-id="mine"]').click();
-  const status = p.getByRole('complementary', { name: '对象详情' }).getByLabel('矿场事故响应状态');
-  await expect(status).toContainText('航行中');
-  await expect(status).toContainText('舰上材料抵达后可用');
-  await p.getByRole('button', { name: '4×', exact: true }).click();
-  await p.getByRole('button', { name: '继续', exact: true }).click();
-  await expect(status).toContainText('现场施工', { timeout: 15000 });
-  await expect
-    .poll(async () => (await state(p)).events.find((v) => v.id === event.id)!.stage, {
-      timeout: 30000,
-      intervals: [100],
-    })
-    .toBe('resolved');
-  expect((await state(p)).ships.find((s) => s.id === ship.id)!.cargo.materials).toBe(0);
-  expect((await state(p)).baseResources.stock).toEqual(baseStock);
+test('frozen v15 spent repair materials and historical work are not refunded or replayed',async()=>{
+ const e=quietEngine(),mine=e.state.locations.find(l=>l.id==='mine')!,ship=e.state.ships.find(s=>s.id==='verity')!;ship.x=mine.x;ship.y=mine.y;ship.cargo.materials=0;e.base.stock.materials-=5;
+ const event=createEvent(e,'accident',mine.id,'旧设备修复已耗费5材料，仍有未完成工作');issue(e,{type:'ASSIST_EVENT',targetId:event.id},ship.id);event.stage='responding';event.work=20;ship.current!.work=20;e.record('cargo','旧维修材料实际消耗 5',mine.id);
+ const stock=e.base.stock.materials,p=await launch(e.state),migrated=await state(p);expect(migrated.baseResources.stock.materials).toBe(stock);expect(migrated.ships.find(s=>s.id===ship.id)?.cargo.materials).toBe(0);expect(migrated.events.find(v=>v.id===event.id)).toMatchObject({stage:'resolved',work:20});expect(migrated.events.find(v=>v.id===event.id)!.outcome).toContain('规则移除');expect(migrated.history.filter(h=>h.text==='旧维修材料实际消耗 5')).toHaveLength(1);
+ await p.evaluate(()=>window.frontier.save());await p.reload();await p.getByRole('navigation',{name:'主导航'}).waitFor();expect((await state(p)).baseResources.stock.materials).toBe(stock);await p.screenshot({path:join(output,'v15-spent-materials-preserved.png')});
 });

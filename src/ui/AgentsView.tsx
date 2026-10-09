@@ -182,7 +182,7 @@ function AgentDetail({
         <p className="agent-status-line">
           ADMIRAL CHAT / #{objective.messageId} · {objective.status.toUpperCase()} ·{' '}
           {objective.kind === 'surveyRoute'
-            ? `${objective.sectorIndex}/${objective.sectors.length} 星区`
+            ? `${world.agentRuntime.tasks.find(t=>t.objectiveId===objective.id)?.execution.sectorIndex??0}/${objective.sectors.length} 星区`
             : objective.kind.toUpperCase()}{' '}
           · {objective.allowWormholes ? '允许已确认虫洞' : '禁止虫洞'}
           {objective.reason ? ' · ' + objective.reason : ''}

@@ -47,7 +47,7 @@ async function configure(p: Page, url: string) {
   await settings.getByLabel('Agent API Base URL').fill(url);
   await settings.getByLabel('Agent API Key').fill('local-v13-e2e-key');
   await settings.getByLabel('Agent 默认模型').fill('v13-local-model');
-  await settings.getByLabel('Agent 默认推理').selectOption('none');
+  await settings.getByLabel('Agent 默认推理').selectOption('provider-default');
   await settings.getByRole('button', { name: '保存 Agent API', exact: true }).click();
   await expect(settings.locator('.api-test-success')).toContainText('系统加密');
   await settings.getByRole('button', { name: '关闭面板', exact: true }).click();
@@ -173,7 +173,7 @@ test('v13 voluntary proposal waits; request view direct takeover executes with z
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: false }));
   await wait(p, (w) => w.ships.find((s) => s.id === 'horizon')?.current?.controlMode === 'direct');
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
-  expect((await state(p)).agents.find((a) => a.id === 'ops-horizon')!.trust).toBeLessThan(trust);
+  expect((await state(p)).agents.find((a) => a.id === 'ops-horizon')!.trust).toBe(trust);
   expect((await p.evaluate(() => window.frontier.agentRuntime())).requests).toBe(0);
   await p.screenshot({ path: join(output, 'direct-takeover.png') });
 });
@@ -300,7 +300,7 @@ test('v14 starts independently from an isolated old fixture and preserves files 
   );
   let p = await launch(dir);
   const before = await state(p);
-  expect(before.version).toBe(15);
+  expect(before.version).toBe(16);
   expect(before.escortRequests).toEqual([]);
   expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(original);
   await p.evaluate(() => window.frontier.save());

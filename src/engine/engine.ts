@@ -121,7 +121,7 @@ export class SimulationEngine {
   validate = commands.validate.bind(this);
   dispatchCommand = (command: unknown, actorId = 'commander') => {
     const parsed=commandSchema.safeParse(command);
-    const result=parsed.success&&parsed.data.type==='issueDirective'&&!this.executingObjectiveId
+    const result=parsed.success&&(parsed.data.type==='issueDirective'||parsed.data.type==='issueGroupDirective')&&!this.executingObjectiveId
       ?this.runtime.startCommand(parsed.data,actorId):commands.dispatchCommand.call(this,command,actorId);
     if(result.ok&&!this.executingObjectiveId&&(!parsed.success||!['pause','speed','acknowledge','readChat','dismissMapMarker'].includes(parsed.data.type)))this.runtime.drain();
     return result;

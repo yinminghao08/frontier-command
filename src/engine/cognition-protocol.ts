@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { conditionsSchema, responseFields } from './condition-schema';
+import {moduleSchema,ammoSchema} from './action-schema';
+import { conditionsSchema, responseFields,activitySchema } from './condition-schema';
 import { protocolSchema } from './structured-output';
 
 const id = z.string().min(1).max(160);
@@ -11,6 +12,7 @@ const sector = z.object({q:z.number().int().min(-100000).max(100000),r:z.number(
  * are excluded; the engine resolves these public references into its existing rules. */
 export const objectiveProposalSchema = z.discriminatedUnion('kind', [
   z.object({kind:z.literal('loadReturn'),sourceId:id,destinationId:id,cargoKind:cargo,deliver:z.boolean(),route}).strict(),
+  z.object({kind:z.literal('supportedTransport'),sourceId:id,destinationId:id,cargoKind:cargo,amount:z.number().int().min(1).max(10000),route,escortAgentId:id}).strict(),
   z.object({kind:z.literal('transport'),sourceId:id,destinationId:id,cargoKind:cargo,amount:z.number().int().min(1).max(10000).nullable(),repeat:z.boolean(),route}).strict(),
   z.object({kind:z.literal('recovery'),wreckIds:z.array(id).max(1000),sourceClassId:id.nullable(),includeDiscoveries:z.boolean(),destinationId:id.nullable()}).strict(),
   z.object({kind:z.literal('navigate'),targetId:id.nullable(),sector:sector.nullable()}).strict(),
@@ -21,10 +23,18 @@ export const objectiveProposalSchema = z.discriminatedUnion('kind', [
   z.object({kind:z.literal('escort'),targetShipId:id}).strict(),
   z.object({kind:z.literal('engage'),targetIds:z.array(id).min(1).max(100)}).strict(),
   z.object({kind:z.literal('service'),targetId:id,service:z.enum(['dock','repair','retreat','unload','return'])}).strict(),
+  z.object({kind:z.literal('rearm'),locationId:id,ammunition:ammoSchema}).strict(),
+  z.object({kind:z.literal('refit'),locationId:id,moduleId:moduleSchema,remove:z.boolean()}).strict(),
+  z.object({kind:z.literal('diplomacy'),contactId:id,message:z.enum(['greeting','withdraw','deescalate'])}).strict(),
+  z.object({kind:z.literal('eventResponse'),eventId:id}).strict(),
+  z.object({kind:z.literal('secureFacility'),facilityId:id}).strict(),
+  z.object({kind:z.literal('wormholeTransit'),wormholeId:id}).strict(),
+  z.object({kind:z.literal('contactOperation'),contactId:id,objective:z.enum(['disable','driveOff','intercept','track']),subsystem:z.enum(['engines','weapons']).nullable()}).strict(),
   z.object({kind:z.literal('construction'),siteId:id,facilityKind:z.enum(['mine','outpost','colony','platform'])}).strict(),
   z.object({kind:z.literal('rest'),duration:z.number().min(5).max(180)}).strict(),
   z.object({kind:z.literal('assignment'),shipId:id}).strict(),
   z.object({kind:z.literal('cancel')}).strict(),
+  z.object({kind:z.literal('factionAssault'),factionId:z.literal('orion')}).strict(),
 ]);
 export type ObjectiveProposal = z.infer<typeof objectiveProposalSchema>;
 export const intentDecisionSchema = z.object({
@@ -42,9 +52,9 @@ export const collaborationDecisionSchema = z.object({
   requestId:id,version:z.number().int().positive(),response:z.enum(['accept','reject','counter']),
   reason:responseFields.reason,reply,conditions:conditionsSchema,
 }).strict();
-export const communicationDecisionSchema = z.object({content:reply,purpose:z.enum(['information','acknowledgement'])}).strict();
+export const communicationDecisionSchema = z.object({content:reply,purpose:z.enum(['information','acknowledgement']),social:z.object({type:z.enum(['support','disagree','mediate','compete','preference']),messageId:z.number().int().positive(),agentId:id.nullable(),activity:activitySchema.nullable()}).strict().nullable().optional()}).strict();
 export const strategicDecisionSchema = z.object({
-  opportunityId:id.nullable(),riskPreference:z.enum(['cautious','balanced','bold']),reason:reply,
+  collaborationOptionId:id.nullable().optional(),supportAgentId:id.nullable().optional(),opportunityId:id.nullable(),riskPreference:z.enum(['cautious','balanced','bold']),reason:reply,
 }).strict();
 export const cognitionSchemas = {
   intent:intentDecisionSchema,judgment:taskJudgmentSchema,collaboration:collaborationDecisionSchema,

@@ -158,8 +158,7 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
         (id) => w.ships.find((s) => s.id === id)!,
       );
     for (const [slot, s] of members.entries()) {
-      if (c.mode !== 'INTERRUPT') cancelObjectives(e, s.id, undefined, c.mode !== 'QUEUE');
-      if (c.mode === 'REPLACE') cancelContracts(e, s.id);
+      if(c.mode==='REPLACE'||c.mode==='QUEUE'&&s.current?.source!=='admiral'||c.mode==='INTERRUPT'&&s.current?.controlMode!=='direct')cancelObjectives(e,s.id);
       if (c.mode === 'REPLACE' && s.current?.source === 'agent')
         agentOutcome(e, s, s.current, 'Admiral 编队指令接管', true);
       const a =
@@ -167,6 +166,10 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
             ? { ...c.action, amount: Math.min(c.action.amount, capabilities(s).cargo) }
             : c.action,
         d = makeDirective(e, a);
+      const objective=w.objectives.find(o=>o.id===e.executingObjectiveId);
+      if(!objective)throw Error('Group command lacks Task Gateway authority');
+      d.taskId=objective.id;d.controlMode=objective.controlMode;d.executorAgentId=w.assignments.find(a=>a.shipId===s.id&&w.agents.some(agent=>agent.id===a.operatorId))?.operatorId??null;
+      d.allowWormholes=objective.allowWormholes;
       d.groupOrderId = id;
       d.groupSpacing = g.spacing;
       d.groupSlot = slot;
@@ -176,7 +179,7 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
       else {
         if (c.mode === 'INTERRUPT' && s.current) {
           if (s.current.action.type === 'REST') s.current.work = 0;
-          s.suspended.push(s.current);
+          if(!s.current.objectiveId||e.runtime.taskForObjective(s.current.objectiveId)?.status!=='interrupted')s.suspended.push(s.current);
         }
         if (c.mode === 'REPLACE') {
           s.queue = [];

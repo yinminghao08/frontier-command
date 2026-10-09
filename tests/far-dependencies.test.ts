@@ -1,5 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {quietEngine,run,until} from './helpers';
+import {makeAgent,registerAgent} from '../src/engine/agents';
 import {makeRequest} from '../src/engine/contracts';
 import {parseSave} from '../src/engine/saves';
 import {SimulationEngine} from '../src/engine/engine';
@@ -34,6 +35,27 @@ describe('FAR persisted physical Task dependencies',()=>{
   expect(e.state.agentRuntime.tasks.filter(t=>t.coordinationId===objective.id)).toHaveLength(1);
   expect(e.state.commitments.find(p=>p.contractId===objective.id)!.status).toBe('fulfilled');
   expect(()=>parseSave(e.state)).not.toThrow();
+ });
+ it('changing the escort preserves history but requires new consent and new rendezvous after reload',()=>{
+  const e=quietEngine(),ship=e.state.ships.find(s=>s.id==='meridian')!,mine=e.state.locations.find(l=>l.id==='mine')!,first=e.state.ships.find(s=>s.id==='horizon')!,second=e.state.ships.find(s=>s.id==='verity')!;
+  registerAgent(e.state,makeAgent('ops-verity','Nova','battle','verity'));
+  ship.x=mine.x;ship.y=mine.y;first.x=mine.x+20;first.y=mine.y;second.x=e.base.x;second.y=e.base.y;
+  e.state.bodies.find(b=>b.id===mine.siteId)!.remaining=0;mine.stock.materials=50;
+  const action={type:'HAUL' as const,sourceId:'mine',targetId:'base',cargoKind:'materials' as const,amount:50,loadPolicy:'fixed' as const,route:'safe' as const,repeat:false};
+  const objective=e.runtime.start({kind:'operation',action},ship.id,e.state.commander.id,mira,'运输须先护航');objective.controlMode='voluntary';objective.conditions=[{type:'escort',when:'before',agentId:talia}];e.runtime.drain();
+  const old=e.state.escortRequests.find(r=>r.parentTaskId===objective.id)!;let ticket=e.cognition.prepare(talia)!;
+  expect(e.dispatchCommand({type:'cognitionDecision',agentId:talia,requestId:ticket.requestId,response:{purpose:'collaboration',decision:{requestId:old.id,version:old.conditionVersion,response:'accept',reason:'preference',reply:'先会合护航',conditions:[]}}},talia).ok).toBe(true);
+  until(e,()=>ship.current?.carried===50);const root=e.runtime.taskForObjective(objective.id)!;
+  expect(e.state.commitments.find(c=>c.contractId===objective.id)?.status).toBe('fulfilled');
+  expect(e.runtime.revise(objective.id,objective.revision,{kind:'operation',action},'改请 Verity 护航','voluntary',true,[{type:'escort',when:'before',agentId:'ops-verity'}]).ok).toBe(true);
+  expect(old.status).toBe('cancelled');expect(root.dependencies.some(d=>d.taskId===e.state.agentRuntime.tasks.find(t=>t.coordinationId===old.id)?.taskId)).toBe(false);
+  const restored=new SimulationEngine(parseSave(JSON.parse(JSON.stringify(e.state))));ticket=restored.cognition.prepare(mira)!;
+  expect(restored.dispatchCommand({type:'cognitionDecision',agentId:mira,requestId:ticket.requestId,response:{purpose:'judgment',decision:{response:'accept',reason:'preference',reply:'等新伙伴实际会合后再运走现有货物',conditions:[]}}},mira).ok).toBe(true);
+  const fresh=restored.state.escortRequests.find(r=>r.parentTaskId===objective.id&&r.responderId==='ops-verity')!;
+  expect(fresh.status).toBe('pending');expect(restored.state.ships.find(s=>s.id===ship.id)!.current).toBeNull();
+  expect(restored.state.commitments.filter(c=>c.contractId===objective.id&&c.condition.type==='escort').map(c=>c.status)).toEqual(['fulfilled','pending']);
+  ticket=restored.cognition.prepare('ops-verity')!;expect(restored.dispatchCommand({type:'cognitionDecision',agentId:'ops-verity',requestId:ticket.requestId,response:{purpose:'collaboration',decision:{requestId:fresh.id,version:fresh.conditionVersion,response:'accept',reason:'preference',reply:'先会合',conditions:[]}}},'ops-verity').ok).toBe(true);
+  until(restored,()=>restored.runtime.taskForObjective(objective.id)?.status==='completed');expect(restored.runtime.taskForObjective(objective.id)!.progress.loaded.materials).toBe(50);expect(restored.runtime.taskForObjective(objective.id)!.progress.delivered.materials).toBe(50);expect(()=>parseSave(restored.state)).not.toThrow();
  });
  it('rejects cyclic dependencies both at registration and when validating a saved graph',()=>{
   const e=quietEngine(),first=e.runtime.start({kind:'operation',action:{type:'RETURN'}},'verity'),second=e.runtime.start({kind:'operation',action:{type:'RETURN'}},'meridian');

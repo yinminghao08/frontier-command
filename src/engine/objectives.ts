@@ -70,21 +70,17 @@ export function receiveObjective(
     messageId,
     channelId: message.channelId,
     status: 'active',
-    sectorIndex: 0,
-    scannedSectorIndices: [],
-    projectId: null,
-    carrierAgentId: null,
     reason: null,
     controlMode:
       direct || ['assign', 'cancel'].includes(result.intent.kind) ? 'direct' : 'voluntary',
     consent: direct || ['assign', 'cancel'].includes(result.intent.kind) ? 'accepted' : 'proposed',
-    conditions: [],
+    conditions: result.intent.conditions??[],
+    conditionHistory:[],
     conditionVersion: 1,
     rounds: 0,
     turnAgentId: agentId,
     creditsApproved: false,
     directiveMode,
-    searchedTargets: {},
   };
   if (!objectiveSchema.safeParse(task).success) {
     if (direct && message.responses) message.responses[agentId] = 'replied';
@@ -105,8 +101,8 @@ export function receiveObjective(
   w.objectives.push(task);
   agent.currentGoal = message.content.slice(0, 240);
   wakeAgent(agent, 'interpretInteraction', w.time, true);
-  agent.decision.pendingReasons = [];
-  agent.decision.events = [];
+  agent.decision.pendingReasons=agent.decision.pendingReasons.filter(reason=>reason!=='interpretInteraction');
+  agent.decision.events=agent.decision.events.filter(event=>event.id!=='interpretInteraction');
   if (task.consent === 'proposed') {
     wakeAgent(agent, 'proposal:' + task.id, w.time, true);
   }

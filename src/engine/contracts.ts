@@ -10,6 +10,7 @@ import type {
   Command,
   TaskCondition,
 } from './types';
+import {conditionGenerationFloor} from './condition-schema';
 import { appendChat, COMMAND_CHANNEL, remember, wakeAgent } from './chat';
 import { capabilities, cargoUsed } from './capabilities';
 import { available } from './inventory';
@@ -18,7 +19,7 @@ import { validateAction, no, ok } from './command-system';
 import { personalFeedback, clampMood, decisionWorldKey } from './personality';
 
 type Contract = Objective | CollaborationRequest;
-export const liveRequest = (r: CollaborationRequest) =>
+export const liveRequest = (r: Pick<CollaborationRequest,'status'>) =>
   ['pending', 'negotiating', 'awaitingApproval', 'accepted'].includes(r.status);
 export const findContract = (e: SimulationEngine, id: string): Contract | undefined =>
   e.state.objectives.find((t) => t.id === id) ?? e.state.escortRequests.find((r) => r.id === id);
@@ -163,6 +164,7 @@ export function makeRequest(
     action: structuredClone(action),
     followUp: structuredClone(followUp),
     conditions: structuredClone(conditions),
+    conditionHistory:[],
     parentTaskId,
     conditionVersion: 1,
     rounds: 0,
@@ -176,7 +178,7 @@ export function makeRequest(
     e,
     requesterId,
     COMMAND_CHANNEL,
-    '@' + peer.name + ` 请求${kind === 'escort' ? '护航' : kind}：${a.currentGoal}`,
+    '@' + peer.name + ` 请求${kind === 'escort' ? '护航' : kind}：${action.type}${'targetId'in action?' / '+action.targetId:''}`,
     [responderId],
     'request',
     { origin: 'engine', requestId: r.id, eventId: r.id + ':proposed' },
@@ -326,14 +328,16 @@ export function acceptContract(e: SimulationEngine, c: Contract, hasModelReply =
   createCommitments(e, c);
 }
 function createCommitments(e: SimulationEngine, c: Contract) {
+  c.conditionHistory??=[];
   for (const condition of c.conditions) {
-    const id = `${c.id}:condition:${c.conditions.indexOf(condition)}`;
-    if (!e.state.commitments.some((p) => p.id === id))
+    const id = `${c.id}:version:${c.conditionVersion}:condition:${c.conditions.indexOf(condition)}`;
+    if (!e.state.commitments.some(p=>p.contractId===c.id&&p.agentId===beneficiary(c)&&(p.conditionVersion??1)>conditionGenerationFloor(c.conditionHistory??[],condition)&&['pending','fulfilled'].includes(p.status)&&JSON.stringify(p.condition)===JSON.stringify(condition)))
       e.state.commitments.push({
         id,
         contractId: c.id,
         agentId: beneficiary(c),
         condition: structuredClone(condition),
+        conditionVersion:c.conditionVersion,
         status: 'pending',
         escrow: 0,
         directiveId: null,
@@ -505,6 +509,7 @@ export function applyNegotiation(e: SimulationEngine, a: Agent, d: NegotiationDe
       } else {
         c.rounds++;
         c.conditionVersion++;
+        if(JSON.stringify(c.conditions)!==JSON.stringify(response.conditions))(c.conditionHistory??=[]).push({version:c.conditionVersion-1,previousConditions:structuredClone(c.conditions),conditions:structuredClone(response.conditions)});
         c.conditions = structuredClone(response.conditions);
         c.creditsApproved = false;
         c.turnAgentId = isTask(c)
@@ -607,6 +612,9 @@ export function readyConditions(e: SimulationEngine, c: Contract, when: 'before'
       ship.engines >= 100 &&
       ship.weapons >= 100
     ) {
+      // A threshold satisfied during a paid repair cannot abandon that running
+      // Directive and leave its dependency permanently unfinished.
+      if(p.directiveId&&[ship.current,...ship.queue,...ship.suspended].some(d=>d?.id===p.directiveId))return false;
       p.status = 'fulfilled';
       continue;
     }
@@ -695,8 +703,8 @@ export function contractDirectiveOutcome(
 
   }
 }
-export function advanceCoordination(e: SimulationEngine) {
-  if (e.state.tick % 10 !== 0) return;
+export function advanceCoordination(e: SimulationEngine,physicalOutcome=false) {
+  if(e.state.tick%10!==0&&!physicalOutcome)return;
   for (const r of e.state.escortRequests) {
     if (['failed', 'cancelled', 'rejected'].includes(r.status)) {
       if (hasContractWork(e, r.id)) stopContractPlans(e, r.id);
@@ -832,6 +840,8 @@ export function applyResolution(
   else if (command.response === 'takeover' && isTask(c)) {
     if (e.state.commitments.some((p) => p.contractId === c.id && p.status === 'pending'))
       settleContract(e, c, false, '直接接管中止了尚未兑现的约定', 'cancel');
+    cancelDescendants(e,c.id);
+    c.conditions=[];c.creditsApproved=false;
     c.controlMode = 'direct';
     c.consent = 'accepted';
     c.status = 'active';

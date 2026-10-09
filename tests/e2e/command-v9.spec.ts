@@ -216,7 +216,7 @@ test('new contacts merge into one alert sound, preserve pause through orders, an
   await d.getByRole('button', { name: '定位接触 / 保持暂停' }).first().click();
   expect((await state(p)).paused).toBe(true);
   await ship(p, 'vigil').click();
-  await p.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
+  await p.getByRole('button', { name: /^新指令 \/ 改令/ }).click();
   const order = p.getByRole('dialog', { name: 'Admiral 指令' });
   await order.getByLabel('指令类型', { exact: true }).selectOption('MOVE');
   await order.getByLabel('坐标 x').fill('-260');

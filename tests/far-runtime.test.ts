@@ -1,7 +1,6 @@
 import { AgentDecisionService } from '../electron/agents/service';
 import { ChatCompletionsClient } from '../electron/agents/client';
 import { makeAgent,registerAgent } from '../src/engine/agents';
-import { compactObservation } from '../electron/agents/context';
 import { describe,it,expect } from 'vitest';
 import { quietEngine,run,until,issue } from './helpers';
 import { SimulationEngine } from '../src/engine/engine';
@@ -73,6 +72,26 @@ describe('FAR authoritative logistics and event ownership',()=>{
     resumed.state.wrecks.push(wreck('wreck:scout-c',100));run(resumed,3);expect(t.status).toBe('completed');expect(resumed.state.wrecks.at(-1)!.stock.materials).toBe(100);
     expect(()=>parseSave(resumed.state)).not.toThrow();
   });
+  it('records delivery elsewhere as diverted goods and retains custody facts after completion',()=>{
+    const {e,ship}=logistics(20),owner=e.state.assignments.find(a=>a.shipId===ship.id)!.operatorId;
+    const o=e.runtime.start({kind:'loadReturn',sourceId:'mine',destinationId:'base',cargoKind:'materials',deliver:true,route:'safe'},ship.id,e.state.commander.id,owner);e.runtime.drain();until(e,()=>ship.current?.action.type==='RETURN');
+    const root=e.runtime.taskForObjective(o.id)!,before=e.state.locations.find(l=>l.id==='outpost')!.stock.materials;
+    expect(issue(e,{type:'UNLOAD',targetId:'outpost'},ship.id).ok).toBe(true);until(e,()=>ship.cargo.materials===0);
+    expect(root.status).toBe('interrupted');expect(root.progress.delivered.materials).toBe(0);expect(root.progress.diverted.materials).toBe(20);expect(root.progress.lost.materials).toBe(0);
+    expect(e.state.locations.find(l=>l.id==='outpost')!.stock.materials).toBe(before+20);expect(()=>parseSave(e.state)).not.toThrow();
+    const second=logistics(12),goal=second.e.runtime.start({kind:'loadReturn',sourceId:'mine',destinationId:'base',cargoKind:'materials',deliver:false,route:'safe'},second.ship.id);second.e.runtime.drain();until(second.e,()=>second.e.runtime.taskForObjective(goal.id)?.status==='completed');
+    const terminal=second.e.runtime.taskForObjective(goal.id)!,proof=terminal.completionEvidence.find(e=>e.kind==='verified')!.eventId;
+    expect(issue(second.e,{type:'UNLOAD',targetId:'base'},second.ship.id).ok).toBe(true);until(second.e,()=>second.ship.cargo.materials===0);
+    expect(terminal.status).toBe('completed');expect(terminal.progress.delivered.materials).toBe(12);expect(terminal.completionEvidence.filter(e=>e.kind==='verified').map(e=>e.eventId)).toEqual([proof]);
+    const count=terminal.completionEvidence.length;second.e.runtime.drain();second.e.runtime.drain();expect(terminal.completionEvidence).toHaveLength(count);expect(()=>parseSave(second.e.state)).not.toThrow();
+  });
+  it('journals cancellation of a queued directive once without physical execution',()=>{
+    const {e,ship}=logistics(50);expect(issue(e,{type:'PATROL',targetId:'base',duration:60},ship.id).ok).toBe(true);
+    expect(issue(e,{type:'HAUL',sourceId:'mine',targetId:'base',cargoKind:'materials',amount:20,route:'safe',loadPolicy:'fixed',repeat:false},ship.id,'QUEUE').ok).toBe(true);
+    const directive=ship.queue[0],goal=e.state.objectives.find(o=>o.id===directive.objectiveId)!,root=e.runtime.taskForObjective(goal.id)!;
+    expect(root.scheduling).toBe('queued');expect(root.steps[0].status).toBe('pending');expect(e.runtime.cancel(goal.id,goal.revision).ok).toBe(true);expect(e.runtime.cancel(goal.id,goal.revision).ok).toBe(false);e.runtime.drain();
+    expect(ship.queue).toHaveLength(0);expect(root.status).toBe('cancelled');expect(root.progress.loaded.materials).toBe(0);expect(e.state.agentRuntime.events.filter(event=>event.type==='directiveOutcome'&&event.directiveId===directive.id)).toHaveLength(1);expect(()=>parseSave(e.state)).not.toThrow();
+  });
   it('cancel keeps physical cargo and prevents any future task step',()=>{
     const {e,ship}=logistics(50),o=e.runtime.start({kind:'loadReturn',sourceId:'mine',destinationId:'base',cargoKind:'materials',deliver:true,route:'safe'},ship.id);e.runtime.drain();
     until(e,()=>ship.current?.action.type==='RETURN');const cargo=ship.cargo.materials;
@@ -105,8 +124,9 @@ describe('FAR authoritative logistics and event ownership',()=>{
     const {e,ship}=logistics(20),owner=e.state.assignments.find(a=>a.shipId===ship.id)!.operatorId;
     const instruction='矿场装满后返航；'.repeat(100);
     e.runtime.start({kind:'loadReturn',sourceId:'mine',destinationId:'base',cargoKind:'materials',deliver:false,route:'safe'},ship.id,e.state.commander.id,owner,instruction);
-    const context=compactObservation(e.getObservation(owner)!);
-    expect(context.objective?.originalInstruction).toBe(instruction);expect(context.inventories.some(i=>i.locationId==='mine')).toBe(true);expect(context.runtimeTask).not.toBeNull();
+    const agent=e.state.agents.find(a=>a.id===owner)!;agent.enabled=true;e.dispatchCommand({type:'sendChat',channelId:'private:'+owner,content:'那你倒是去收集啊',mentions:[]});
+    const request=e.cognition.prepare(owner)!;const context=JSON.stringify(request.context);
+    expect(context).toContain(instruction);expect(context).toContain('mine');expect(context).toContain('taskId');expect(context).not.toContain('actionExamples');
   });
   it('primary replies and repeated journal consumption are idempotent',()=>{
     const {e}=logistics(0),agent=e.state.agents[0];

@@ -1,5 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {quietEngine,until,issue} from './helpers';
+import {piracyScenario} from './orion-scenarios';
+import {makeLocation} from '../src/engine/data';
 import {SimulationEngine} from '../src/engine/engine';
 import {compileIntent} from '../src/engine/intent-gateway';
 import {AgentDecisionService} from '../electron/agents/service';
@@ -45,6 +47,60 @@ describe('purpose-specific cognition and authoritative commits',()=>{
   const service=new AgentDecisionService({snapshot:()=>e.snapshot(),cognitionPort:id=>e.cognitionPort(id),command:(c,id)=>e.dispatchCommand(c,id)},()=>config,client);service.pump();await flush();
   const revision=agent.decision.revision;e.complete(ship,'到达基地');e.runtime.drain();service.pump();expect(agent.decision.revision).toBe(revision);expect(calls).toBe(1);
   resolve(new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({content:'你好，Admiral。',purpose:'information'})},finish_reason:'stop'}]})));await flush();expect(e.state.chatMessages.some(m=>m.content==='你好，Admiral。')).toBe(true);service.dispose();
+ });
+ it('API configuration changes alone produce no new decision trigger and revoke old tickets',()=>{
+  const {e,agent}=setup();e.cognition.configurationChanged();expect(agent.decision.pendingReasons).toEqual([]);
+  send(e,agent.id,'你好');const request=e.cognition.prepare(agent.id)!;e.dispatchCommand({type:'agentDecisionState',agentId:agent.id,revision:request.revision,state:'waiting',error:null},agent.id);
+  e.cognition.configurationChanged();expect(agent.decision.events.some(event=>event.id==='configuration:pending-request')).toBe(true);
+  expect(e.dispatchCommand({type:'cognitionDecision',agentId:agent.id,requestId:request.requestId,response:{purpose:'communication',decision:{content:'旧配置结果',purpose:'information'}}},agent.id).ok).toBe(false);
+  expect(e.state.chatMessages.some(m=>m.content==='旧配置结果')).toBe(false);
+ });
+ it('public peer goals do not disclose the original private instruction',()=>{
+  const {e,agent}=setup(),peer=e.state.agents.find(a=>a.id!==agent.id)!,ship=e.state.ships.find(s=>s.id===peer.assignedShipId)!;peer.enabled=true;
+  const secret='私聊原文仅限接收者 / PRIVATE-ORDER-947';peer.currentGoal=secret;
+  const objective=e.runtime.start({kind:'operation',action:{type:'PATROL',targetId:'base',duration:20}},ship.id,e.state.commander.id,peer.id,secret);e.runtime.drain();
+  expect(objective.originalInstruction).toBe(secret);expect(JSON.stringify(e.getObservation(agent.id,false)!.fleet)).not.toContain(secret);
+  e.dispatchCommand({type:'retryAgent',agentId:agent.id});expect(JSON.stringify(e.cognition.prepare(agent.id)!.context)).not.toContain(secret);
+ });
+ it('claims dispatched triggers once, preserves new events, and reports real execution state',()=>{
+  const {e,agent,ship}=setup();e.dispatchCommand({type:'retryAgent',agentId:agent.id});
+  const request=e.cognition.prepare(agent.id)!;
+  expect(e.dispatchCommand({type:'agentDecisionState',agentId:agent.id,revision:request.revision,state:'waiting',error:null},agent.id).ok).toBe(true);
+  expect(agent.decision.events).toHaveLength(0);
+  agent.decision.events.push({id:'danger:new-contact',kind:'danger',time:e.state.time});agent.decision.pendingReasons.push('danger:new-contact');
+  expect(e.dispatchCommand({type:'cognitionDecision',agentId:agent.id,requestId:request.requestId,response:{purpose:'strategy',decision:{opportunityId:null,riskPreference:'balanced',reason:'等待'}}},agent.id).ok).toBe(true);
+  expect(agent.decision.events.map(event=>event.id)).toEqual(['danger:new-contact']);
+  expect(agent.decision.pendingReasons).toEqual(['danger:new-contact']);
+  expect(agent.decision.nextAt).toBe(e.state.time);
+  expect(issue(e,{type:'PATROL',targetId:'base',duration:10},ship.id).ok).toBe(true);
+  e.dispatchCommand({type:'agentDecisionState',agentId:agent.id,revision:agent.decision.revision,state:'ready',error:null},agent.id);
+  expect(agent.status).toBe('admiral');
+ });
+ it('retains an unconsumed danger across missing API configuration and dispatches it once while paused',async()=>{
+  const {e,agent}=setup();e.state.paused=true;agent.decision.events=[{id:'danger:known',kind:'danger',time:e.state.time}];agent.decision.pendingReasons=['danger:known'];
+  let configured={...config,apiKey:''},calls=0;
+  const client=new ChatCompletionsClient(async()=>{calls++;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({opportunityId:null,riskPreference:'cautious',reason:'保留当前目标'})},finish_reason:'stop'}]}));});
+  const service=new AgentDecisionService({snapshot:()=>e.snapshot(),cognitionPort:id=>e.cognitionPort(id),command:(c,id)=>e.dispatchCommand(c,id)},()=>configured,client);
+  service.pump();service.pump();expect(calls).toBe(0);expect(agent.decision.events.map(event=>event.id)).toEqual(['danger:known']);
+  configured=config;e.cognition.configurationChanged();service.pump();await flush();service.pump();await flush();expect(calls).toBe(1);expect(agent.decision.events).toEqual([]);service.dispose();
+ });
+ it('selects a real rescue contract without overwriting a directly authorized objective',()=>{
+  const {e,ship}=piracyScenario('manual'),peer=e.state.ships.find(s=>s.id==='horizon')!;peer.x=ship.x+350;peer.y=ship.y;
+  e.state.locations.push(makeLocation('rescue-refuge','RESCUE REFUGE','outpost',{x:420,y:1200}));
+  until(e,()=>e.state.piracyIncidents.length>0,5);for(const agent of e.state.agents)agent.enabled=true;
+  const own=e.state.agents.find(a=>a.assignedShipId===ship.id)!,helper=e.state.agents.find(a=>a.assignedShipId===peer.id)!;
+  expect(issue(e,{type:'PATROL',targetId:'base',duration:20},ship.id).ok).toBe(true);const directive=ship.current!.id;
+  e.dispatchCommand({type:'retryAgent',agentId:own.id});const request=e.cognition.prepare(own.id)!;
+  const choices=request.context.rescueChoices as {id:string;agentId:string}[];
+  const choice=choices.find(choice=>choice.agentId===helper.id)!;expect(choice).toBeDefined();
+  const decision={purpose:'strategy' as const,decision:{opportunityId:null,collaborationOptionId:choice.id,riskPreference:'cautious' as const,reason:'请求真实支援'}};
+  expect(e.dispatchCommand({type:'cognitionDecision',agentId:own.id,requestId:request.requestId,response:decision},own.id).ok).toBe(true);
+  const contract=e.state.escortRequests[0];expect(contract).toMatchObject({kind:'reinforce',status:'pending',followUp:null});expect(ship.current!.id).toBe(directive);expect(peer.current).toBeNull();
+  const response=e.cognition.prepare(helper.id)!;expect(response.purpose).toBe('collaboration');
+  expect(e.dispatchCommand({type:'cognitionDecision',agentId:helper.id,requestId:response.requestId,response:{purpose:'collaboration',decision:{requestId:contract.id,version:contract.conditionVersion,response:'reject',reason:'fatigue',reply:'先休整',conditions:[]}}},helper.id).ok).toBe(true);
+  expect(contract.status).toBe('rejected');expect(peer.current).toBeNull();expect(ship.current!.id).toBe(directive);
+  e.dispatchCommand({type:'retryAgent',agentId:own.id});const stale=e.cognition.prepare(own.id)!;e.state.piracyIncidents[0].stage='resolved';
+  expect(e.dispatchCommand({type:'cognitionDecision',agentId:own.id,requestId:stale.requestId,response:decision},own.id).ok).toBe(false);expect(e.state.escortRequests).toHaveLength(1);
  });
  it('applies documented thinking parameters and refuses unknown explicit controls before HTTP',async()=>{
   const tracker=new RequestTracker(),bodies:Record<string,unknown>[]=[];const client=new ChatCompletionsClient(async(_url,init)=>{bodies.push(JSON.parse(String(init?.body)));return new Response(JSON.stringify({choices:[{message:{content:'{"ok":true}'},finish_reason:'stop'}],usage:{prompt_tokens:12,completion_tokens:9,total_tokens:21,completion_tokens_details:{reasoning_tokens:3}}}));},tracker);

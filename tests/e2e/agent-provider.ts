@@ -1,9 +1,18 @@
-import { actionSchema } from '../../src/engine/action-schema';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { AgentDecision, Observation } from '../../src/engine/types';
-import { COMMAND_CHANNEL, privateChannel } from '../../src/engine/chat';
-import { capabilities } from '../../src/engine/capabilities';
+import type { Agent, CollaborationRequest, Observation } from '../../src/engine/types';
+interface FixtureContext {
+ self:Agent;
+ input?:string;
+ activeObjectives?:{id:string;goal:Observation['objectiveContext'][number]['goal']}[];
+ ship?:{id:string;hull:number;capacity?:{hull:number}}|null;
+ publicFacts?:Pick<Observation,'inventories'|'fleet'|'locations'|'bodies'|'contacts'>;
+ opportunities?:Observation['opportunities'];
+ maintenanceOptions?:{id:string}[];
+ rescueChoices?:{id:string}[];
+ request?:CollaborationRequest;
+ decisionContext?:Observation['decisionContext'];
+}
 export interface TestCompletionRequest {
   model: string;
   stream?: boolean;
@@ -54,18 +63,8 @@ export class AgentTestProvider {
         let content: string;
         if (this.mode === 'hang') return; // Deliberately stalled local socket for deadline tests.
         if (input.messages[0].content.includes('Reply only JSON:')) content = '{"ok":true}';
-        else if (input.messages[0].content.startsWith('TASK_JUDGMENT:')) {
-          content = JSON.stringify({
-            accept: this.mode !== 'refuse',
-            reason: this.mode === 'refuse' ? 'fatigue' : 'preference',
-            rationale: this.mode === 'refuse' ? '当前状态不适合执行' : '当前状态支持执行',
-          });
-        } else if (this.mode === 'invalid')
-          content = '{"goal":"破坏世界","rationale":"非法输出测试","action":{"type":"CHEAT"}}';
-        else
-          content = JSON.stringify(
-            this.choose(JSON.parse(input.messages[1].content) as Observation),
-          );
+        else if(this.mode==='invalid')content='{"invalidPurpose":true}';
+        else content=JSON.stringify(this.choose(input.messages[0].content,JSON.parse(input.messages[1].content) as FixtureContext));
         const send = () => {
           if (input.stream) {
             response.setHeader('Content-Type', 'text/event-stream');
@@ -99,250 +98,34 @@ export class AgentTestProvider {
     this.server.closeAllConnections();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
-  private choose(obs: Observation): AgentDecision {
-    const self = obs.self!;
-    const d: AgentDecision = {
-      goal: '等待新机会',
-      rationale: '公开世界状态与近期交流支持当前判断',
-      action: null,
-      messages: [],
-      memory: null,
-      waitMinutes: 180,
-      coordination: null,
-    };
-    const latest = [...obs.recentChat]
-      .reverse()
-      .find((m) => m.sender === 'commander' && m.channelId === privateChannel(self.id));
-    const task = obs.objective;
-    if (
-      task &&
-      ['proposed', 'negotiating'].includes(task.consent) &&
-      task.turnAgentId === self.id
-    ) {
-      d.goal = '自主评估 Admiral 的任务提议';
-      d.coordination = {
-        type: 'answerTask',
-        taskId: task.id,
-        version: task.conditionVersion,
-        response: this.mode === 'refuse' ? 'reject' : 'accept',
-        conditions: [],
-        reason: self.fatigue >= 80 ? 'fatigue' : 'preference',
-      };
-      return d;
+  private choose(prompt:string,context:FixtureContext):unknown {
+    const self=context.self;
+    if(prompt.startsWith('TaskJudgment:'))return {response:this.mode==='refuse'?'reject':'accept',reason:this.mode==='refuse'?'fatigue':'preference',reply:this.mode==='refuse'?'当前状态不适合执行，需要先休整。':'接受完整目标；护航伙伴须独立同意并会合。',conditions:[]};
+    if(prompt.startsWith('CollaborationDecision:')){
+      const request=context.request!;
+      const refusal=request.responderId===self.id&&(this.mode==='refuse'||this.mode==='piracyRefuse'||self.fatigue>=80);
+      const damaged=context.ship&&context.ship.capacity&&context.ship.hull<context.ship.capacity.hull*0.9;
+      const counter=request.responderId===self.id&&this.mode==='negotiate'&&damaged&&request.rounds===0;
+      const response=refusal?'reject':counter?'counter':'accept';
+      const location=context.publicFacts?.locations.find(l=>l.id==='demo-aurora-mine')??context.publicFacts?.locations.find(l=>l.owner==='starfleet');
+      return {requestId:request.id,version:request.conditionVersion,response,reason:refusal?'fatigue':counter?'damage':'preference',reply:refusal?'疲劳使本轮支援不可靠。':counter?'舰损需要先实际维修，奖励由 Admiral 确认。':'接受当前协作条件。',conditions:counter&&location?[{type:'repair',when:'before',locationId:location.id,hullPercent:90},{type:'reward',when:'after',credits:25}]:[]};
     }
-    const proposal = obs.escortRequests.find(
-      (r) => ['pending', 'negotiating'].includes(r.status) && r.turnAgentId === self.id,
-    );
-    if (proposal && proposal.action) {
-      const response =
-        proposal.responderId === self.id &&
-        (this.mode === 'refuse' || this.mode === 'piracyRefuse' || self.fatigue >= 80)
-          ? 'reject'
-          : 'accept';
-      // Public class capacities are part of the ship catalogue; no hidden simulation values.
-      const damaged = obs.ship && obs.ship.hull < capabilities(obs.ship).hull * 0.9;
-      const choice =
-        proposal.responderId === self.id &&
-        this.mode === 'negotiate' &&
-        damaged &&
-        proposal.rounds === 0
-          ? 'counter'
-          : response;
-      const location = obs.locations.find(
-        (l) =>
-          l.owner === 'starfleet' &&
-          Math.hypot(l.x - (obs.ship?.x ?? 0), l.y - (obs.ship?.y ?? 0)) < 40,
-      );
-      d.goal =
-        choice === 'reject'
-          ? '拒绝本轮协作，先恢复状态'
-          : choice === 'counter'
-            ? '提出维修及奖励条件'
-            : '接受经校验的协作计划';
-      d.rationale =
-        choice === 'reject'
-          ? '公开疲劳使本轮支援不可靠'
-          : choice === 'counter'
-            ? '舰损降低护航可靠性；需要先消耗现场材料维修，奖励由 Admiral 确认'
-            : '公开状态、个人责任动机及既有信任支持合作';
-      d.coordination = {
-        type: 'answerRequest',
-        requestId: proposal.id,
-        version: proposal.conditionVersion,
-        response: choice,
-        conditions:
-          choice === 'counter' && location
-            ? [
-                { type: 'repair', when: 'before', locationId: location.id, hullPercent: 90 },
-                { type: 'reward', when: 'after', credits: 25 },
-              ]
-            : [],
-        reason: choice === 'reject' ? 'fatigue' : choice === 'counter' ? 'damage' : 'preference',
-      };
-      return d;
+    if(prompt.startsWith('StrategicDecision:')){
+      if((this.mode==='piracy'||this.mode==='piracyRefuse')&&context.rescueChoices?.length)return {opportunityId:null,supportAgentId:null,collaborationOptionId:context.rescueChoices[0].id,riskPreference:'cautious',reason:'已确认海盗威胁，请求伙伴独立决定是否支援。'};
+      const opportunity=context.opportunities?.find(o=>o.kind==='logistics'&&['remote-mine','demo-aurora-mine'].includes(o.targetId))??context.opportunities?.find(o=>o.kind==='logistics');
+      const peer=context.decisionContext?.preferredPeers.find(id=>context.publicFacts?.fleet.some(a=>a.id===id&&a.assignedShipId));
+      return {opportunityId:self.id==='ops-meridian'?(opportunity?.id??null):null,supportAgentId:opportunity&&self.id==='ops-meridian'?(peer??'ops-horizon'):null,riskPreference:'cautious',reason:'公开库存与安全动机支持运输；护航须经过独立协商。'};
     }
-    if (
-      (this.mode === 'piracy' || this.mode === 'piracyRefuse') &&
-      self.career === 'logistics' &&
-      obs.ship
-    ) {
-      const incident = obs.piracyIncidents.find(
-        (i) => i.shipId === obs.ship!.id && i.stage !== 'resolved',
-      );
-      const peer = obs.rescueOptions[0];
-      if (
-        incident &&
-        peer &&
-        !obs.escortRequests.some((r) => r.kind === 'reinforce' && r.created >= incident.created)
-      ) {
-        const refuge = obs.locations.find((l) => l.id === 'rescue-refuge');
-        d.goal = '请求同僚应对实际 Orion 袭击';
-        d.coordination = {
-          type: 'requestTask',
-          kind: 'reinforce',
-          agentId: peer.agentId,
-          action: actionSchema.parse(peer.action),
-          followUp: refuge ? { type: 'DOCK', targetId: refuge.id } : null,
-          conditions: [],
-        };
-        return d;
-      }
-    }
-    const aurora = obs.inventories.find(
-      (i) =>
-        ['demo-aurora-mine', 'remote-mine'].includes(i.locationId) && i.available.materials >= 40,
-    );
-    if (
-      self.id === 'ops-meridian' &&
-      aurora &&
-      obs.ship &&
-      !obs.currentTask &&
-      (!obs.escortRequests.some((r) => r.requesterId === self.id) ||
-        (latest?.content.includes('第二轮') && latest.id > self.decision.lastChatId))
-    ) {
-      const peer =
-        obs.decisionContext?.preferredPeers.find((id) =>
-          obs.fleet.some((a) => a.id === id && a.assignedShipId),
-        ) ?? 'ops-horizon';
-      d.goal = '评估公开航线风险后，请求可靠同僚护航';
-      d.rationale = `安全动机 ${self.profile.motivations.safety}；公开远疆航段存在风险，当前优先合作对象 ${peer}，信任 ${self.relationships[peer]?.trust ?? 50}`;
-      d.coordination = {
-        type: 'requestTask',
-        kind: 'escort',
-        agentId: peer,
-        action: { type: 'ESCORT', targetId: obs.ship.id },
-        followUp: {
-          type: 'HAUL',
-          sourceId: aurora.locationId,
-          targetId: 'base',
-          cargoKind: 'materials',
-          amount: 40,
-          route: 'safe',
-          repeat: false,
-        },
-        conditions: [],
-      };
-      d.messages = [
-        {
-          channelId: privateChannel(self.id),
-          content:
-            self.profile.style === 'warm'
-              ? 'Admiral，我比较了航线风险，准备邀请可靠同僚一起完成。'
-              : '需要护航；请求已提交。',
-          mentions: [],
-        },
-      ];
-      return d;
-    }
-    if (latest?.content.includes('先休息') && obs.ship && !obs.currentTask) {
-      d.goal = '遵照私聊，先回基地休息';
-      d.action = { type: 'DOCK', targetId: 'base' };
-      d.messages = [
-        {
-          channelId: privateChannel(self.id),
-          content: '收到私聊。先回基地休息，下一轮再运输。',
-          mentions: [],
-        },
-      ];
-      d.memory = 'Admiral 要求先休息；之后重新评估风险';
-      return d;
-    }
-    if (self.id === 'ops-horizon') {
-      const request = obs.escortRequests.find(
-        (r) => r.responderId === self.id && r.status === 'pending',
-      );
-      if (request) {
-        const accept = this.mode !== 'refuse' && self.fatigue < 80 && self.morale >= 40;
-        d.goal = accept ? '护送 Mira 运回真实材料' : '拒绝本轮护航，先恢复状态';
-        d.rationale = accept
-          ? '舰船状态良好，合作倾向高，值得支援同僚。'
-          : '疲劳较高，无法可靠护航，需要先休息。';
-        d.coordination = { type: 'answerEscort', requestId: request.id, accept };
-        if (accept) d.action = { type: 'ESCORT', targetId: request.targetShipId };
-      }
-      return d;
-    }
-    if (self.id === 'ops-meridian') {
-      if (obs.currentTask || self.experience > 0) {
-        d.goal = obs.currentTask ? '继续完成实际运输' : '交付完成，等待下轮需求';
-        if (
-          obs.recentChat.some(
-            (m) =>
-              m.sender === 'commander' &&
-              m.channelId === COMMAND_CHANNEL &&
-              m.content.includes('群聊验证'),
-          )
-        )
-          d.messages = [
-            {
-              channelId: COMMAND_CHANNEL,
-              content: '收到群聊验证。当前运输与安全状态已记录。',
-              mentions: [],
-            },
-          ];
-        return d;
-      }
-      const request = [...obs.escortRequests].reverse().find((r) => r.requesterId === self.id);
-      if (!request && obs.ship && obs.inventories.some((i) => i.locationId === 'remote-mine')) {
-        d.goal = '远方矿区存在 Materials，比较虫洞航线并请求护航';
-        d.rationale = '跨越未知航段存在风险；已确认的虫洞出口能缩短 ETA。';
-        d.coordination = {
-          type: 'requestEscort',
-          agentId: 'ops-horizon',
-          targetShipId: obs.ship.id,
-        };
-        return d;
-      }
-      if (request?.status === 'accepted') {
-        const source = obs.inventories.find(
-          (i) => i.locationId === 'remote-mine' && i.available.materials >= 40,
-        );
-        if (source) {
-          d.goal = '通过已确认虫洞将 40 Materials 运回 Dawn';
-          d.action = {
-            type: 'HAUL',
-            sourceId: source.locationId,
-            targetId: 'base',
-            cargoKind: 'materials',
-            amount: 40,
-            route: 'safe',
-            repeat: false,
-          };
-        }
-      } else if (request?.status === 'rejected') {
-        d.goal = '护航被拒绝，暂缓高风险货运';
-        d.memory = 'Talia 因疲劳拒绝；下一轮需重新安排护航';
-        d.messages = [
-          {
-            channelId: COMMAND_CHANNEL,
-            content: '护航被拒绝，我会暂缓此次货运，等待安全条件改善。',
-            mentions: [],
-          },
-        ];
-      }
-      return d;
-    }
-    d.goal = obs.ship ? '新 Agent 等待正式任务' : '训练完成，等待 Admiral 分配舰船';
-    return d;
+    if(prompt.startsWith('CommunicationDecision:'))return {content:'你好，Admiral。',purpose:'information'};
+    const text=context.input??'';
+    if(/立即开火/.test(text)){const contact=context.publicFacts?.contacts.find(c=>c.id==='orion-scout');if(contact)return {disposition:'propose',proposal:{kind:'engage',targetIds:[contact.id]},objectiveId:null,allowWormholes:true,reply:'按直接授权交战，战果由引擎核验。'};}
+    if(text.includes('一路测绘'))return {disposition:'propose',proposal:{kind:'surveyRoute',sectors:[{q:0,r:0},{q:0,r:1},{q:0,r:2}]},objectiveId:null,allowWormholes:false,reply:'依次测绘给定星区并禁止虫洞。'};
+    if(text.includes('建设好')){const site=context.publicFacts?.bodies.find(body=>text.includes(body.name));if(site)return {disposition:'propose',proposal:{kind:'construction',siteId:site.id,facilityKind:'mine'},objectiveId:null,allowWormholes:true,reply:'提出矿场建设目标，物资支援需要独立同意。'};}
+    if(text.includes('运输直接装满')){const previous=context.activeObjectives?.find(objective=>objective.goal.kind==='operation'&&objective.goal.action.type==='HAUL');if(previous&&previous.goal.kind==='operation'&&previous.goal.action.type==='HAUL'){const action=previous.goal.action;return {disposition:'revise',proposal:{kind:'transport',sourceId:action.sourceId,destinationId:action.targetId,cargoKind:action.cargoKind,amount:null,repeat:action.repeat,route:action.route},objectiveId:previous.id,allowWormholes:true,reply:'保留来源与交付地点，修订为可用货舱满载。'};}}
+    const mine=context.publicFacts?.inventories.find(i=>['demo-aurora-mine','remote-mine'].includes(i.locationId)&&i.available.materials>=40);
+    const peer=context.decisionContext?.preferredPeers.find(id=>context.publicFacts?.fleet.some(a=>a.id===id&&a.assignedShipId))??context.publicFacts?.fleet.find(a=>a.id==='ops-horizon'&&a.assignedShipId)?.id;
+    if(mine&&self.id==='ops-meridian'&&/评估|第二轮|协作|风险/.test(text))return {disposition:'propose',proposal:{kind:'supportedTransport',sourceId:mine.locationId,destinationId:'base',cargoKind:'materials',amount:40,route:'safe',escortAgentId:peer??'ops-horizon'},objectiveId:null,allowWormholes:true,reply:'比较公开航线后提出运输与护航目标；同僚须独立同意。'};
+    if(/休息/.test(text))return {disposition:'propose',proposal:{kind:'rest',duration:30},objectiveId:null,allowWormholes:true,reply:'先休整，再判断下一轮任务。'};
+    return {disposition:'conversation',proposal:null,objectiveId:null,allowWormholes:true,reply:text.includes('群聊验证')?'收到群聊验证。当前运输与安全状态已记录。':'收到，我会依据当前公开事实与已有目标判断。'};
   }
 }

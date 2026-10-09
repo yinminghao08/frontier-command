@@ -70,13 +70,13 @@ export function createAgentDemoWorld(): WorldState {
   command({
     type: 'configureAgent',
     agentId: 'ops-horizon',
-    modelConfig: { model: null, reasoningEffort: 'low' },
+    modelConfig: { model: null, reasoningEffort: 'provider-default' },
     enabled: true,
   });
   command({
     type: 'configureAgent',
     agentId: 'ops-meridian',
-    modelConfig: { model: null, reasoningEffort: 'none' },
+    modelConfig: { model: null, reasoningEffort: 'provider-default' },
     enabled: true,
   });
   command({

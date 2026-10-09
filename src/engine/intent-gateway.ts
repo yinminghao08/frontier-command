@@ -2,11 +2,11 @@ import type { Objective, ChatMessage, Observation } from './types';
 import type { ObjectiveGoal } from './agent-runtime/model';
 import type { ObjectiveProposal } from './cognition-protocol';
 import { SECTOR_SIZE } from './definitions/locations';
-export type TaskIntent = Pick<Objective,'kind'|'action'|'targetId'|'shipId'|'facilityKind'|'sectors'|'allowWormholes'|'factionId'> & {goal?:ObjectiveGoal};
+export type TaskIntent = Pick<Objective,'kind'|'action'|'targetId'|'shipId'|'facilityKind'|'sectors'|'allowWormholes'|'factionId'> & {goal?:ObjectiveGoal;conditions?:Objective['conditions']};
 export interface IntentResult {intent:TaskIntent|null;clarification:string|null;}
 const base=():TaskIntent=>({kind:'action',action:null,targetId:null,shipId:null,facilityKind:null,sectors:[],allowWormholes:true});
 const named=(ref:string,entities:readonly {id:string;name?:string|null;kind?:string}[])=>{
- const key=ref.trim().toLowerCase();const matches=entities.filter(e=>[e.id,e.name,e.id==='base'?'基地':null,e.kind==='mine'?'矿场':null].some(n=>n?.toLowerCase()===key));
+ const key=ref.trim().toLowerCase();const matches=entities.filter(e=>[e.id,e.name,...(e.name?.split(' / ')??[]),e.id==='base'?'基地':null,e.kind==='mine'?'矿场':null].some(n=>n?.toLowerCase()===key));
  return matches.length===1?matches[0].id:null;
 };
 /** Resolve all semantic references against the public read model before granting authority. */
@@ -16,6 +16,7 @@ export function resolveProposal(o:Observation,p:ObjectiveProposal):TaskIntent {
  const operation=(action:NonNullable<TaskIntent['action']>,targetId:string|null=null):TaskIntent=>({...b,action,targetId,goal:{kind:'operation',action}});
  switch(p.kind){
  case 'loadReturn':return {...b,kind:'loadReturn',goal:{...p,sourceId:location(p.sourceId),destinationId:location(p.destinationId)}};
+ case 'supportedTransport':{if(!o.fleet.some(a=>a.id===p.escortAgentId&&a.id!==o.self?.id&&a.assignedShipId))throw Error('护航伙伴必须为另一位已分舰且启用的 Agent');return {...operation({type:'HAUL',sourceId:location(p.sourceId),targetId:location(p.destinationId),cargoKind:p.cargoKind,amount:p.amount,loadPolicy:'fixed',repeat:false,route:p.route},p.destinationId),conditions:[{type:'escort',when:'before',agentId:p.escortAgentId}]};}
  case 'transport':return operation({type:'HAUL',sourceId:location(p.sourceId),targetId:location(p.destinationId),cargoKind:p.cargoKind,amount:p.amount??10000,loadPolicy:p.amount===null?'auto':'fixed',repeat:p.repeat,route:p.route},p.destinationId);
  case 'recovery':{
  if(p.wreckIds.some(id=>!o.wrecks.some(w=>w.id===id)))throw Error('只能回收已发现的残骸');
@@ -30,19 +31,28 @@ export function resolveProposal(o:Observation,p:ObjectiveProposal):TaskIntent {
  case 'escort':if(!o.ownShips.some(s=>s.id===p.targetShipId&&s.id!==o.ship?.id))throw Error('护航目标需要另一艘真实己方舰船');return operation({type:'ESCORT',targetId:p.targetShipId},p.targetShipId);
  case 'engage':if(p.targetIds.some(id=>![...o.contacts,...o.locations].some(t=>t.id===id)))throw Error('交战对象未经公开确认');return operation(p.targetIds.length===1?{type:'ATTACK',targetId:p.targetIds[0]}:{type:'ATTACK_SET',targetIds:p.targetIds});
  case 'service':location(p.targetId);if(p.service==='return'&&p.targetId!=='base')throw Error('RETURN 的既有目的地是 Dawn Starbase');return operation(p.service==='return'?{type:'RETURN'}:{type:p.service==='repair'?'REPAIR':p.service==='dock'?'DOCK':p.service==='retreat'?'RETREAT':'UNLOAD',targetId:p.targetId},p.targetId);
+ case 'rearm':return operation({type:'REARM',targetId:location(p.locationId),load:p.ammunition},p.locationId);
+ case 'refit':return operation({type:'REFIT',targetId:location(p.locationId),moduleId:p.moduleId,remove:p.remove},p.locationId);
+ case 'diplomacy':if(!o.contacts.some(contact=>contact.id===p.contactId&&contact.live))throw Error('外交目标必须为已观测的当前接触');return operation({type:'HAIL',targetId:p.contactId,message:p.message},p.contactId);
+ case 'eventResponse':if(!o.events.some(event=>event.id===p.eventId&&event.stage!=='resolved'))throw Error('只能响应已公开且尚未结束的事件');return operation({type:'ASSIST_EVENT',targetId:p.eventId},p.eventId);
+ case 'secureFacility':if(!o.locations.some(location=>location.id===p.facilityId&&location.discovered))throw Error('设施对象未经公开确认');return operation({type:'CAPTURE',targetId:p.facilityId},p.facilityId);
+ case 'wormholeTransit':if(!o.wormholes.some(wormhole=>wormhole.id===p.wormholeId))throw Error('虫洞未发现');return operation({type:'TRANSIT',targetId:p.wormholeId},p.wormholeId);
+ case 'contactOperation':if(!o.contacts.some(contact=>contact.id===p.contactId))throw Error('接触目标未观测');if(p.objective!=='disable'&&p.subsystem!==null)throw Error('仅压制子系统目标可指定 subsystem');return operation({type:p.objective==='disable'?'DISABLE':p.objective==='driveOff'?'DRIVE_OFF':p.objective==='intercept'?'INTERCEPT':'SHADOW',targetId:p.contactId,...(p.subsystem?{subsystem:p.subsystem}:{})},p.contactId);
  case 'construction':point(p.siteId);return {...b,kind:'construction',targetId:p.siteId,facilityKind:p.facilityKind,goal:p};
  case 'rest':return operation({type:'REST',targetId:location('base'),duration:p.duration},'base');
  case 'assignment':if(!o.ownShips.some(s=>s.id===p.shipId))throw Error('舰船不属于 Admiral');return {...b,kind:'assign',shipId:p.shipId,goal:p};
+ case 'factionAssault':return {...b,kind:'factionAssault',factionId:p.factionId,goal:p};
  case 'cancel':return {...b,kind:'cancel',goal:p};
  }
 }
 /** Exact, complete one-step grammar. Anything compound, conditional or referential
  * stays unclaimed for semantic interpretation; no substring can collapse a goal. */
 export function compileIntent(o:Observation,m:Pick<ChatMessage,'content'>):IntentResult {
- const text=m.content.trim().replace(/[。！!]$/,'').trim();let p:ObjectiveProposal|null=null;
+ let text=m.content.trim().replace(/[。！!]$/,'').trim();const mention=o.self?'@'+o.self.name+' ':null;if(mention&&text.startsWith(mention))text=text.slice(mention.length).trim();let p:ObjectiveProposal|null=null;
  if(/^(?:返回基地|回基地|return (?:to base|home))$/i.test(text))p={kind:'service',service:'return',targetId:'base'};
- else if(/^(?:取消任务|取消指令|停止开火|cancel (?:task|order)|stop firing)$/i.test(text))p={kind:'cancel'};
+ else if(/^(?:取消(?:当前)?(?:任务|指令)|停止开火|cancel (?:task|order)|stop firing)$/i.test(text))p={kind:'cancel'};
  else {
+ let allocation=text.match(/^(?:分配|assign)\s+(.+?)(?:\s+to you)?$/i)??text.match(/^(.+?)\s*(?:给你了|分配给你)$/);if(allocation){const id=named(allocation[1],o.ownShips);if(id)p={kind:'assignment',shipId:id};}
  let match=text.match(/^(?:前往|移动到|导航到|go to|move to)\s*(.+)$/i);
  if(match){const ref=match[1];const coord=ref.match(/^(?:Frontier\s+)?(-?\d+)\s*[/／]\s*(-?\d+)$/i);const id=named(ref,[...o.locations,...o.systems,...o.bodies]);if(coord)p={kind:'navigate',targetId:null,sector:{q:Number(coord[1]),r:Number(coord[2])}};else if(id)p={kind:'navigate',targetId:id,sector:null};}
  match=text.match(/^(?:测绘|survey)\s*(.+)$/i);if(match){const id=named(match[1],[...o.bodies,...o.systems]);if(id)p={kind:'survey',targetId:id,deep:false};}

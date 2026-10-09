@@ -1,5 +1,5 @@
 import { SHIP_CLASSES, MODULE_SLOTS } from './definitions/ships';
-import type { Ship, ReadonlyDeep } from './types';
+import type {ReadonlyDeep, Ship} from "./types";
 export function capabilities(s: ReadonlyDeep<Pick<Ship, 'classId' | 'modules' | 'engines'>>) {
   const d = SHIP_CLASSES[s.classId];
   return {

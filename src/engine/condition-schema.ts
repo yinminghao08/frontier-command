@@ -29,6 +29,10 @@ export const conditionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('escort'), when: z.literal('before'), agentId: id }).strict(),
 ]);
 export const conditionsSchema = z.array(conditionSchema).max(4);
+export const conditionHistorySchema=z.array(z.object({version:z.number().int().positive(),previousConditions:conditionsSchema,conditions:conditionsSchema}).strict()).default([]);
+export function conditionGenerationFloor(history:readonly {version:number;previousConditions:readonly import('./types').TaskCondition[];conditions:readonly import('./types').TaskCondition[]}[],condition:import('./types').TaskCondition):number {
+ return Math.max(0,...history.filter(h=>JSON.stringify(h.previousConditions.find(c=>c.type===condition.type)??null)!==JSON.stringify(h.conditions.find(c=>c.type===condition.type)??null)).map(h=>h.version));
+}
 export const responseFields = {
   version: z.number().int().positive(),
   response: z.enum(['accept', 'reject', 'counter', 'withdraw']),
@@ -49,6 +53,7 @@ export const commitmentSchema = z
     contractId: id,
     agentId: id,
     condition: conditionSchema,
+    conditionVersion:z.number().int().positive().default(1),
     status: z.enum(['pending', 'fulfilled', 'broken', 'refunded']),
     escrow: z.number().finite().min(0),
     directiveId: id.nullable(),

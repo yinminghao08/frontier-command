@@ -330,7 +330,7 @@ export function getObservation(this: SimulationEngine, operatorId: string, inclu
       .reverse()
       .find(
         (t) =>
-          (t.agentId === operatorId || t.carrierAgentId === operatorId) &&
+          (t.agentId === operatorId || snap.agentRuntime.tasks.find(root=>root.objectiveId===t.id)?.execution.carrierAgentId === operatorId) &&
           ['active', 'blocked'].includes(t.status),
       ) ??
     null;
@@ -377,6 +377,7 @@ export function getObservation(this: SimulationEngine, operatorId: string, inclu
       selectedChat.set(message.id, message);
   return structuredClone({
     time: snap.time,
+    events:snap.events,
     piracyIncidents: snap.piracyIncidents.filter(
       (i) =>
         i.shipId === ship?.id ||
@@ -412,7 +413,7 @@ export function getObservation(this: SimulationEngine, operatorId: string, inclu
       career: a.career,
       assignedShipId: a.assignedShipId,
       status: a.status,
-      currentGoal: a.currentGoal,
+      currentGoal: (()=>{const ship=snap.ships.find(s=>s.id===a.assignedShipId);return ship?.current?ship.current.action.type+("targetId"in ship.current.action?' / '+ship.current.action.targetId:''):a.status;})(),
     })),
     ownShips: snap.ships,
     contacts: snap.contacts,

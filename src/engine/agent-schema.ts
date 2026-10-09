@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { activitySchema, conditionsSchema } from './condition-schema';
+import { activitySchema, conditionsSchema ,conditionHistorySchema} from './condition-schema';
 import { actionSchema } from './action-schema';
 import { freshAgentDynamics } from './definitions/agents';
 export const agentDynamicsSchema = z
@@ -206,6 +206,7 @@ export const escortRequestSchema = z
     followUp: z.lazy(() => actionSchema).nullable(),
     parentTaskId: id.nullable(),
     conditions: conditionsSchema,
+    conditionHistory:conditionHistorySchema,
     conditionVersion: n.int().positive(),
     rounds: n.int().max(2),
     turnAgentId: id,

@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { SaveStore } from '../../electron/persistence';
-import { quietEngine, issue, run, until } from '../helpers';
+import { quietEngine, issue,v14Fixture, run, until } from '../helpers';
 import { makeEnemy } from '../../src/engine/data';
 import { updateSensors } from '../../src/engine/sensors';
 import type { Snapshot, WorldState } from '../../src/engine/types';
@@ -108,11 +108,7 @@ test('v15 Electron migrates an underway v14 save without touching the old files 
   until(e, () => s.cargo.materials === 50);
   e.state.paused = true;
   const directory = mkdtempSync(join(tmpdir(), 'frontier-v15-desktop-migration-')),
-    old = {
-      ...e.state,
-      version: 14,
-      agents: e.state.agents.map(({ stateDynamics: _, ...a }) => a),
-    },
+    old = v14Fixture(e.state),
     bytes = JSON.stringify(old),
     root = join(directory, 'frontiers-v14', 'frontier-000001');
   mkdirSync(root, { recursive: true });
@@ -128,7 +124,7 @@ test('v15 Electron migrates an underway v14 save without touching the old files 
   );
   const p = await openApp(directory),
     w = await state(p);
-  expect(w.version).toBe(15);
+  expect(w.version).toBe(16);
   expect(w.ships.find((s) => s.id === 'meridian')?.cargo.materials).toBe(50);
   expect(w.ships.find((s) => s.id === 'meridian')?.current?.carried).toBe(50);
   expect(w.history).toEqual(e.snapshot().history);
@@ -252,7 +248,9 @@ test('v15 a voluntary full-hold amendment inherits the underway route, reports i
   await expect
     .poll(async () => (await state(p)).ships.find((s) => s.id === 'meridian')?.current?.action.type)
     .toBe('HAUL');
-  await expect(comm.getByRole('log')).toContainText('预计补装 550');
+  await expect.poll(async()=>{const w=await state(p),objective=w.objectives.find(o=>o.ownerAgentId==='ops-meridian'&&o.goal.kind==='operation'&&o.goal.action.type==='HAUL'&&o.amendments.length>0);return objective?.consent;}).toBe('accepted');
+  const amended=await state(p),objective=amended.objectives.find(o=>o.ownerAgentId==='ops-meridian'&&o.amendments.length>0)!;
+  expect(amended.agentRuntime.tasks.find(t=>t.objectiveId===objective.id)?.scope.carryIn.materials).toBe(50);
   await expect(comm.getByRole('log')).not.toContainText('请明确货物运输');
   await expect(comm.getByRole('log')).toContainText('已回复');
   expect((await state(p)).ships.find((s) => s.id === 'meridian')?.current?.carried).toBe(50);
@@ -273,7 +271,7 @@ test('v15 a voluntary full-hold amendment inherits the underway route, reports i
   await p.getByLabel('状态变化速率').scrollIntoViewIfNeeded();
   await expect(p.getByLabel('状态变化速率')).toBeVisible();
   await p.screenshot({ path: join(output, 'agent-rates.png') });
-  await wait(p, (w) => w.objectives.at(-1)?.status === 'completed');
+  await wait(p, (w) => w.objectives.find(o=>o.id===objective.id)?.status === 'completed');
   expect((await state(p)).ships.find((s) => s.id === 'meridian')?.cargo.materials).toBe(0);
 });
 test('v15 slow streaming replies exceed 25 seconds, remain cancellable and support real-error retry', async () => {
@@ -285,7 +283,7 @@ test('v15 slow streaming replies exceed 25 seconds, remain cancellable and suppo
   let comm = await chat(p, 'ops-horizon', '现在舰船的情况如何？');
   await expect(comm.getByRole('button', { name: '取消等待', exact: true })).toBeVisible();
   await comm.getByRole('button', { name: '取消等待', exact: true }).click();
-  await expect(comm.getByRole('log')).toContainText('模型请求已取消');
+  await expect(comm.getByRole('log')).toContainText('已取消');
   provider!.mode = 'cooperate';
   provider!.delayMs = 25000;
   comm = await chat(p, 'ops-horizon', '再报告一次当前情况。');

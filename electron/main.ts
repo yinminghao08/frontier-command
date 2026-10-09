@@ -343,9 +343,7 @@ app.whenReady().then(async () => {
     try {
       agentConfig.update(parsed.data);
       startAgentService();
-      if (!saveBlocked)
-        for (const agent of engine.snapshot().agents)
-          engine.dispatchCommand({ type: 'retryAgent', agentId: agent.id });
+      if(!saveBlocked)engine.cognition.configurationChanged();
       save();
       send();
       return { ok: true, reason: 'Agent API 设置已保存，Key 使用系统加密。' };

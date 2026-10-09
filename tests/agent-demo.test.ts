@@ -51,7 +51,7 @@ describe('fixed-seed v13 autonomous collaboration demo', () => {
       () => ({
         baseUrl,
         defaultModel: 'fixture-v13',
-        reasoningEffort: 'none',
+        reasoningEffort: 'provider-default',
         apiKey: 'isolated-demo-key',
       }),
       new ChatCompletionsClient(fetch, budget),
@@ -87,10 +87,7 @@ describe('fixed-seed v13 autonomous collaboration demo', () => {
         freighter = e.state.ships.find((s) => s.id === 'meridian')!;
       until(e, () => ship.current?.action.type === 'REPAIR');
       const repairing = new SimulationEngine(parseSave(e.state));
-      until(
-        e,
-        () => freighter.current?.phase === 'delivering' && freighter.current.journey !== null,
-      );
+      until(e,()=>freighter.current?.phase==='delivering'&&freighter.current.journey!==null);
       expect(source.stock.materials).toBeLessThan(start - 40);
       expect(ship.hull / capabilities(ship).hull).toBeGreaterThanOrEqual(0.9);
       expect(freighter.current!.journey!.legs.some((l) => l.type === 'wormhole')).toBe(true);
@@ -106,7 +103,7 @@ describe('fixed-seed v13 autonomous collaboration demo', () => {
         e.state.agents.find((a) => a.id === 'ops-meridian')!.relationships['ops-horizon'].trust,
       ).toBe(56);
       expect(
-        e.state.chatMessages.some((m) => m.sender === 'system' && m.content.includes('HAUL 完成')),
+        e.state.agentRuntime.tasks.some(task=>task.status==='completed'&&e.state.objectives.find(o=>o.id===task.objectiveId)?.goal.kind==='operation'&&task.progress.delivered.materials===40),
       ).toBe(true);
       expect(e.state.agents.some((a) => a.originPersonnelId)).toBe(true);
       e.state.paused = true;

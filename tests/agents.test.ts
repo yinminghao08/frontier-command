@@ -1,3 +1,4 @@
+import {runScenario} from './domain-fixtures';
 import { describe, expect, it } from 'vitest';
 import { quietEngine, issue, run, until } from './helpers';
 import { makeEnemy, makeLocation } from '../src/engine/data';
@@ -7,30 +8,10 @@ import { worldSchema } from '../src/engine/save-schema';
 import { updateSensors } from '../src/engine/sensors';
 import { journeyOptions, planJourney } from '../src/engine/journey';
 import { appendChat, COMMAND_CHANNEL, privateChannel } from '../src/engine/chat';
-import type { AgentDecision, Action } from '../src/engine/types';
+import type { Action } from '../src/engine/types';
 const logisticsId = 'ops-meridian',
   battleId = 'ops-horizon';
-function decide(e: SimulationEngine, agentId: string, changes: Partial<AgentDecision> = {}) {
-  const agent = e.state.agents.find((a) => a.id === agentId)!;
-  return e.dispatchCommand(
-    {
-      type: 'agentDecision',
-      agentId,
-      revision: agent.decision.revision,
-      decision: {
-        goal: '确保真实库存抵达目的地',
-        rationale: '根据公开库存、风险与同僚状态决定',
-        action: null,
-        messages: [],
-        memory: null,
-        waitMinutes: 30,
-        coordination: null,
-        ...changes,
-      },
-    },
-    agentId,
-  );
-}
+const decide=runScenario;
 export function knownPassageFixture() {
   const e = quietEngine();
   const h = e.state.wormholes.find((h) => h.id === 'wormhole:0:0')!;
@@ -79,7 +60,7 @@ describe('v11 independent Agents, chat and real commands', () => {
       true,
     );
     expect(
-      e.state.chatMessages.some((m) => m.origin === 'engine' && m.content.includes('ATTACK 完成')),
+      e.state.agentRuntime.events.some(event=>event.type==='directiveOutcome'&&event.payload.action.type==='ATTACK'&&!event.payload.failed),
     ).toBe(true);
     expect(() => parseSave(e.state)).not.toThrow();
   });
@@ -355,9 +336,7 @@ describe('Journey Planner and complete cooperative logistics loop', () => {
     expect(request.status).toBe('completed');
     expect(e.state.agents[0].relationships[logisticsId].trust).toBeGreaterThan(50);
     expect(
-      e.state.chatMessages.some(
-        (m) => m.origin === 'engine' && m.kind === 'report' && m.content.includes('HAUL 完成'),
-      ),
+      e.state.agentRuntime.tasks.some(task=>task.progress.delivered.materials===50&&task.status==='completed'),
     ).toBe(true);
     expect(() => parseSave(e.state)).not.toThrow();
   });
@@ -381,7 +360,7 @@ describe('Journey Planner and complete cooperative logistics loop', () => {
     expect(e.state.escortRequests[0].status).toBe('rejected');
     expect(e.state.agents[0].relationships[logisticsId].trust).toBe(50);
     expect(
-      e.state.chatMessages.some((m) => m.kind === 'reply' && m.content.includes('拒绝护航')),
+      e.state.chatMessages.some((m) => m.kind === 'reply' && m.content.includes('拒绝')),
     ).toBe(true);
     expect(e.state.agents[1].decision.pendingReasons.some((r) => r.startsWith('request:'))).toBe(
       true,
@@ -414,7 +393,7 @@ describe('Journey Planner and complete cooperative logistics loop', () => {
     until(e, () => e.state.agents.find((a) => a.id === logisticsId)!.experience >= 8, 800);
     expect(freighter.current?.action.type).toBe('HAUL');
     expect(
-      e.state.chatMessages.filter((m) => m.content.includes('本轮完成')).length,
+      e.state.agentRuntime.events.filter(event=>event.type==='directiveCycle').length,
     ).toBeGreaterThanOrEqual(2);
     expect(() => parseSave(e.state)).not.toThrow();
   });

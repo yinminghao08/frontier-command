@@ -42,11 +42,12 @@ async function directive(
   mode = 'REPLACE',
 ) {
   await page.locator('.operation-chip[data-ship-id="' + shipId + '"]').click();
-  await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
+  await page.getByRole('button', { name: /^新指令 \/ 改令/ }).click();
   const d = page.getByRole('dialog', { name: 'Admiral 指令' });
   await d.getByLabel('指令类型', { exact: true }).selectOption(type);
   await d.getByLabel('提交模式').selectOption(mode);
   for (const [label, value] of Object.entries(fields)) {
+    if(label==='货物数量')await d.getByLabel('自动装满可用货舱',{exact:true}).uncheck();
     const field = d.getByLabel(label, { exact: true });
     if (await field.evaluate((el) => el.tagName === 'SELECT')) await field.selectOption(value);
     else await field.fill(value);
@@ -171,7 +172,7 @@ test('real UI: discoveries, construction cargo, directives, refit, strategic upg
   expect(restored.ships).toEqual(saved.ships);
   expect(restored.projects).toEqual(saved.projects);
   expect(restored.history).toEqual(saved.history);
-  expect(restored.version).toBe(15);
+  expect(restored.version).toBe(16);
   expect(restored.paused).toBe(true);
   expect('factions' in restored || 'seed' in restored || 'enemies' in restored).toBe(false);
 });
@@ -202,7 +203,11 @@ test('new contacts pause, acknowledgment and focus preserve pause; illegal direc
   }).catch(() => {});
   const d = page.getByRole('dialog', { name: 'Admiral 指令' });
   await expect(d).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('命令格式');
+  expect(await d.getByLabel('货物数量',{exact:true}).evaluate((element:HTMLInputElement)=>element.validity.rangeUnderflow)).toBe(true);
+  expect((await state(page)).ships).toEqual(before.ships);
+  const invalid=await page.evaluate(()=>window.frontier.command({type:'issueDirective',shipIds:['meridian'],mode:'REPLACE',action:{type:'HAUL',sourceId:'base',targetId:'colony',cargoKind:'materials',amount:-5,loadPolicy:'fixed',route:'safe',repeat:false}}));
+  expect(invalid.ok).toBe(false);
+  expect((await state(page)).ships).toEqual(before.ships);
   await d.getByLabel('航线', { exact: true }).selectOption('risky');
   await expect(d).toContainText('exposed corridor');
   await expect(d).toContainText('航段已测绘');
@@ -236,7 +241,7 @@ test('midnight snapshot and permanent ship loss survive restart', async () => {
   await waitFor(page, (s) => s.tick >= 14400);
   await page.getByRole('button', { name: '暂停', exact: true }).click();
   const daily = JSON.parse(
-    readFileSync(join(dir, 'frontiers-v15', 'frontier-000001', 'day-2.json'), 'utf8'),
+    readFileSync(join(dir, 'frontiers-v16', 'frontier-000001', 'day-2.json'), 'utf8'),
   );
   expect(daily.tick).toBe(14400);
   expect(daily.losses).toHaveLength(1);

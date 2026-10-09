@@ -24,7 +24,7 @@ export function parseSave(input: unknown): WorldState {
     const {admiralTasks,...base}=old;
     const agentRuntime=freshRuntime();
     const objectives: Objective[]=admiralTasks.map(previous=>{
-      const {salvage,...t}=previous;
+      const {salvage,sectorIndex,scannedSectorIndices,projectId,carrierAgentId,searchedTargets,...t}=previous;
       let goal: ObjectiveGoal;
       if(t.kind==='salvage'&&salvage)goal={kind:'recovery',wreckIds:salvage.wreckIds,sourceClassId:null,includeDiscoveries:false,destinationId:salvage.destinationId,cargoKind:'materials'};
       else if(t.kind==='surveyRoute')goal={kind:'surveyRoute',sectors:t.sectors};
@@ -38,6 +38,7 @@ export function parseSave(input: unknown): WorldState {
       const objective: Objective={...t,goal,schemaVersion:1,originInteractionId:`interaction:${t.messageId}:${t.agentId}`,issuerId:old.commander.id,ownerAgentId:t.agentId,
         constraints:{allowWormholes:t.allowWormholes},completionCriteria:criterionFor(goal),revision:0,createdAt:message.time,updatedAt:old.time,originalInstruction:message.content,amendments:[]};
       const task=createTask(objective,old.assignments.find(a=>a.operatorId===t.agentId)?.shipId??t.shipId);
+      task.execution={sectorIndex,scannedSectorIndices,projectId,carrierAgentId,selectedTargetId:t.kind==='factionAssault'?t.targetId:null,searchedTargets:searchedTargets??{}};
       if(task.status==='completed'){task.status='completed_partial';objective.status='completed_partial';task.blockReason='旧存档保留完成记录；缺少完整目标证据';}
       task.progress.legacyUnknown=t.kind==='salvage';
       agentRuntime.tasks.push(task);
@@ -53,7 +54,7 @@ export function parseSave(input: unknown): WorldState {
           const owner=d.executorAgentId??(d.source==='agent'?d.actorId:null);
           const source=old.chatMessages.find(m=>m.id===d.sourceMessageId&&m.sender===old.commander.id&&owner!==null&&(m.channelId==='private:'+owner||m.mentions.includes(owner)));
           const goal:ObjectiveGoal={kind:'operation',action:structuredClone(d.action)},id='legacy-objective:'+d.id;
-          objective={id,schemaVersion:1,originInteractionId:'legacy-interaction:'+d.id,issuerId:d.actorId,ownerAgentId:owner,goal,constraints:{allowWormholes:d.allowWormholes},completionCriteria:criterionFor(goal),revision:0,createdAt:d.created,updatedAt:old.time,originalInstruction:source?.content??'Legacy directive: '+d.action.type,amendments:[],agentId:owner??old.commander.id,messageId:source?.id??0,channelId:source?.channelId??'system-reports',kind:'action',action:structuredClone(d.action),targetId:null,shipId:ship.id,facilityKind:null,sectors:[],sectorIndex:0,scannedSectorIndices:[],allowWormholes:d.allowWormholes,projectId:null,carrierAgentId:null,reason:null,controlMode:d.controlMode,consent:'accepted',conditions:[],conditionVersion:1,rounds:0,turnAgentId:owner??old.commander.id,creditsApproved:false,directiveMode:placement==='queue'?'QUEUE':'REPLACE',status:'active',searchedTargets:{}};
+          objective={id,schemaVersion:1,originInteractionId:'legacy-interaction:'+d.id,issuerId:d.actorId,ownerAgentId:owner,goal,constraints:{allowWormholes:d.allowWormholes},completionCriteria:criterionFor(goal),revision:0,createdAt:d.created,updatedAt:old.time,originalInstruction:source?.content??'Legacy directive: '+d.action.type,amendments:[],agentId:owner??old.commander.id,messageId:source?.id??0,channelId:source?.channelId??'system-reports',kind:'action',action:structuredClone(d.action),targetId:null,shipId:ship.id,facilityKind:null,sectors:[],allowWormholes:d.allowWormholes,reason:null,controlMode:d.controlMode,consent:'accepted',conditions:[],conditionVersion:1,rounds:0,turnAgentId:owner??old.commander.id,creditsApproved:false,directiveMode:placement==='queue'?'QUEUE':'REPLACE',status:'active'};
           objectives.push(objective);task=createTask(objective,ship.id);agentRuntime.tasks.push(task);
           agentRuntime.interactions.push({interactionId:objective.originInteractionId,source:source?'chat':'ui',senderId:d.actorId,recipientAgentId:owner,sourceMessageId:source?.id??null,instruction:objective.originalInstruction,authorizationMode:objective.controlMode,objectiveId:id,phase:'committed',createdAt:d.created});
         }

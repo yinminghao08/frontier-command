@@ -2,16 +2,16 @@ import { wakeAgent } from '../chat';
 import { directiveSchema } from '../directive-schema';
 import { validateAction, validateContinuation } from '../command-system';
 import type { SimulationEngine } from '../engine';
-import type { Action, Command, CommandResult, Directive, Objective, Ship } from '../types';
+import type { Action, Command, CommandResult, Directive, Objective, Ship,TaskCondition } from '../types';
 import { capabilities, cargoUsed } from '../capabilities';
 import { dist } from '../navigation';
 import { available, inventory } from '../inventory';
 import { receiveObjective } from '../objectives';
-import { planTask } from './handlers';
-import { advanceCoordination, contractDirectiveOutcome, readyConditions, settleContract } from '../contracts';
+import { TaskPlanner } from './handlers';
+import { advanceCoordination, contractDirectiveOutcome, readyConditions, settleContract,makeRequest,conditionsReason,cancelDescendants } from '../contracts';
 import { commitPrimaryReply, notifyTask, replyRecord } from './replies';
 import { emitDomainEvent, seedCargoLots, transitionEvent } from './journal';
-import { criterionFor, createTask, terminalTask, type DomainEvent, type ObjectiveGoal, type TaskState, type TaskStatus, type TaskDependency } from './model';
+import { criterionFor, createTask, emptyStock, terminalTask, TASK_TRANSITIONS, type DomainEvent, type ObjectiveGoal, type TaskState, type TaskStatus, type TaskDependency,type TaskView,type TaskPlan } from './model';
 
 export function goalFromProposal(p: Pick<Objective,'kind'|'action'|'targetId'|'shipId'|'facilityKind'|'sectors'|'factionId'>): ObjectiveGoal {
   if(p.kind==='assign'&&p.shipId)return {kind:'assignment',shipId:p.shipId};
@@ -25,14 +25,16 @@ export function goalFromProposal(p: Pick<Objective,'kind'|'action'|'targetId'|'s
 
 export class FrontierAgentRuntime {
   private draining=false;
+  private readonly planner=new TaskPlanner();
   private readonly submittingObjectives=new Set<string>();
   private readonly tasksByObjective=new Map<string,TaskState>();
   private readonly tasksById=new Map<string,TaskState>();
   private readonly activeObjectives=new Map<string,Objective>();
   constructor(private readonly e: SimulationEngine) {
-    for(const objective of e.state.objectives)this.register(objective);
+    for(const objective of e.state.objectives)this.register(objective);for(const task of this.activeObjectives.values())this.refreshScheduling(this.register(task));
   }
   register(objective: Objective): TaskState {
+    objective.conditionHistory??=[];
     const r=this.e.state.agentRuntime;
     let task=this.tasksByObjective.get(objective.id);if(task)return task;
     task=r.tasks.find(t=>t.objectiveId===objective.id);
@@ -79,37 +81,58 @@ export class FrontierAgentRuntime {
     if(mode==='voluntary'){objective.controlMode='voluntary';objective.consent='proposed';const task=this.register(objective);task.status='proposed';const agent=this.e.state.agents.find(a=>a.id===owner)!;wakeAgent(agent,'proposal:'+objective.id,this.e.state.time,true);}
     this.drain();return {ok:true,reason:'已创建完整目标 '+objective.id};
   }
-  revise(id:string,revision:number,goal:ObjectiveGoal,instruction:string,authorizationMode?:'direct'|'voluntary',allowWormholes?:boolean):CommandResult {
+  revise(id:string,revision:number,goal:ObjectiveGoal,instruction:string,authorizationMode?:'direct'|'voluntary',allowWormholes?:boolean,conditions?:TaskCondition[]):CommandResult {
     this.drain();
     const e=this.e,objective=e.state.objectives.find(o=>o.id===id),task=this.taskForObjective(id);
     if(!objective||!task||objective.revision!==revision||terminalTask(task.status))return {ok:false,reason:'目标版本已改变或已经结束'};
     const ship=e.state.ships.find(s=>s.id===task.assignedShipIds[0]);if(!ship)return {ok:false,reason:'任务舰船已失效'};
     const valid=this.validateGoal(goal,ship.id,objective.controlMode);if(!valid.ok)return valid;
+    if(conditions){const reason=conditionsReason(e,conditions,objective.ownerAgentId??'');if(reason)return {ok:false,reason};}
     const previous=objective.goal;
     // A cargo source change cannot reinterpret already loaded batches as another
     // source. It must be expressed as a separate goal with explicit custody.
     if(previous.kind==='loadReturn'&&goal.kind==='loadReturn'&&task.progress.loaded[previous.cargoKind]>0&&(previous.sourceId!==goal.sourceId||previous.cargoKind!==goal.cargoKind))return {ok:false,reason:'已装货物的来源与种类不能改写；请保留此交付责任或新建目标'};
+    if(previous.kind==='operation'&&goal.kind==='operation'&&previous.action.type==='HAUL'&&goal.action.type==='HAUL'&&task.progress.loaded[previous.action.cargoKind]>0&&(previous.action.sourceId!==goal.action.sourceId||previous.action.cargoKind!==goal.action.cargoKind))return {ok:false,reason:'已装货物的来源与种类不能重写，请保留其责任或创建新目标'};
     if(previous.kind!==goal.kind)return {ok:false,reason:'目标族改变需要新建目标；当前任务货物与历史不会被改写'};
     if(goal.kind==='recovery'&&previous.kind==='recovery'&&(goal.sourceClassId!==previous.sourceClassId||previous.wreckIds.some(id=>!goal.wreckIds.includes(id))))return {ok:false,reason:'回收修订可以扩展目标或改变交付设施，不能删除已承担的来源责任'};
+    const conditionsChanged=conditions!==undefined&&JSON.stringify(conditions)!==JSON.stringify(objective.conditions.filter(c=>c.type==='escort'));
     const interrupted=task.status==='interrupted';
     const held=[ship.current,...ship.queue,...ship.suspended].find(d=>d?.taskId===task.taskId);
     if(held)task.checkpoint=directiveSchema.parse(held);
     if(task.checkpoint){
       const old=task.checkpoint.action;
       const compatible=goal.kind==='operation'&&previous.kind==='operation'&&(JSON.stringify(old)===JSON.stringify(goal.action)||old.type==='HAUL'&&goal.action.type==='HAUL'&&old.sourceId===goal.action.sourceId&&old.cargoKind===goal.action.cargoKind);
-      if(compatible&&goal.kind==='operation')task.checkpoint=directiveSchema.parse({...task.checkpoint,action:goal.action,journey:null});
+      if(compatible&&goal.kind==='operation'){
+        task.checkpoint=directiveSchema.parse({...task.checkpoint,action:goal.action,journey:null});
+        if(old.type==='HAUL'&&goal.action.type==='HAUL'){
+          const d=task.checkpoint,a=goal.action,retained=Math.max(0,Math.min(ship.cargo[a.cargoKind],d.carried-d.delivered-(d.lost??0),a.loadPolicy==='auto'?Infinity:a.amount));
+          d.carried=d.delivered+(d.lost??0)+retained;d.reserved[a.cargoKind]=0;d.work=0;
+          d.phase=(a.loadPolicy==='auto'?cargoUsed(ship)>=capabilities(ship).cargo:retained>=a.amount)?'delivering':'starting';
+        }
+      }
       else if(goal.kind==='loadReturn'&&previous.kind==='loadReturn'&&old.type==='LOAD')task.checkpoint=directiveSchema.parse({...task.checkpoint,action:{...old,route:goal.route},journey:null});
       else if(!(goal.kind==='loadReturn'&&previous.kind==='loadReturn'&&goal.destinationId===previous.destinationId&&(old.type==='RETURN'||old.type==='DOCK'||old.type==='UNLOAD')))task.checkpoint=null;
     }
     if(ship.current?.taskId===task.taskId){ship.current=null;ship.path=[];ship.tracking=null;ship.status='idle';}
     ship.queue=ship.queue.filter(d=>d.taskId!==task.taskId);ship.suspended=ship.suspended.filter(d=>d.taskId!==task.taskId);
     for(const step of task.steps.filter(s=>s.status==='running'))step.status='cancelled';
+    const carryIn=emptyStock();for(const lot of e.state.agentRuntime.cargoLots.filter(l=>l.taskId===task.taskId))carryIn[lot.cargoKind]+=lot.amount;
+    task.scope={revision:objective.revision+1,loadedBaseline:{...task.progress.loaded},deliveredBaseline:{...task.progress.delivered},lostBaseline:{...task.progress.lost},divertedBaseline:{...task.progress.diverted},carryIn};
+    if(conditionsChanged){
+      const nextConditions=[...objective.conditions.filter(c=>c.type!=='escort'),...structuredClone(conditions!)];
+      (objective.conditionHistory??=[]).push({version:objective.conditionVersion,previousConditions:structuredClone(objective.conditions),conditions:structuredClone(nextConditions)});
+      const oldRequests=new Set(e.state.escortRequests.filter(r=>r.parentTaskId===objective.id).map(r=>r.id));
+      cancelDescendants(e,objective.id);
+      task.dependencies=task.dependencies.filter(d=>!oldRequests.has(this.tasksById.get(d.taskId)?.coordinationId??''));task.dependencyTaskIds=task.dependencies.map(d=>d.taskId);
+      for(const commitment of e.state.commitments.filter(p=>p.contractId===objective.id&&p.condition.type==='escort'&&p.status==='pending'))commitment.status='refunded';
+      objective.conditions=nextConditions;
+    }
     objective.goal=structuredClone(goal);objective.revision++;objective.updatedAt=e.state.time;objective.completionCriteria=criterionFor(goal);
     objective.amendments.push({revision:objective.revision,instruction,goal:structuredClone(goal),time:e.state.time});
     objective.action=goal.kind==='operation'?goal.action:null;
     if(goal.kind==='operation')objective.targetId='targetId'in goal.action?goal.action.targetId:null;
     if(goal.kind==='construction'){objective.targetId=goal.siteId;objective.facilityKind=goal.facilityKind;}
-    if(goal.kind==='surveyRoute'){objective.sectors=goal.sectors;objective.sectorIndex=0;objective.scannedSectorIndices=[];}
+    if(goal.kind==='surveyRoute'){objective.sectors=goal.sectors;task.execution.sectorIndex=0;task.execution.scannedSectorIndices=[];}
     task.completedRevision=null;task.progress.verified=false;task.activeDirectiveId=null;task.currentStep=task.steps.length;task.revision++;task.updatedAt=e.state.time;
     const agent=e.state.agents.find(a=>a.id===objective.ownerAgentId);if(agent){agent.decision.revision++;agent.decision.pendingReasons=[];agent.decision.events=[];}
     if(authorizationMode)objective.controlMode=authorizationMode;
@@ -130,14 +153,16 @@ export class FrontierAgentRuntime {
       constraints:{allowWormholes:true},completionCriteria:criterionFor(goal),revision:0,createdAt:w.time,updatedAt:w.time,originalInstruction:instruction,amendments:[],
       agentId:ownerAgentId??w.commander.id,messageId:0,channelId:'system-reports',kind:goal.kind==='loadReturn'?'loadReturn':goal.kind==='recovery'?'salvage':goal.kind==='operation'?'action':goal.kind==='assignment'?'assign':goal.kind,
       action:goal.kind==='operation'?goal.action:null,targetId:goal.kind==='construction'?goal.siteId:null,shipId,facilityKind:goal.kind==='construction'?goal.facilityKind:null,sectors:goal.kind==='surveyRoute'?goal.sectors:[],
-      sectorIndex:0,scannedSectorIndices:[],allowWormholes:true,projectId:null,carrierAgentId:null,reason:null,controlMode:issuerId===w.commander.id?'direct':this.e.executingContractId?'voluntary':'autonomous',consent:'accepted',conditions:[],conditionVersion:1,rounds:0,turnAgentId:ownerAgentId??w.commander.id,creditsApproved:false,directiveMode:mode,status:'active',searchedTargets:{},...(goal.kind==='factionAssault'?{factionId:'orion' as const}:{})};
+      allowWormholes:true,reason:null,controlMode:issuerId===w.commander.id?'direct':this.e.executingContractId?'voluntary':'autonomous',consent:'accepted',conditions:[],conditionHistory:[],conditionVersion:1,rounds:0,turnAgentId:ownerAgentId??w.commander.id,creditsApproved:false,directiveMode:mode,status:'active',...(goal.kind==='factionAssault'?{factionId:'orion' as const}:{})};
     w.objectives.push(objective);this.register(objective);return objective;
   }
-  startCommand(command: Extract<Command,{type:'issueDirective'}>, actorId: string): CommandResult {
+  startCommand(command: Extract<Command,{type:'issueDirective'|'issueGroupDirective'}>, actorId: string): CommandResult {
     const valid=this.e.validate(command,actorId);if(!valid.ok)return valid;
     // A multi-ship transaction is validated before creating any task; group spacing
     // is retained by the authoritative command implementation.
-    const objectives=command.shipIds.map(id=>this.start({kind:'operation',action:command.action},id,actorId,this.e.state.assignments.find(a=>a.shipId===id&&this.e.state.agents.some(agent=>agent.id===a.operatorId))?.operatorId??null,command.action.type,command.mode));
+    const group=command.type==='issueGroupDirective'?this.e.state.groups.find(g=>g.id===command.groupId)!:null;
+    const shipIds=command.type==='issueDirective'?command.shipIds:[group!.flagshipId,...group!.shipIds.filter(id=>id!==group!.flagshipId)];
+    const objectives=shipIds.map(id=>this.start({kind:'operation',action:group&&command.action.type==='HAUL'?{...command.action,amount:Math.min(command.action.amount,capabilities(this.e.state.ships.find(s=>s.id===id)!).cargo)}:command.action},id,actorId,this.e.state.assignments.find(a=>a.shipId===id&&this.e.state.agents.some(agent=>agent.id===a.operatorId))?.operatorId??null,command.action.type,command.mode));
     const first=objectives[0];for(const o of objectives)this.submittingObjectives.add(o.id);
     const previous=this.e.executingObjectiveId;this.e.executingObjectiveId=first.id;
     let result:CommandResult;
@@ -148,7 +173,7 @@ export class FrontierAgentRuntime {
       const d=[ship.current,...ship.queue,...ship.suspended].find(d=>d?.taskId===first.id);
       if(!d)throw Error('Accepted command did not produce its Directive');
       d.taskId=task.taskId;d.objectiveId=objective.id;d.originInteractionId=objective.originInteractionId;d.submissionKey='step:0';
-      task.activeDirectiveId=d.id;task.directiveIds.push(d.id);task.steps.push({label:this.stepLabel(d.action),action:structuredClone(d.action),status:'running'});task.submissionKeys['step:0']=d.id;this.transition(task,'running');
+      task.activeDirectiveId=d.id;task.scheduling=ship.current?.id===d.id?'active':'queued';task.directiveIds.push(d.id);task.steps.push({label:this.stepLabel(d.action),action:structuredClone(d.action),status:task.scheduling==='queued'?'pending':'running'});task.submissionKeys['step:0']=d.id;this.transition(task,'running');
     }
     return result;
   }
@@ -191,7 +216,7 @@ export class FrontierAgentRuntime {
     const id=task.coordinationId;if(!id)return;
     const parent=this.tasksByObjective.get(id),request=this.e.state.escortRequests.find(r=>r.id===id);
     if(parent&&parent.taskId!==task.taskId)this.linkDependency(parent,task,'completed');
-    if(request?.parentTaskId){const root=this.tasksByObjective.get(request.parentTaskId);if(root&&actorId===request.responderId)this.linkDependency(root,task,request.kind==='escort'?'rendezvous':'completed',request.kind==='escort'?request.targetShipId:null);}
+    if(request?.parentTaskId){const root=this.tasksByObjective.get(request.parentTaskId);if(root&&actorId===request.responderId){const goal=this.e.state.objectives.find(o=>o.id===task.objectiveId)?.goal;const rendezvous=request.kind==='escort'&&goal?.kind==='operation'&&goal.action.type==='ESCORT';this.linkDependency(root,task,rendezvous?'rendezvous':'completed',rendezvous?request.targetShipId:null);}}
     if(request?.kind==='escort'&&actorId===request.requesterId){const escort=this.e.state.agentRuntime.tasks.find(t=>t.taskId!==task.taskId&&t.coordinationId===id&&t.ownerAgentId===request.responderId&&this.e.state.objectives.find(o=>o.id===t.objectiveId)?.goal.kind==='operation');if(escort)this.linkDependency(task,escort,'rendezvous',request.targetShipId);}
   }
   taskForObjective(id: string) {return this.tasksByObjective.get(id);}
@@ -199,7 +224,8 @@ export class FrontierAgentRuntime {
     const blockReason=['blocked','interrupted','failed'].includes(status)?reason:null;
     if(terminalTask(task.status)||task.status===status&&task.blockReason===blockReason)return;
     const from=task.status;
-    task.status=status;task.blockReason=blockReason;task.revision++;task.updatedAt=this.e.state.time;
+    if(from!==status&&!TASK_TRANSITIONS[from].includes(status))throw Error(`Illegal Task transition ${from} -> ${status}`);
+    task.status=status;if(terminalTask(status)||status==='interrupted')task.scheduling='idle';task.blockReason=blockReason;task.revision++;task.updatedAt=this.e.state.time;
     const objective=this.e.state.objectives.find(o=>o.id===task.objectiveId);
     if(objective){objective.status=status==='accepted'||status==='running'||status==='proposed'?'active':status;objective.reason=reason;objective.updatedAt=this.e.state.time;}
     if(status==='completed'&&objective?.controlMode==='voluntary'&&this.e.state.commitments.some(p=>p.contractId===objective.id&&p.condition.when==='after'&&p.condition.type!=='reward'&&p.status==='pending')) {
@@ -234,9 +260,9 @@ export class FrontierAgentRuntime {
       for(const ship of this.e.state.ships)for(const d of [ship.current,...ship.queue,...ship.suspended]) {
         if(!d||d.taskId!==objective.id)continue;
         d.taskId=task.taskId;d.objectiveId=objective.id;d.originInteractionId=objective.originInteractionId;d.submissionKey=key;
-        task.submissionKeys[key]=d.id;task.activeDirectiveId=d.id;
+        task.submissionKeys[key]=d.id;task.activeDirectiveId=d.id;task.scheduling=ship.current?.id===d.id?'active':'queued';
         if(!task.directiveIds.includes(d.id))task.directiveIds.push(d.id);
-        task.steps.push({label:this.stepLabel(d.action),action:structuredClone(d.action),status:'running'});
+        task.steps.push({label:this.stepLabel(d.action),action:structuredClone(d.action),status:task.scheduling==='queued'?'pending':'running'});
       }
       this.transition(task,'running');
       return result;
@@ -292,7 +318,12 @@ export class FrontierAgentRuntime {
     const objective=this.e.state.objectives.find(o=>o.id===objectiveId);
     const task=this.taskForObjective(objectiveId);
     if(!objective||!task||objective.revision!==revision||terminalTask(task.status))return {ok:false,reason:'目标版本已改变或已经结束'};
+    const held=new Map<string,{ship:Ship;directive:Directive}>();
+    for(const ship of this.e.state.ships)for(const directive of [...ship.queue,...ship.suspended])if(directive.taskId===task.taskId)held.set(directive.id,{ship,directive});
+    if(task.checkpoint){const ship=this.e.state.ships.find(ship=>task.assignedShipIds.includes(ship.id));if(ship&&!this.e.state.ships.some(ship=>ship.current?.id===task.checkpoint!.id))held.set(task.checkpoint.id,{ship,directive:task.checkpoint});}
+    for(const {ship,directive} of held.values())this.outcome(ship,directive,'目标已取消；保留真实货物与已发生交易',true,true);
     task.checkpoint=null;
+    cancelDescendants(this.e,objective.id);
     this.transition(task,'cancelled','Admiral 取消目标；实际货物保留');objective.revision++;
     const agent=this.e.state.agents.find(a=>a.id===task.ownerAgentId);if(agent){agent.decision.revision++;this.e.cognition.cancel(agent.id);}
     for(const ship of this.e.state.ships){ship.queue=ship.queue.filter(d=>d.taskId!==task.taskId);ship.suspended=ship.suspended.filter(d=>d.taskId!==task.taskId);if(ship.current?.taskId===task.taskId)this.e.complete(ship,'目标已取消',true);}
@@ -305,23 +336,24 @@ export class FrontierAgentRuntime {
     try {
       for(const ship of this.e.state.ships)seedCargoLots(this.e,ship.id,ship.cargo);
       const journal=this.e.state.agentRuntime;
-      const consume=()=>{while(journal.consumedSequence<journal.events.length)this.consume(journal.events[journal.consumedSequence++]);};
-      consume();advanceCoordination(this.e);consume();
+      let physicalOutcome=false;
+      const consume=()=>{while(journal.consumedSequence<journal.events.length){const event=journal.events[journal.consumedSequence++];physicalOutcome ||= event.type==='directiveOutcome';this.consume(event);}};
+      consume();advanceCoordination(this.e,physicalOutcome);consume();
       for(const objective of this.activeObjectives.values()) {
-        const task=this.register(objective);
+        const task=this.register(objective);this.refreshScheduling(task);
         if(terminalTask(task.status)||task.status==='interrupted')continue;
         if(objective.status==='cancelled'||objective.status==='failed'){this.transition(task,objective.status,objective.reason);continue;}
         if(objective.consent==='rejected'||objective.consent==='withdrawn'){this.transition(task,'cancelled','自愿任务未获同意');continue;}
         if(objective.consent!=='accepted')continue;
         if(task.status==='proposed')this.transition(task,'accepted');
         if(task.progress.verified&&task.status==='blocked'){if(readyConditions(this.e,objective,'after'))this.transition(task,'completed',objective.completionCriteria);continue;}
-        if(objective.controlMode==='voluntary'&&(objective.conditions.some(c=>c.type==='reward')&&!objective.creditsApproved||!readyConditions(this.e,objective,'before'))){this.transition(task,'blocked','等待已承诺的准备条件或预算批准');continue;}
+        if(objective.conditions.length&&(objective.conditions.some(c=>c.type==='reward')&&!objective.creditsApproved||!readyConditions(this.e,objective,'before'))){this.transition(task,'blocked','等待已承诺的准备条件或预算批准');continue;}
         if(!this.dependenciesReady(task))continue;
         const agent=this.e.state.agents.find(a=>a.id===objective.ownerAgentId);
         const ship=this.e.state.ships.find(s=>s.id===(agent?.assignedShipId??task.assignedShipIds[0]));
         if(ship&&!task.assignedShipIds.includes(ship.id))task.assignedShipIds.push(ship.id);
         const held=this.e.state.ships.flatMap(s=>[s.current,...s.queue,...s.suspended]).find(d=>d?.taskId===task.taskId);
-        if(held){task.activeDirectiveId=held.id;task.blockReason=/等待|已满|不足|失效/.test(held.note)?held.note:null;continue;}
+        if(held){task.activeDirectiveId=held.id;const reason=/等待|已满|不足|失效/.test(held.note)?held.note:null;this.transition(task,reason?'blocked':'running',reason);continue;}
         task.activeDirectiveId=null;
         if(ship&&task.checkpoint&&!ship.current){
           const checkpoint=structuredClone(task.checkpoint),valid=validateContinuation(this.e,ship,checkpoint);
@@ -331,19 +363,25 @@ export class FrontierAgentRuntime {
           task.steps.push({label:this.stepLabel(checkpoint.action),action:structuredClone(checkpoint.action),status:'running'});this.transition(task,'running');continue;
         }
         if(ship?.current&&ship.current.objectiveId!==objective.id&&objective.directiveMode!=='INTERRUPT'&&(task.directiveIds.length>0||objective.controlMode==='voluntary'&&!(objective.issuerId===this.e.state.commander.id&&objective.directiveMode==='REPLACE')&&this.priority(objective)<=this.priority(this.e.state.objectives.find(o=>o.id===ship.current?.objectiveId))))continue;
-        if(objective.goal.kind==='loadReturn'||objective.goal.kind==='recovery') {
-          if(!ship){this.transition(task,'blocked','尚未分配可用舰船');continue;}
-          this.runLogistics(objective,task,ship);
-        } else if(objective.goal.kind!=='operation'||task.completedRevision!==objective.revision)planTask(this.e,objective);
+        if(objective.goal.kind==='recovery')this.enroll(task,objective.goal);
+        if(objective.goal.kind==='cancel')for(const other of this.e.state.objectives.filter(o=>o.id!==objective.id&&o.ownerAgentId===objective.ownerAgentId)){const root=this.taskForObjective(other.id);if(root&&!terminalTask(root.status))this.cancel(other.id,other.revision);}
+        const view=this.view(objective,task),valid=this.planner.validate(objective.goal,view);
+        if(!valid.ok){this.transition(task,'blocked',valid.reason);continue;}
+        this.applyPlan(objective,task,this.planner.plan(objective.goal,task,view));
       }
     } finally {this.draining=false;}
+  }
+  private refreshScheduling(task:TaskState){
+    const active=this.e.state.ships.some(ship=>ship.current?.taskId===task.taskId),queued=this.e.state.ships.some(ship=>ship.queue.some(d=>d.taskId===task.taskId));
+    task.scheduling=terminalTask(task.status)||task.status==='interrupted'?'idle':active?'active':queued?'queued':'idle';
+    const step=task.steps[task.currentStep];if(task.scheduling==='active'&&step?.status==='pending')step.status='running';
   }
   private consume(event: DomainEvent) {
     if(!event.taskId)return;
     const task=this.tasksById.get(event.taskId);
     if(!task||task.processedEventIds.includes(event.eventId))return;
     task.processedEventIds.push(event.eventId);
-    if(terminalTask(task.status))return;
+    if(terminalTask(task.status)&&event.type!=='cargoTransfer')return;
     const objective=this.e.state.objectives.find(o=>o.id===task.objectiveId)!;
     if(event.type==='cargoTransfer') {
       const p=event.payload;
@@ -355,10 +393,15 @@ export class FrontierAgentRuntime {
         const destination=goal.kind==='loadReturn'||goal.kind==='recovery'?goal.destinationId:
           goal.kind==='operation'&&'targetId'in goal.action?goal.action.targetId:null;
         if(p.targetId===(destination?inventory(this.e.state,destination)?.id??destination:null))task.progress.delivered[p.cargoKind]+=p.amount;
-        else task.progress.lost[p.cargoKind]+=p.amount;
+        else task.progress.diverted[p.cargoKind]+=p.amount;
       } else task.progress.lost[p.cargoKind]+=p.amount;
       task.completionEvidence.push({eventId:event.eventId,tick:event.simulationTick,kind:p.disposition==='loaded'?'loaded':p.disposition==='delivered'?'delivered':'lost',
-        sourceId:p.sourceId,targetId:p.targetId,cargoKind:p.cargoKind,amount:p.amount,description:p.disposition});
+        sourceId:p.sourceId,targetId:p.targetId,cargoKind:p.cargoKind,amount:p.amount,description:p.disposition==='delivered'&&task.progress.diverted[p.cargoKind]>0?'实际交付 '+p.targetId+'；按目标地点核对':p.disposition});
+      task.updatedAt=this.e.state.time;
+    }
+    if(terminalTask(task.status))return;
+    if(event.type==='directiveProgress') {
+      task.completionEvidence.push({eventId:event.eventId,tick:event.simulationTick,kind:'directive',sourceId:event.sourceId,targetId:null,cargoKind:null,amount:0,description:event.payload.text});
       task.updatedAt=this.e.state.time;
     }
     if(event.type==='directiveCycle') {
@@ -377,85 +420,38 @@ export class FrontierAgentRuntime {
       if(task.status==='interrupted'||p.interrupted)return;
       if(p.contractId)contractDirectiveOutcome(this.e,event.directiveId!,p.contractId,p.failed,p.executorAgentId??p.actorId);
       if(p.failed){this.transition(task,'failed',p.text);return;}
-      if(objective.goal.kind==='operation')this.verifyOperation(objective,task,event);
-      if(objective.goal.kind==='surveyRoute'&&p.action.type==='EXPLORE'&&!objective.scannedSectorIndices.includes(objective.sectorIndex))objective.scannedSectorIndices.push(objective.sectorIndex);
-      if(objective.goal.kind==='factionAssault'&&objective.targetId)(objective.searchedTargets??={})[objective.targetId]=this.e.state.intel.find(i=>i.id===objective.targetId)?.lastSeen??this.e.state.time;
+      const advanced=this.planner.advance(objective.goal,task,event,this.view(objective,task));if(advanced.execution)task.execution=advanced.execution;
+      if(objective.goal.kind==='operation'){
+        const proof=this.planner.verifyCompletion(objective.goal,task,this.view(objective,task));
+        if(objective.goal.action.type==='HAUL'&&objective.goal.action.repeat)return;
+        this.transition(task,proof.complete?'completed':proof.partial?'completed_partial':'blocked',proof.reason);
+      }
 
     }
-  }
-  private verifyOperation(objective: Objective, task: TaskState, event: Extract<DomainEvent,{type:'directiveOutcome'}>) {
-    const a=objective.goal.kind==='operation'?objective.goal.action:event.payload.action;
-    const w=this.e.state,ship=w.ships.find(s=>s.id===event.payload.shipId);
-    if(!ship){this.transition(task,'failed','任务舰船不存在');return;}
-    const proof=event.payload;
-    let complete=false;
-    if(a.type==='PATROL')complete=proof.work+1e-8>=a.duration&&w.locations.some(l=>l.id===a.targetId&&l.hull>0);
-    if(a.type==='REST')complete=proof.work+1e-8>=a.duration&&w.locations.some(l=>l.id===a.targetId&&l.hull>0&&dist(ship,l)<=12+1e-8);
-    if(a.type==='DOCK'||a.type==='RETREAT'){const facility=inventory(w,a.targetId);complete=!!facility&&dist(ship,facility)<=12+1e-8;}
-    if(a.type==='REPAIR')complete=ship.hull+1e-8>=capabilities(ship).hull&&ship.engines>=100&&ship.weapons>=100;
-    if(a.type==='REARM')complete=ship.photon>=a.load.photon&&ship.quantum>=a.load.quantum;
-    if(a.type==='REFIT')complete=a.remove?!ship.modules.includes(a.moduleId):ship.modules.includes(a.moduleId);
-    if(a.type==='ESCORT'){const target=[...w.ships,...w.civilians].find(s=>s.id===a.targetId);complete=!!target&&!target.current&&dist(ship,target)<60&&w.locations.some(l=>l.owner==='starfleet'&&l.hull>0&&dist(target,l)<40);}
-    if(a.type==='INTERCEPT')complete=w.intel.some(i=>i.id===a.targetId&&i.live&&!i.resolved&&dist(ship,i)<90);
-    if(a.type==='DISABLE')complete=w.enemies.some(s=>s.id===a.targetId&&s[a.subsystem??'engines']<=0&&w.intel.some(i=>i.id===s.id&&i.live));
-    if(a.type==='DRIVE_OFF')complete=w.enemies.some(s=>s.id===a.targetId&&s.intent==='retreat'&&w.intel.some(i=>i.id===s.id&&i.live));
-    if(a.type==='SHADOW')complete=false; // Continuous tracking requires explicit cancellation.
-    if(a.type==='ASSIST_EVENT')complete=w.events.some(v=>v.id===a.targetId&&v.stage==='resolved');
-    if(a.type==='CAPTURE')complete=w.locations.some(l=>l.id===a.targetId&&l.owner==='starfleet'&&l.occupation==='secured');
-    if(a.type==='TRANSIT')complete=proof.work>=2&&w.wormholes.some(h=>h.id===a.targetId&&h.discovered&&h.transits>0&&dist(ship,h.exit)<1e-8);
-    if(a.type==='HAIL')complete=(ship.cooldowns.hail??0)>0&&w.history.some(h=>h.kind==='diplomacy'&&h.entityId===a.targetId&&h.time>=objective.createdAt);
-    if(a.type==='RETURN')complete=dist(ship,this.e.base)<=12+1e-8;
-    if(a.type==='MOVE')complete=dist(ship,a.point)<=8+1e-8;
-    if(a.type==='HAUL') {
-      complete=task.progress.loaded[a.cargoKind]>0&&task.progress.delivered[a.cargoKind]+1e-8>=task.progress.loaded[a.cargoKind];
-      if(!complete&&task.progress.delivered[a.cargoKind]>0&&task.progress.lost[a.cargoKind]>0){this.transition(task,'completed_partial','真实交付有货损');return;}
-      if(a.repeat)return;
-    }
-    if(a.type==='RECOVER')complete=w.wrecks.some(x=>x.id===a.targetId&&x.discovered)&&Object.values(task.progress.loaded).some(n=>n>0);
-    if(a.type==='ATTACK'||a.type==='ATTACK_SET') {
-      const ids=a.type==='ATTACK_SET'?a.targetIds:[a.targetId];
-      complete=ids.every(id=>w.intel.some(i=>i.id===id&&i.resolved)||w.wrecks.some(x=>x.id==='wreck:'+id&&x.discovered)||w.locations.some(l=>l.id===id&&l.discovered&&l.hull===0));
-    }
-    if(a.type==='SURVEY'){const target=[...w.systems,...w.bodies].find(t=>t.id===a.targetId&&t.discovered);complete=!!target&&target.survey>=(a.deep||a.approach==='close'?2:1);}
-    if(a.type==='EXPLORE')complete=w.sectors.some(s=>s.discovered&&s.q===a.sector.q&&s.r===a.sector.r);
-    if(a.type==='UNLOAD')complete=cargoUsed(ship)<=1e-8;
-    if(a.type==='LOAD')complete=task.progress.loaded[a.cargoKind]>0;
-    if(!complete){this.transition(task,'blocked','Directive 已结束，但完整目标尚无足够证据');return;}
-    this.transition(task,'completed',event.payload.text);
   }
   private enroll(task: TaskState, goal: Extract<ObjectiveGoal,{kind:'recovery'}>) {
     for(const wreck of this.e.state.wrecks.filter(x=>x.discovered&&(goal.wreckIds.includes(x.id)||goal.includeDiscoveries&&goal.sourceClassId!==null&&x.sourceClassId===goal.sourceClassId))) {
       if(!(wreck.id in task.progress.targetAmounts))task.progress.targetAmounts[wreck.id]=wreck.stock.materials;
     }
   }
-  private runLogistics(objective: Objective, task: TaskState, ship: Ship) {
-    const goal=objective.goal;
-    const issue=(action: Action)=>{const result=this.issue(objective,ship,action);if(!result.ok)this.transition(task,'blocked',result.reason);};
-    if(goal.kind==='loadReturn') {
-      if(task.progress.loaded[goal.cargoKind]===0){issue({type:'LOAD',sourceId:goal.sourceId,cargoKind:goal.cargoKind,route:goal.route});return;}
-      const destination=inventory(this.e.state,goal.destinationId);
-      if(!destination){this.transition(task,'blocked','返航设施已失效；货物保留');return;}
-      if(dist(ship,destination)>12+1e-8){issue(goal.destinationId==='base'?{type:'RETURN'}:{type:'DOCK',targetId:goal.destinationId});return;}
-      if(goal.deliver&&task.progress.delivered[goal.cargoKind]+1e-8<task.progress.loaded[goal.cargoKind]-task.progress.lost[goal.cargoKind]){issue({type:'UNLOAD',targetId:goal.destinationId});return;}
-      const remaining=this.e.state.agentRuntime.cargoLots.filter(l=>l.taskId===task.taskId&&l.shipId===ship.id&&l.cargoKind===goal.cargoKind).reduce((n,l)=>n+l.amount,0);
-      if(!goal.deliver&&remaining+1e-8<task.progress.loaded[goal.cargoKind]&&task.progress.lost[goal.cargoKind]===0){this.transition(task,'blocked','无法证明装载货物仍在舰上');return;}
-      this.transition(task,task.progress.lost[goal.cargoKind]>0?'completed_partial':'completed',goal.deliver?'实际装载货物已交付':'已装载真实库存并返回，货物保留');
+  private view(objective:Objective,task:TaskState):TaskView {
+    const owner=this.e.state.agents.find(a=>a.id===objective.ownerAgentId);
+    return {world:this.e.state,objective,ship:this.e.state.ships.find(s=>s.id===(owner?.assignedShipId??task.assignedShipIds[0]))??null};
+  }
+  private applyPlan(objective:Objective,task:TaskState,plan:TaskPlan) {
+    if(plan.execution)task.execution=plan.execution;
+    if(plan.status==='completed'||plan.status==='completed_partial'){
+      const proof=this.planner.verifyCompletion(objective.goal,task,this.view(objective,task));
+      this.transition(task,proof.complete?'completed':proof.partial?'completed_partial':'blocked',proof.reason);return;
     }
-    if(goal.kind==='recovery') {
-      this.enroll(task,goal);
-      const remaining=this.e.state.wrecks.filter(x=>x.discovered&&x.id in task.progress.targetAmounts&&x.stock.materials>1e-8)
-        .sort((a,b)=>dist(ship,a)-dist(ship,b)||a.id.localeCompare(b.id));
-      const carried=this.e.state.agentRuntime.cargoLots.filter(l=>l.taskId===task.taskId&&l.cargoKind==='materials').reduce((n,l)=>n+l.amount,0);
-      if(remaining.length&&capabilities(ship).cargo-cargoUsed(ship)>=1){issue({type:'RECOVER',targetId:remaining[0].id});return;}
-      if(goal.destinationId&&(carried>1e-8||remaining.length&&cargoUsed(ship)>=1)){issue({type:'UNLOAD',targetId:goal.destinationId});return;}
-      if(remaining.length){this.transition(task,'blocked','货舱已满，尚有目标材料；需要交付设施');return;}
-      const expected=Object.values(task.progress.targetAmounts).reduce((n,v)=>n+v,0);
-      const collected=Object.values(task.progress.targetRecovered).reduce((n,v)=>n+v,0);
-      if(expected>collected+1e-8){this.transition(task,'blocked','部分目标库存由其他行动取走，缺少本任务回收证据');return;}
-      if(task.progress.legacyUnknown){this.transition(task,'blocked','旧存档缺少材料来源证据，请核对后修订目标');return;}
-      if(goal.destinationId&&carried>1e-8){this.transition(task,'blocked','任务材料尚未全部交付');return;}
-      this.transition(task,task.progress.lost.materials>0?'completed_partial':'completed',goal.destinationId?'所有已发现目标材料已实际回收并交付':'所有目标材料已回收并留舰');
+    if(plan.status)this.transition(task,plan.status,plan.reason??null);
+    if(plan.request){
+      if(!objective.ownerAgentId){this.transition(task,'blocked','协作请求需要真实 Agent');return;}
+      makeRequest(this.e,objective.ownerAgentId,plan.request.agentId,plan.request.kind,plan.request.action,null,[],objective.id);
+      this.transition(task,'blocked','等待同僚自主接受或协商物流支援');return;
     }
+    if(plan.command){const result=this.submitDirective(task.taskId,objective.issuerId,plan.command,task.revision);if(!result.ok)this.transition(task,'blocked',result.reason);return;}
+    if(plan.action){const ship=this.e.state.ships.find(s=>s.id===(plan.shipId??this.view(objective,task).ship?.id));if(!ship){this.transition(task,'blocked','任务舰船失效');return;}const result=this.issue(objective,ship,plan.action);if(!result.ok)this.transition(task,'blocked',result.reason);}
   }
   private stepLabel(a: Action) {return a.type==='LOAD'?'到达来源并装载实际库存':a.type==='RETURN'?'返航，保留货物':a.type==='UNLOAD'?'实际交付货物':a.type==='RECOVER'?'回收真实残骸库存':a.type;}
 }

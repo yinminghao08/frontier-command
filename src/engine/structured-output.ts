@@ -47,3 +47,15 @@ export function protocolSchema(schema: z.ZodTypeAny): Record<string, unknown> {
   if (schema instanceof z.ZodBoolean) return { type: 'boolean' };
   throw Error('Unsupported decision schema: ' + schema.constructor.name);
 }
+
+export function decisionIssues(error: z.ZodError) {
+  return error.issues
+    .slice(0, 6)
+    .map((issue) => {
+      const path = issue.path.join('.') || 'decision';
+      // No provider text or received value enters diagnostics.
+      const expected = issue.code === 'invalid_type' ? issue.expected : issue.code;
+      return path + ': ' + expected;
+    })
+    .join('; ');
+}

@@ -1,3 +1,4 @@
+import {askIntent,conversation} from './provider-harness';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -13,7 +14,7 @@ const config = {
   reasoningEffort: 'none' as const,
   apiKey: 'isolated-transport-secret',
 };
-const decision = JSON.stringify({ goal: '等待', rationale: '舰况良好，继续等待', action: null });
+const decision=JSON.stringify(conversation());
 const jsonReply = (content = decision) =>
   new Response(
     JSON.stringify({
@@ -83,15 +84,9 @@ describe('streaming and non-streaming provider protocol', () => {
         }),
         { headers: { 'Content-Type': 'text/event-stream' } },
       );
-    const result = await new ChatCompletionsClient(fake, tracker).decide(
-      config,
-      quietEngine().getObservation('ops-meridian')!,
-    );
-    expect(result.rationale).toContain('舰况良好');
-    await new ChatCompletionsClient(fetch).decide(
-      local.config,
-      quietEngine().getObservation('ops-meridian')!,
-    );
+    const result = await askIntent(new ChatCompletionsClient(fake, tracker), config, quietEngine().getObservation('ops-meridian')!);
+    expect(result.reply).toContain('舰况良好');
+    await askIntent(new ChatCompletionsClient(fetch), local.config, quietEngine().getObservation('ops-meridian')!);
   });
 
   it('defaults to streaming, accepts JSON responses, and counts usage exactly', async () => {
@@ -105,10 +100,7 @@ describe('streaming and non-streaming provider protocol', () => {
       );
     });
     const tracker = new RequestTracker();
-    await new ChatCompletionsClient(fetch, tracker).decide(
-      local.config,
-      quietEngine().getObservation('ops-meridian')!,
-    );
+    await askIntent(new ChatCompletionsClient(fetch, tracker), local.config, quietEngine().getObservation('ops-meridian')!);
     expect(local.bodies[0].stream).toBe(true);
     expect(tracker.stats()).toMatchObject({ concurrency: 0, tokens: 19 });
     expect(tracker.stats().recentRequests[0]).toMatchObject({
@@ -119,7 +111,7 @@ describe('streaming and non-streaming provider protocol', () => {
     });
   });
 
-  it('negotiates unsupported stream, reasoning and JSON parameters once and caches capability', async () => {
+  it('negotiates only stream and JSON format, caches compatibility and preserves reasoning mode', async () => {
     const local = await provider((response, body) => {
       const rejected = body.stream
         ? 'stream'
@@ -134,19 +126,13 @@ describe('streaming and non-streaming provider protocol', () => {
       } else response.end(JSON.stringify({ choices: [{ message: { content: decision } }] }));
     });
     const client = new ChatCompletionsClient();
-    await client.decide(
-      { ...local.config, reasoningEffort: 'high' },
-      quietEngine().getObservation('ops-meridian')!,
-    );
+    await askIntent(client, local.config, quietEngine().getObservation('ops-meridian')!);
+    expect(local.bodies).toHaveLength(3);
+    await askIntent(client, local.config, quietEngine().getObservation('ops-meridian')!);
     expect(local.bodies).toHaveLength(4);
-    await client.decide(
-      { ...local.config, reasoningEffort: 'high' },
-      quietEngine().getObservation('ops-meridian')!,
-    );
-    expect(local.bodies).toHaveLength(5);
-    expect(local.bodies[4]).toMatchObject({ stream: false });
-    expect(local.bodies[4]).not.toHaveProperty('reasoning_effort');
-    expect(local.bodies[4]).not.toHaveProperty('response_format');
+    expect(local.bodies[3]).toMatchObject({ stream: false });
+    expect(local.bodies[3]).not.toHaveProperty('reasoning_effort');
+    expect(local.bodies[3]).not.toHaveProperty('response_format');
   });
 
   it.each([
@@ -188,10 +174,7 @@ describe('streaming and non-streaming provider protocol', () => {
       });
       const tracker = new RequestTracker();
       await expect(
-        new ChatCompletionsClient(fetch, tracker).decide(
-          local.config,
-          quietEngine().getObservation('ops-meridian')!,
-        ),
+        askIntent(new ChatCompletionsClient(fetch, tracker), local.config, quietEngine().getObservation('ops-meridian')!),
       ).rejects.toMatchObject({ kind: expected });
       expect(tracker.stats().recentRequests[0]).toMatchObject({
         phase: 'failed',
@@ -219,36 +202,21 @@ describe('streaming and non-streaming provider protocol', () => {
   it('accepts mislabeled SSE and stop-completed streams without DONE', async () => {
     const local = await provider((response) => response.end(contentEvent(decision, 'stop')));
     const tracker = new RequestTracker();
-    await new ChatCompletionsClient(fetch, tracker).decide(
-      local.config,
-      quietEngine().getObservation('ops-meridian')!,
-    );
+    await askIntent(new ChatCompletionsClient(fetch, tracker), local.config, quietEngine().getObservation('ops-meridian')!);
     expect(tracker.stats().recentRequests[0].responseFormat).toBe('sse');
   });
 });
 
 describe('no application deadline and cancellation authority', () => {
-  it('a 65 second first request completes and a hung request remains cancellable after ten minutes', async () => {
-    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
-    const tracker = new RequestTracker();
-    const client = new ChatCompletionsClient(async () => {
-      await new Promise<void>((resolve) => setTimeout(resolve, 65000));
-      return jsonReply();
-    }, tracker);
-    const pending = client.decide(config, quietEngine().getObservation('ops-meridian')!);
-    await vi.advanceTimersByTimeAsync(25000);
-    expect(tracker.stats().concurrency).toBe(1);
-    await vi.advanceTimersByTimeAsync(40000);
-    await expect(pending).resolves.toHaveProperty('action', null);
-    const controller = new AbortController();
-    const hung = new ChatCompletionsClient(async () => new Promise(() => {}), tracker)
-      .test(config, controller.signal)
-      .catch((error: unknown) => error);
-    await vi.advanceTimersByTimeAsync(600000);
-    expect(tracker.stats().concurrency).toBe(1);
-    controller.abort();
-    expect(await hung).toMatchObject({ kind: 'cancelled' });
-    expect(tracker.stats()).toMatchObject({ concurrency: 0, cancellations: 1, failures: 0 });
+  it('connection timeout is configurable; defaults to 30 seconds; active streams have only an idle deadline',async()=>{
+    vi.useFakeTimers({toFake:['Date','setTimeout','clearTimeout']});const tracker=new RequestTracker();
+    const pending=askIntent(new ChatCompletionsClient(async()=>{await new Promise<void>(r=>setTimeout(r,65000));return jsonReply();},tracker),{...config,connectionTimeoutMs:90000},quietEngine().getObservation('ops-meridian')!);
+    await vi.advanceTimersByTimeAsync(65000);await expect(pending).resolves.toHaveProperty('proposal',null);
+    const timeout=new ChatCompletionsClient(async()=>new Promise(()=>{}),tracker).test(config).catch((e:unknown)=>e);
+    await vi.advanceTimersByTimeAsync(30000);expect(await timeout).toMatchObject({kind:'network'});expect(tracker.stats().concurrency).toBe(0);
+    const controller=new AbortController();let stopped=false,timer:ReturnType<typeof setTimeout>|undefined;
+    const flowing=new ChatCompletionsClient(async()=>new Response(new ReadableStream({start(stream){const pulse=()=>{stream.enqueue(Buffer.from(': progress\n\n'));timer=setTimeout(pulse,90000);};pulse();},cancel(){stopped=true;clearTimeout(timer);}}),{headers:{'content-type':'text/event-stream'}}),tracker).test(config,controller.signal).catch((e:unknown)=>e);
+    await vi.advanceTimersByTimeAsync(600000);expect(tracker.stats().concurrency).toBe(1);controller.abort();expect(await flowing).toMatchObject({kind:'cancelled'});expect(stopped).toBe(true);expect(tracker.stats()).toMatchObject({concurrency:0,cancellations:1,failures:1});
   });
 
   it.each(['cancel', 'message', 'takeover', 'disable', 'model', 'dispose'] as const)(
@@ -269,7 +237,7 @@ describe('no application deadline and cancellation authority', () => {
       let calls = 0;
       const client = new ChatCompletionsClient(async () => {
         calls++;
-        if (calls > 1) return jsonReply(JSON.stringify({ goal: '新请求', rationale: '这是新的有效决策', action: null }));
+        if (calls > 1) return jsonReply(JSON.stringify(conversation('这是新的有效决策')));
         return new Response(
           new ReadableStream({
             start(controller) {

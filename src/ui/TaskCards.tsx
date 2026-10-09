@@ -23,13 +23,16 @@ export function TaskCards({world,command,agentId}:{world:Snapshot;command:Comman
       const objective=world.objectives.find(o=>o.id===task.objectiveId);if(!objective)return null;
       const agent=world.agents.find(a=>a.id===task.ownerAgentId)??vesselAgent(world,task.assignedShipIds[0]),ships=world.ships.filter(s=>task.assignedShipIds.includes(s.id));
       const current=ships.flatMap(s=>[s.current,...s.queue]).find(d=>d?.taskId===task.taskId);
+      const cargoKind=objective.goal.kind==='loadReturn'?objective.goal.cargoKind:objective.goal.kind==='operation'&&'cargoKind'in objective.goal.action?objective.goal.action.cargoKind:'materials';
+      const cargoLabel=cargoKind==='materials'?'Materials':cargoKind==='photon'?'Photon':cargoKind==='quantum'?'Quantum':'Special Finds';
       const losses=Object.values(task.progress.lost).reduce((n,v)=>n+v,0),active=!terminalTask(task.status);
       return <article key={task.taskId} className="task-card" data-task-id={task.taskId} data-objective-id={objective.id}>
-        <LcarsTextBar literal>{statuses[task.status].toUpperCase()+' / '+(agent?.name??'Admiral')}</LcarsTextBar>
+        <LcarsTextBar literal>{(task.scheduling==='queued'?'已排队':statuses[task.status]).toUpperCase()+' / '+(agent?.name??'Admiral')}</LcarsTextBar>
         <p><strong>{objective.originalInstruction||objective.completionCriteria}</strong></p>
         <p>{ships.map(s=>s.name).join(' / ')||'未分配舰船'} · 授权 {objective.controlMode==='direct'?'Admiral 直接指挥':objective.controlMode==='autonomous'?'自主任务':'自愿任务'} · 修订 {objective.revision}</p>
-        <p data-testid="task-step">当前步骤 {current?ACTION_LABELS[current.action.type]:task.checkpoint?'保留执行进度，等待恢复':statuses[task.status]} · 已完成 {task.steps.filter(s=>s.status==='completed').length} 步 / 历史 {task.steps.length} 条</p>
-        <p data-testid="task-cargo">Materials：装载 {task.progress.loaded.materials.toFixed(1)} / 交付 {task.progress.delivered.materials.toFixed(1)} / 损失 {task.progress.lost.materials.toFixed(1)} · 来源 {new Set(task.completionEvidence.filter(p=>p.kind==='loaded'&&p.sourceId).map(p=>p.sourceId)).size}</p>
+        <p data-testid="task-step">当前步骤 {task.scheduling==='queued'?'等待前序指令 / ':''}{current?ACTION_LABELS[current.action.type]:task.checkpoint?'保留执行进度，等待恢复':statuses[task.status]} · 已完成 {task.steps.filter(s=>s.status==='completed').length} 步 / 历史 {task.steps.length} 条</p>
+        <p data-testid="task-cargo">{cargoLabel} 累计：装载 {task.progress.loaded[cargoKind].toFixed(1)} / 交付 {task.progress.delivered[cargoKind].toFixed(1)} / 另处交付 {task.progress.diverted[cargoKind].toFixed(1)} / 损失 {task.progress.lost[cargoKind].toFixed(1)} · 来源 {new Set(task.completionEvidence.filter(p=>p.kind==='loaded'&&p.sourceId).map(p=>p.sourceId)).size}</p>
+        {task.scope.revision>0&&<p data-testid="task-revision-cargo">本次修订：保留货物 {task.scope.carryIn[cargoKind].toFixed(1)} / 新装载 {(task.progress.loaded[cargoKind]-task.scope.loadedBaseline[cargoKind]).toFixed(1)} / 新交付 {(task.progress.delivered[cargoKind]-task.scope.deliveredBaseline[cargoKind]).toFixed(1)} / 新损失 {(task.progress.lost[cargoKind]-task.scope.lostBaseline[cargoKind]).toFixed(1)}</p>}
         {!active&&objective.reason&&<p>{objective.reason}</p>}
         {task.blockReason&&<p className="api-test-error" data-testid="task-block">{task.blockReason}</p>}
         <p>风险：{losses>0?'存在已确认货损':ships.some(s=>world.contacts.some(c=>c.live&&c.hostile&&Math.hypot(c.x-s.x,c.y-s.y)<240))?'附近已确认敌对接触':'当前公开观察未确认紧迫威胁'}</p>

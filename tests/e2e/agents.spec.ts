@@ -5,7 +5,7 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
-import { mkdtempSync, mkdirSync, readFileSync, cpSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync,writeFileSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { SaveStore } from '../../electron/persistence';
@@ -74,9 +74,9 @@ async function configureApi(p: Page, url: string) {
   await settings.getByLabel('Agent API Base URL').fill(url);
   await settings.getByLabel('Agent API Key').fill(testKey);
   await settings.getByLabel('Agent 默认模型').fill('base-model');
-  await settings.getByLabel('Agent 默认推理').selectOption('none');
+  await settings.getByLabel('Agent 默认推理').selectOption('provider-default');
   await settings.getByRole('button', { name: '测试 API 连接' }).click();
-  await expect(settings.locator('.api-test-success')).toContainText('NONE');
+  await expect(settings.locator('.api-test-success')).toContainText('Thinking/Effort 沿用配置');
   await settings.getByRole('button', { name: '保存 Agent API' }).click();
   await expect(settings.locator('.api-test-success')).toContainText('系统加密');
   await settings.getByRole('button', { name: '关闭面板', exact: true }).click();
@@ -106,7 +106,7 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   await expect(agents).toContainText('LOGISTICS / 物流智能体');
   for (const [name, model, effort] of [
     ['Talia', 'tactical-model', 'high'],
-    ['Mira', 'freight-model', 'none'],
+    ['Mira', 'freight-model', 'provider-default'],
   ]) {
     await agents.getByRole('button', { name: '查看 Agent ' + name, exact: true }).click();
     await agents.getByLabel('Agent 独立模型').fill(model);
@@ -130,6 +130,19 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   );
   await colonies.getByRole('button', { name: '关闭管理面板', exact: true }).click();
   await configureApi(p, url);
+  // Unknown compatible model capabilities must not silently discard an explicit
+  // effort. The user changes the setting before the pending contract is retried.
+  await p.evaluate(()=>window.frontier.command({type:'sendChat',channelId:'private:ops-horizon',content:'你好',mentions:[]}));
+  await wait(p,w=>!!w.agents.find(a=>a.id==='ops-horizon')?.decision.lastError?.includes('尚未确认'));
+  expect(provider.requests.some(request=>request.model==='tactical-model')).toBe(false);
+  await nav(p,'AGENTS');const modelPanel=p.getByRole('dialog',{name:'AGENTS 工作面板'});
+  await modelPanel.getByRole('button',{name:'查看 Agent Talia',exact:true}).click();
+  await modelPanel.getByLabel('Agent 独立推理').selectOption('provider-default');
+  await modelPanel.getByRole('button',{name:'保存 Agent 模型',exact:true}).click();
+  await modelPanel.getByRole('button',{name:'关闭管理面板',exact:true}).click();
+  await p.evaluate(()=>window.frontier.command({type:'retryAgent',agentId:'ops-horizon',messageId:undefined}));
+  // The existing public opportunity is an explicit test input, not an API-save trigger.
+  await p.evaluate(()=>window.frontier.command({type:'retryAgent',agentId:'ops-meridian'}));
   await wait(
     p,
     (w) =>
@@ -142,13 +155,13 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   const configured = await state(p);
   expect(configured.ships.find((s) => s.id === 'horizon')!.current?.source).toBe('agent');
   expect(configured.ships.find((s) => s.id === 'horizon')!.current?.action.type).toBe('ESCORT');
-  expect(configured.agents.find((a) => a.id === 'ops-horizon')!.modelConfig).toEqual({
+  expect(configured.agents.find((a) => a.id === 'ops-horizon')!.modelConfig).toMatchObject({
     model: 'tactical-model',
-    reasoningEffort: 'high',
+    reasoningEffort: 'provider-default',
   });
   expect(
     provider.requests.some((r) => r.model === 'tactical-model' && r.reasoning_effort === 'high'),
-  ).toBe(true);
+  ).toBe(false);
   expect(provider.requests.some((r) => r.model === 'tactical-model' && !r.reasoning_effort)).toBe(
     true,
   );
@@ -179,9 +192,11 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
     p,
     (w) =>
       !!w.ships.find((s) => s.id === 'meridian')?.cargo.materials &&
-      w.ships.find((s) => s.id === 'meridian')?.current?.phase === 'delivering',
+      w.ships.find((s) => s.id === 'meridian')?.current?.phase === 'delivering'&&
+      !!w.ships.find(s=>s.id==='meridian')?.current?.journey,
   );
   const travelled = await state(p);
+  writeFileSync(join(output,'route-checkpoint.json'),JSON.stringify({ship:travelled.ships.find(s=>s.id==='meridian'),wormholes:travelled.wormholes,objectives:travelled.objectives,requests:travelled.escortRequests},null,2));
   expect(
     travelled.ships
       .find((s) => s.id === 'meridian')
@@ -245,7 +260,7 @@ test('Electron v11: paid training, separate models, private/group/@ chat and rea
   app = undefined;
   const restarted = await launch(directory);
   const loaded = await state(restarted);
-  expect(loaded.version).toBe(15);
+  expect(loaded.version).toBe(16);
   expect(loaded.chatMessages).toEqual(persisted.chatMessages);
   expect(loaded.agents.find((a) => a.id === graduate.id)?.assignedShipId).toBe('verity');
   expect(loaded.agents.find((a) => a.id === 'ops-horizon')?.modelConfig.model).toBe(
@@ -382,7 +397,7 @@ test('Electron v14: old demo files stay untouched; a new demo awaits genuine mod
   const p = await launch(directory);
   const initial = await state(p);
   expect(initial.paused).toBe(true);
-  expect(initial.version).toBe(15);
+  expect(initial.version).toBe(16);
   expect(initial.speed).toBe(1);
   expect((await p.evaluate(() => window.frontier.agentSettings())).hasKey).toBe(false);
   expect(readFileSync(join(directory, 'timeline-v11.json'), 'utf8')).toBe(

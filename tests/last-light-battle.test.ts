@@ -10,7 +10,7 @@ describe('LAST LIGHT second-act demo', () => {
     expect(isLastLightBattleWorld(world)).toBe(true);
     expect(world.ships.find((s) => s.id === 'meridian')?.cargo.materials).toBe(500);
     expect(world.ships.find((s) => s.id === 'meridian')?.current?.phase).toBe('delivering');
-    expect(world.agents.map((a) => a.name)).toEqual(['Mira', 'Talia', 'Rhea']);
+    expect(world.agents.map((a) => a.name).sort()).toEqual(['Mira', 'Rhea', 'Talia']);
     expect(world.ships.find((s) => s.id === 'veil')?.cloak).toBe('on');
     expect(world.enemies.filter((s) => s.factionId === 'orion')).toHaveLength(11);
   });
@@ -38,4 +38,19 @@ describe('LAST LIGHT second-act demo', () => {
     expect(e.state.chatMessages.filter((m) =>
       m.eventId === 'lastLight:accept:Talia' || m.eventId === 'lastLight:accept:Rhea')).toHaveLength(2);
   });
+  it('physically clears the ambushing pirates and restores real battle agents', () => {
+    const e = new SimulationEngine(createLastLightBattleWorld());
+    for (let i = 0; i < 2400; i++) {
+      if (e.state.paused) e.dispatchCommand({ type: 'pause', paused: false });
+      e.step();
+      if (e.state.history.some((h) => h.kind === 'lastLightBattleFinished')) break;
+      if (e.state.status !== 'active') break;
+    }
+    const remaining = e.state.enemies.filter((s) =>
+      s.factionId === 'orion' && s.id !== 'orion-escape' && s.hull > 0);
+    expect(remaining.map((s) => s.id)).toEqual([]);
+    expect(e.state.history.some((h) => h.kind === 'lastLightBattleFinished')).toBe(true);
+    expect(e.state.agents.find((a) => a.id === 'ops-horizon')?.enabled).toBe(true);
+    expect(e.state.agents.find((a) => a.id === 'ops-resolute-demo')?.enabled).toBe(true);
+  }, 30000);
 });

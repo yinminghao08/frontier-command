@@ -3,6 +3,7 @@ import type { SimulationEngine } from '../engine';
 import { capabilities, cargoUsed } from '../capabilities';
 import { dist, move } from '../navigation';
 import { isLastLightDeployed, isLastLightWorld } from '../last-light';
+import { isLastLightBattleWorld } from '../last-light-battle';
 import { canDetectShip, advanceEvasion } from '../tracking';
 import { regenerate } from '../combat';
 import { ORION_RULES as R } from '../definitions/orion';
@@ -589,7 +590,7 @@ export function advanceOrion(e: SimulationEngine, dt: number) {
   for (const op of e.state.orion.operations.filter((op) => op.status === 'active'))
     advanceOperation(e, op, dt, evading);
   for (const s of ships.filter((s) => !evading.has(s.id) && !assigned(e, s.id))) {
-    if (s.hull <= 0) continue;
+    if (s.hull <= 0 || (isLastLightBattleWorld(e.state) && s.id === 'orion-escape')) continue;
     if (s.intent === 'observe' && e.state.time < s.nextDecision && !s.destination) continue;
     if (advanceProvisioning(e, s, dt)) continue;
     if (
@@ -609,5 +610,5 @@ export function advanceOrion(e: SimulationEngine, dt: number) {
     );
     if (attacker) e.fire(s, attacker, 'warning');
   }
-  advanceOrionEconomy(e, dt);
+  if (!isLastLightBattleWorld(e.state)) advanceOrionEconomy(e, dt);
 }

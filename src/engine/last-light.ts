@@ -3,7 +3,12 @@
  * No save schema extensions: durable one-shot flags live in world.history.
  */
 import type { SimulationEngine } from './engine';
+import { capabilities } from './capabilities';
+import { dist } from './navigation';
+import { appendChat, COMMAND_CHANNEL } from './chat';
+import { updateSensors, observe } from './sensors';
 import type { WorldState } from './types';
+import { isLastLightBattleWorld } from './last-light-battle';
 
 const ESCAPE_SHIP = 'orion-escape';
 const hasEvent = (w: WorldState, kind: string) => w.history.some((h) => h.kind === kind);
@@ -72,6 +77,7 @@ export function advanceLastLight(e: SimulationEngine): void {
     .sort((a, b) => a.id.localeCompare(b.id));
   if (!attackers.length) return;
   attackers.forEach((enemy, i) => {
+    if (isLastLightBattleWorld(w) && enemy.id === ESCAPE_SHIP) return;
     const angle = 0.45 + i * (2 * Math.PI) / attackers.length;
     const radius = enemy.id === ESCAPE_SHIP ? 170 : 100 + (i % 3) * 12;
     enemy.x = ship.x + Math.cos(angle) * radius;
@@ -93,6 +99,22 @@ export function advanceLastLight(e: SimulationEngine): void {
     enemy.counterTracking.waypoints = [];
     w.orion.patrols[enemy.id] = { anchor: { x: enemy.x, y: enemy.y }, leg: 0 };
   });
+  if (isLastLightBattleWorld(w)) {
+    for (const enemy of attackers.filter((s) => s.id !== ESCAPE_SHIP)) {
+      enemy.hull = Math.min(enemy.hull, Math.ceil(capabilities(enemy).hull * 0.72));
+      enemy.shield = Math.min(enemy.shield, Math.ceil(capabilities(enemy).shield * 0.72));
+    }
+    appendChat(e, 'ops-meridian', COMMAND_CHANNEL,
+      '【剧情脚本·非 LLM】@Talia @Rhea 紧急求援！MERIDIAN-1 满载返航途中遭 Orion 集群袭击。请求 HORIZON 与 RESOLUTE 立即驰援！',
+      ['ops-horizon', 'ops-resolute-demo'], 'request',
+      { origin: 'engine', eventId: 'lastLight:request:Mira', purpose: 'information' });
+    updateSensors(e);
+    for (const enemy of attackers) {
+      const sensors = w.ships.filter((s) =>
+        s.hull > 0 && dist(s, enemy) <= capabilities(s).sensors);
+      if (sensors.length) observe(w, enemy, 10);
+    }
+  }
   w.orion.nextPlan = w.time;
   const message = 'ORION AMBUSH：' + attackers.length +
     ' 艘 Orion 战舰同时出现在 MERIDIAN-1 返航航线上。';
@@ -105,7 +127,7 @@ export function advanceLastLight(e: SimulationEngine): void {
 /** No immunity: this real Raider retreats after two actual Orion losses. */
 export function advanceLastLightRetreat(e: SimulationEngine): void {
   const w = e.state;
-  if (!isLastLightDeployed(w) || hasEvent(w, 'lastLightEscape')) return;
+  if (isLastLightBattleWorld(w) || !isLastLightDeployed(w) || hasEvent(w, 'lastLightEscape')) return;
   if (w.factions.orion.losses.length < 2) return;
   const ship = w.enemies.find((s) => s.id === ESCAPE_SHIP && s.hull > 0);
   const hq = w.locations.find((l) => l.id === 'orion-base' && l.hull > 0);

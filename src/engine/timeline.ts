@@ -26,6 +26,7 @@ export interface SaveCatalog {
 export type SaveAction =
   | { type: 'create'; name: string }
   | { type: 'demo'; name: string }
+  | { type: 'lastLightBattle'; name: string }
   | { type: 'copy'; name: string }
   | { type: 'load'; id: string }
   | { type: 'rename'; id: string; name: string }

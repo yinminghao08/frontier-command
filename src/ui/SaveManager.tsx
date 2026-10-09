@@ -132,6 +132,15 @@ export function SaveManager({
             AGENT DEMO / 演示存档
           </LcarsButton>
           <LcarsButton
+            disabled={busy || catalog.blocked}
+            onClick={() => void run(
+              () => action({ type: 'lastLightBattle', name: 'LAST LIGHT / BATTLE DEMO' }),
+              changed,
+            )}
+          >
+            LAST LIGHT / 战斗演示存档
+          </LcarsButton>
+          <LcarsButton
             disabled={busy || catalog.blocked || protectedCurrent || !catalog.activeId}
             onClick={() => openForm('copy')}
           >
@@ -139,6 +148,7 @@ export function SaveManager({
           </LcarsButton>
         </div>
         <p className="muted">世界已暂停。关闭或切换存档后，请手动继续模拟。</p>
+        <p className="muted">LAST LIGHT 战斗演示：Mira 已满载返航；继续模拟会出现一次 Orion 集群伏击。群聊求援和接援明确标注为剧情脚本，战斗、深奥号隐形跟踪及后续 Agent 命令走真实引擎。</p>
         <p className="muted">
           Agent Demo 会建立独立存档：已确认虫洞、真实货运与护航、聊天记录和即将毕业的学员。继续 16×
           模拟即可观察结果。

@@ -11,6 +11,7 @@ import { advanceShip } from './execution';
 import { advanceEnemy, advanceFactions } from './threats';
 import { advanceOrion } from './orion/tactics';
 import { advanceLastLight, advanceLastLightRetreat, isLastLightWaiting } from './last-light';
+import { advanceLastLightBattle } from './last-light-battle';
 import { advancePiracyPolicies } from './orion/piracy';
 import { advanceEconomy } from './services';
 import { updateSensors } from './sensors';
@@ -226,6 +227,7 @@ export class SimulationEngine {
     advanceLastLight(this);
     if (!isLastLightWaiting(w)) advanceOrion(this, fixedDelta);
     advanceLastLightRetreat(this);
+    advanceLastLightBattle(this, fixedDelta);
     for (const s of [...w.enemies]
       .filter((s) => s.factionId === 'romulan')
       .sort((a, b) => a.id.localeCompare(b.id))) {

@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { SimulationEngine } from '../src/engine/engine';
 import { createWorld } from '../src/engine/data';
 import { createAgentDemoWorld } from '../src/engine/demo';
+import { createLastLightBattleWorld } from '../src/engine/last-light-battle';
 import { HOST_FRAME_MS } from '../src/engine/clock';
 import { SaveStore } from './persistence';
 import { z } from 'zod';
@@ -23,6 +24,7 @@ function failureReason(error: unknown) {
 const saveActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('create'), name: z.string().trim().min(1).max(40) }).strict(),
   z.object({ type: z.literal('demo'), name: z.string().trim().min(1).max(40) }).strict(),
+  z.object({ type: z.literal('lastLightBattle'), name: z.string().trim().min(1).max(40) }).strict(),
   z.object({ type: z.literal('copy'), name: z.string().trim().min(1).max(40) }).strict(),
   z.object({ type: z.literal('load'), id: z.string().regex(/^frontier-\d{6,}$/) }).strict(),
   z
@@ -262,6 +264,13 @@ app.whenReady().then(async () => {
         case 'demo':
           next = store.beginNew(
             createAgentDemoWorld(),
+            saveBlocked ? undefined : engine.state,
+            action.name,
+          );
+          break;
+        case 'lastLightBattle':
+          next = store.beginNew(
+            createLastLightBattleWorld(),
             saveBlocked ? undefined : engine.state,
             action.name,
           );

@@ -1,3 +1,4 @@
+import { vesselControl } from '../assignment';
 import { ChineseDisplay } from '../localization';
 import { useEffect, useLayoutEffect, useState, useRef, type ReactNode } from 'react';
 import type { Snapshot } from '../../engine/types';
@@ -304,7 +305,7 @@ export function LcarsShell({
           <span>
             LCARS / 2368
             <br />
-            AGENT LINK / V15
+            AGENT RUNTIME / V16
           </span>
           <LcarsButton
             shape="flat"
@@ -385,7 +386,9 @@ export function LcarsShell({
                   {o.current ? ACTION_LABELS[o.current.action.type] : 'AVAILABLE'} ·{' '}
                   {o.queue.length} QUEUED / {o.suspended.length} SUSPENDED
                 </span>
-                <small>{actionProgress(world, o).text}</small>
+                <small>
+                  {vesselControl(world, o.id)} · {actionProgress(world, o).text}
+                </small>
                 {world.piracyIncidents.some((i) => i.shipId === o.id && i.stage !== 'resolved') && (
                   <small>ORION / 遭遇威胁 · 可选择舰船响应</small>
                 )}

@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('frontier', {
   listSaves: () => ipcRenderer.invoke('world:saves'),
   saveAction: (action: SaveAction) => ipcRenderer.invoke('world:save-action', action),
   setDisplayZoom: (factor: number) => ipcRenderer.invoke('display:zoom', factor),
+  fetchAgentModels: (settings?: AgentApiInput) =>
+    ipcRenderer.invoke('agent:fetch-models', settings),
   agentSettings: () => ipcRenderer.invoke('agent:settings'),
   agentRuntime: () => ipcRenderer.invoke('agent:runtime'),
   configureAgentApi: (settings: AgentApiInput) =>

@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentApiInput, AgentApiSettings } from '../engine/agent-api';
-import type { ReasoningEffort } from '../engine/types';
+import type { AgentApiInput, AgentApiSettings, ModelInfo } from '../engine/agent-api';
+import type { ReasoningEffort, ThinkingMode } from '../engine/types';
 import { LcarsButton, LcarsField, LcarsPanel } from './components/Lcars';
 import { AgentRuntime } from './AgentRuntime';
 export const EFFORT_LABELS: Record<ReasoningEffort, string> = {
-  none: 'NONE / 非推理参数模式',
+  'provider-default': 'PROVIDER DEFAULT / 供应商默认',
+  none: 'LEGACY DEFAULT / 旧配置默认',
+  minimal: 'MINIMAL / 最低',
+  xhigh: 'XHIGH / 极高',
+  max: 'MAX / 最大',
   low: 'LOW / 低',
   medium: 'MEDIUM / 中',
   high: 'HIGH / 高',
@@ -14,12 +18,14 @@ export function AgentApiSettingsPanel() {
   const [draft, setDraft] = useState<AgentApiInput>({
     baseUrl: '',
     defaultModel: '',
-    reasoningEffort: 'none',
+    reasoningEffort: 'provider-default',
+    thinking: 'provider-default',
   });
   const [key, setKey] = useState(''),
     [clearKey, setClearKey] = useState(false),
     [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; reason: string } | null>(null);
+  const [models, setModels] = useState<ModelInfo[]>([]);
   const testRequest = useRef<string | null>(null);
   useEffect(() => {
     void window.frontier.agentSettings().then((settings) => {
@@ -28,6 +34,9 @@ export function AgentApiSettingsPanel() {
         baseUrl: settings.baseUrl,
         defaultModel: settings.defaultModel,
         reasoningEffort: settings.reasoningEffort,
+        thinking: settings.thinking ?? 'provider-default',
+        connectionTimeoutMs: settings.connectionTimeoutMs,
+        idleTimeoutMs: settings.idleTimeoutMs,
       });
     });
   }, []);
@@ -100,11 +109,54 @@ export function AgentApiSettingsPanel() {
         DEFAULT MODEL / 默认模型
         <input
           aria-label="Agent 默认模型"
+          list="agent-model-directory"
           value={draft.defaultModel}
           disabled={busy}
           onChange={(e) => setDraft((d) => ({ ...d, defaultModel: e.target.value }))}
         />
       </LcarsField>
+      <datalist id="agent-model-directory">
+        {models.map((m) => (
+          <option key={m.id} value={m.id} />
+        ))}
+      </datalist>
+      <LcarsButton
+        tone="secondary"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          void window.frontier
+            .fetchAgentModels(input())
+            .then((r) => {
+              setModels(r.models);
+              setResult({ ok: r.ok, reason: r.reason });
+            })
+            .catch(() => setResult({ ok: false, reason: '模型目录服务不可用；可手动输入。' }))
+            .finally(() => setBusy(false));
+        }}
+      >
+        FETCH MODELS / 获取或刷新模型
+      </LcarsButton>
+      <LcarsField>
+        THINKING / 默认思考
+        <select
+          aria-label="Agent 默认思考"
+          value={draft.thinking ?? 'provider-default'}
+          disabled={busy}
+          onChange={(e) => setDraft((d) => ({ ...d, thinking: e.target.value as ThinkingMode }))}
+        >
+          <option value="provider-default">PROVIDER DEFAULT / 供应商默认</option>
+          <option value="on">ON / 开启</option>
+          <option value="off">OFF / 关闭</option>
+        </select>
+      </LcarsField>
+      {models.find((m) => m.id === draft.defaultModel) && (
+        <p className="muted">
+          思考关闭：{models.find((m) => m.id === draft.defaultModel)!.capabilities.thinkingOff} ·
+          Effort：{models.find((m) => m.id === draft.defaultModel)!.capabilities.reasoningEffort} ·
+          能力依据：{models.find((m) => m.id === draft.defaultModel)!.capabilities.evidence}
+        </p>
+      )}
       <LcarsField>
         REASONING EFFORT / 默认推理
         <select
@@ -115,16 +167,18 @@ export function AgentApiSettingsPanel() {
             setDraft((d) => ({ ...d, reasoningEffort: e.target.value as ReasoningEffort }))
           }
         >
-          {Object.entries(EFFORT_LABELS).map(([effort, label]) => (
-            <option key={effort} value={effort}>
-              {label}
-            </option>
-          ))}
+          {Object.entries(EFFORT_LABELS)
+            .filter(([key]) => key !== 'none')
+            .map(([effort, label]) => (
+              <option key={effort} value={effort}>
+                {label}
+              </option>
+            ))}
         </select>
       </LcarsField>
       <p className="muted">
-        NONE 不发送 reasoning_effort。Provider 拒绝推理参数时自动省略并重试。Key
-        通过系统加密独立保存。
+        默认模式沿用供应商行为。显式 ON/OFF 与 Effort
+        需要已确认的模型能力；不支持时会报错，不会静默改变设置。Key 通过系统加密独立保存。
       </p>
       <div className="inline-actions">
         <LcarsButton disabled={busy || !stored} onClick={() => void run(false)}>

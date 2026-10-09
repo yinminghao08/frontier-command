@@ -74,6 +74,22 @@ export function snapshot(this: SimulationEngine): Snapshot {
   ];
   const knownPoint = (p: { x: number; y: number }) =>
     publicPoints.some((x) => Math.hypot(x.x - p.x, x.y - p.y) < 20);
+  const knownRuntimeId = new Set([
+    w.commander.id,
+    ...w.ships.map((s) => s.id),
+    ...w.civilians.map((s) => s.id),
+    ...w.intel.map((i) => i.id),
+    ...w.agents.map((a) => a.id),
+    ...w.objectives.map((o) => o.id),
+    ...w.escortRequests.map((r) => r.id),
+    ...w.locations.filter((l) => l.owner === 'starfleet' || l.discovered).map((l) => l.id),
+    ...w.systems.filter((s) => s.discovered).map((s) => s.id),
+    ...bodies.map((b) => b.id),
+    ...w.wrecks.filter((x) => x.discovered).map((x) => x.id),
+    ...w.projects.map((p) => p.id),
+    ...w.agentRuntime.tasks.map((t) => t.taskId),
+  ]);
+  const publicId = (id: string | null) => (id !== null && knownRuntimeId.has(id) ? id : null);
   return structuredClone({
     version: w.version,
     piracyIncidents: w.piracyIncidents.map(({ notifiedAgentIds, ...i }) => ({
@@ -90,14 +106,47 @@ export function snapshot(this: SimulationEngine): Snapshot {
     commander: w.commander,
     operators: w.operators,
     assignments: w.assignments,
-    agents: w.agents,
+    agents: w.agents.map((a) => ({
+      ...a,
+      assignedShipId: a.assignedShipId,
+      memory: a.memory.map((m) => ({ ...m, entityId: publicId(m.entityId) })),
+    })),
     chatChannels: w.chatChannels,
     chatMessages: w.chatMessages,
-    admiralTasks: w.admiralTasks,
+    objectives: w.objectives,
+    agentRuntime: {
+      ...w.agentRuntime,
+      events: w.agentRuntime.events
+        .filter((event) => event.taskId !== null)
+        .map((event) =>
+          event.type === 'cargoTransfer'
+            ? {
+                ...event,
+                sourceId: publicId(event.sourceId) ?? 'unknown',
+                payload: {
+                  ...event.payload,
+                  sourceId: publicId(event.payload.sourceId),
+                  targetId: publicId(event.payload.targetId),
+                },
+              }
+            : event,
+        ),
+      tasks: w.agentRuntime.tasks.map((task) => ({
+        ...task,
+        completionEvidence: task.completionEvidence.map((proof) => ({
+          ...proof,
+          sourceId: publicId(proof.sourceId),
+          targetId: publicId(proof.targetId),
+        })),
+      })),
+      cargoLots: w.agentRuntime.cargoLots
+        .filter((lot) => w.ships.some((s) => s.id === lot.shipId))
+        .map((lot) => ({ ...lot, sourceId: publicId(lot.sourceId) })),
+    },
     escortRequests: w.escortRequests,
     commitments: w.commitments,
     losses: w.losses,
-    ships: w.ships,
+    ships: w.ships.map((s) => ({ ...s, lastAttackerId: publicId(s.lastAttackerId) })),
     contacts: visibleIntel(w),
     siteContacts: w.siteIntel
       .filter((i) => !w.locations.find((l) => l.id === i.locationId)?.discovered)
@@ -216,7 +265,11 @@ export function snapshot(this: SimulationEngine): Snapshot {
     },
   });
 }
-export function getObservation(this: SimulationEngine, operatorId: string): Observation | null {
+export function getObservation(
+  this: SimulationEngine,
+  operatorId: string,
+  includeActions = true,
+): Observation | null {
   const assignment = this.state.assignments.find((a) => a.operatorId === operatorId);
   const ship = this.state.ships.find((s) => s.id === assignment?.shipId) ?? null;
   const self = this.state.agents.find((a) => a.id === operatorId) ?? null;
@@ -224,7 +277,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
   const snap = this.snapshot(),
     examples: Action[] = [];
   const locations = snap.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0);
-  if (ship) {
+  if (ship && includeActions) {
     const cap = capabilities(ship),
       free = Math.floor(cap.cargo - cargoUsed(ship));
     examples.push({ type: 'MOVE', point: { x: ship.x + 20, y: ship.y } }, { type: 'RETURN' });
@@ -309,20 +362,22 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
   const sources = snap.inventories
     .filter((i) => i.available.materials >= 10)
     .map((i) => i.locationId);
-  const taskProposals = snap.admiralTasks.filter(
+  const taskProposals = snap.objectives.filter(
     (t) =>
       t.agentId === operatorId &&
       t.controlMode === 'voluntary' &&
       ['active', 'blocked'].includes(t.status) &&
       ['proposed', 'negotiating'].includes(t.consent),
   );
-  const admiralTask =
+  const objective =
     [...taskProposals].reverse().find((t) => t.turnAgentId === operatorId) ??
-    [...snap.admiralTasks]
+    [...snap.objectives]
       .reverse()
       .find(
         (t) =>
-          (t.agentId === operatorId || t.carrierAgentId === operatorId) &&
+          (t.agentId === operatorId ||
+            snap.agentRuntime.tasks.find((root) => root.objectiveId === t.id)?.execution
+              .carrierAgentId === operatorId) &&
           ['active', 'blocked'].includes(t.status),
       ) ??
     null;
@@ -369,11 +424,13 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
       selectedChat.set(message.id, message);
   return structuredClone({
     time: snap.time,
+    events: snap.events,
     piracyIncidents: snap.piracyIncidents.filter(
       (i) =>
         i.shipId === ship?.id ||
         snap.contacts.some((c) => c.hostile && i.attackerIds.includes(c.id)),
     ),
+    wrecks: snap.wrecks,
     rescueOptions: ship
       ? snap.agents
           .filter(
@@ -382,10 +439,18 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
           .map((a) => ({ agentId: a.id, action: { type: 'ESCORT' as const, targetId: ship.id } }))
       : [],
     operatorId,
-    self,
-    ship,
+    self: snap.agents.find((a) => a.id === operatorId) ?? null,
+    ship: snap.ships.find((s) => s.id === ship?.id) ?? null,
     currentTask: ship?.current ?? null,
-    admiralTask,
+    objective,
+    runtimeTask: objective
+      ? (snap.agentRuntime.tasks.find((t) => t.objectiveId === objective.id) ?? null)
+      : null,
+    objectiveContext: snap.objectives.filter(
+      (t) =>
+        t.ownerAgentId === operatorId && ['active', 'blocked', 'interrupted'].includes(t.status),
+    ),
+    taskContext: snap.agentRuntime.tasks.filter((t) => t.ownerAgentId === operatorId),
     taskProposals,
     constructionOptions,
     actionAvailability: ship
@@ -400,7 +465,13 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
       career: a.career,
       assignedShipId: a.assignedShipId,
       status: a.status,
-      currentGoal: a.currentGoal,
+      currentGoal: (() => {
+        const ship = snap.ships.find((s) => s.id === a.assignedShipId);
+        return ship?.current
+          ? ship.current.action.type +
+              ('targetId' in ship.current.action ? ' / ' + ship.current.action.targetId : '')
+          : a.status;
+      })(),
     })),
     ownShips: snap.ships,
     contacts: snap.contacts,
@@ -410,7 +481,6 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
     locations: snap.locations,
     projects: snap.projects,
     wormholes: snap.wormholes,
-    wrecks: snap.wrecks,
     journeys: ship
       ? [...locations, ...snap.projects.filter((p) => !p.complete)].slice(0, 24).map((l) => ({
           targetId: l.id,
@@ -419,7 +489,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
             ship,
             l,
             self?.personality.riskTolerance,
-            admiralTask?.allowWormholes ?? true,
+            objective?.allowWormholes ?? true,
           ),
         }))
       : [],

@@ -1,3 +1,4 @@
+import { ModelRegistry } from './agents/model-registry';
 import { app, BrowserWindow, ipcMain, protocol, net, safeStorage } from 'electron';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -65,7 +66,7 @@ function startAgentService() {
   agentService = new AgentDecisionService(
     {
       snapshot: () => engine.snapshot(),
-      controllerPort: (id) => engine.controllerPort(id),
+      cognitionPort: (id) => engine.cognitionPort(id),
       validate: (command, actorId) => engine.validate(command, actorId),
       command: (command, actorId) => {
         if (saveBlocked) return { ok: false, reason: '当前存档受保护' };
@@ -180,7 +181,7 @@ app.whenReady().then(async () => {
       command &&
       typeof command === 'object' &&
       'type' in command &&
-      command.type === 'admiralChatTask'
+      command.type === 'interpretInteraction'
     )
       return { ok: false, reason: '聊天任务授权仅由主进程处理真实消息' };
     const session = z
@@ -329,6 +330,15 @@ app.whenReady().then(async () => {
     trusted(event);
     return agentTracker.stats();
   });
+  ipcMain.handle('agent:fetch-models', async (event, input: unknown) => {
+    trusted(event);
+    const parsed = input === undefined ? undefined : apiInputSchema.safeParse(input);
+    if (parsed && !parsed.success)
+      return { ok: false, models: [], directory: 'unknown', reason: '模型目录参数无效。' };
+    return new ModelRegistry().fetchModels(
+      agentConfig.connection(parsed?.success ? parsed.data : undefined),
+    );
+  });
   ipcMain.handle('agent:configure-api', (event, input: unknown) => {
     trusted(event);
     const parsed = apiInputSchema.safeParse(input);
@@ -337,9 +347,7 @@ app.whenReady().then(async () => {
     try {
       agentConfig.update(parsed.data);
       startAgentService();
-      if (!saveBlocked)
-        for (const agent of engine.snapshot().agents)
-          engine.dispatchCommand({ type: 'retryAgent', agentId: agent.id });
+      if (!saveBlocked) engine.cognition.configurationChanged();
       save();
       send();
       return { ok: true, reason: 'Agent API 设置已保存，Key 使用系统加密。' };

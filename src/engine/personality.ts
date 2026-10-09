@@ -28,17 +28,45 @@ export function decisionWorldKey(a: Agent, w: WorldState) {
       .filter((i) => i.live && i.hostile && !i.resolved)
       .map((i) => i.id)
       .sort(),
-    fatigue: a.fatigue >= 80 ? 'exhausted' : a.fatigue >= 50 ? 'tired' : 'ready',
-    trust: Math.floor(a.trust / 20),
-    morale: Math.floor(a.morale / 20),
-    growth: Math.floor(a.experience / 60),
-    peers: Object.entries(a.relationships)
-      .map(([id, r]) => [id, Math.floor((r.trust + r.cooperation) / 20)])
-      .sort(),
     goal: a.longTermGoal.activity,
   }).slice(0, 19000);
 }
 
+/** Stable opportunities, rather than production quantities or XP, trigger cognition. */
+export function cognitionOpportunityKey(w: WorldState): string {
+  const ids = [...w.bodies, ...w.systems]
+    .filter((b) => b.discovered && b.survey < 2)
+    .map((b) => 'survey:' + b.id);
+  ids.push(
+    ...w.locations
+      .filter(
+        (l) =>
+          l.owner === 'starfleet' &&
+          l.hull > 0 &&
+          l.kind === 'mine' &&
+          available(w, l.id, 'materials') >= 10,
+      )
+      .map((l) => 'freight:' + l.id),
+  );
+  ids.push(
+    ...w.projects
+      .filter((p) => !p.complete && p.stock.materials < p.cost.materials)
+      .map((p) => 'project:' + p.id),
+  );
+  ids.push(
+    ...w.intel.filter((i) => i.live && i.hostile && !i.resolved).map((i) => 'threat:' + i.id),
+  );
+  return 'opportunities:' + JSON.stringify(ids.sort());
+}
+export function decodeCognitionOpportunityKey(key: string): Set<string> | null {
+  if (!key.startsWith('opportunities:')) return null;
+  try {
+    const ids: unknown = JSON.parse(key.slice('opportunities:'.length));
+    return Array.isArray(ids) && ids.every((id) => typeof id === 'string') ? new Set(ids) : null;
+  } catch {
+    return null;
+  }
+}
 export const clampMood = (value: number) => Math.max(0, Math.min(100, value));
 /** Identity-local generation must never consume the physical world's RNG. */
 export function personalProfile(id: string, seed = 236807): AgentProfile {
@@ -110,7 +138,7 @@ export function decisionContext(a: Agent, w: WorldState): Observation['decisionC
     [ship.current, ...ship.queue, ...ship.suspended].some(
       (d) =>
         d?.source === 'admiral' &&
-        !w.admiralTasks.some((t) => t.id === d.taskId && t.controlMode === 'voluntary'),
+        !w.objectives.some((t) => t.id === d.taskId && t.controlMode === 'voluntary'),
     )
       ? ['directAdmiralControl']
       : [];

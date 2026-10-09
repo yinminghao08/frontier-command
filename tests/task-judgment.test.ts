@@ -1,16 +1,25 @@
-import { describe, expect, it } from 'vitest';
-import { quietEngine } from './helpers';
+import { describe, it, expect } from 'vitest';
+import { quietEngine, issue } from './helpers';
 import { privateChannel } from '../src/engine/chat';
 import { ChatCompletionsClient } from '../electron/agents/client';
-import { taskJudgmentContext } from '../electron/agents/task-judgment';
 import { AgentDecisionService } from '../electron/agents/service';
-import { issue } from './helpers';
 const config = {
   baseUrl: 'http://127.0.0.1/v1',
   defaultModel: 'short-model',
-  reasoningEffort: 'none' as const,
+  reasoningEffort: 'provider-default' as const,
   apiKey: 'isolated-task-key',
 };
+const result = (value: unknown) =>
+  new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }));
+const judgment = (response: 'accept' | 'reject' = 'accept', reply = '当前状态允许巡逻') => ({
+  response,
+  reason: 'preference',
+  reply,
+  conditions: [],
+});
+async function flush() {
+  for (let i = 0; i < 12; i++) await new Promise<void>((r) => setImmediate(r));
+}
 function taskEngine() {
   const e = quietEngine(),
     id = 'ops-meridian';
@@ -21,139 +30,143 @@ function taskEngine() {
     content: '巡逻基地 5 分钟',
     mentions: [],
   });
-  e.dispatchCommand({ type: 'admiralChatTask', agentId: id, messageId: e.state.nextChat - 1 });
   return { e, id };
 }
-const reply = (value: unknown) =>
-  new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }));
-async function flush() {
-  for (let i = 0; i < 12; i++) await new Promise<void>((done) => setImmediate(done));
+function service(e: ReturnType<typeof quietEngine>, client: ChatCompletionsClient) {
+  return new AgentDecisionService(
+    {
+      snapshot: () => e.snapshot(),
+      cognitionPort: (id) => e.cognitionPort(id),
+      command: (c, id) => e.dispatchCommand(c, id),
+      validate: (c, id) => e.validate(c, id),
+    },
+    () => config,
+    client,
+  );
 }
-describe('short LLM task judgments', () => {
+describe('purpose-specific TaskJudgment', () => {
   it('a delayed judgment cannot overwrite an explicit takeover', async () => {
     const { e } = taskEngine();
-    let finish: (() => void) | undefined;
-    const service = new AgentDecisionService(
-      {
-        snapshot: () => e.snapshot(),
-        controllerPort: (a) => e.controllerPort(a),
-        command: (c, a) => e.dispatchCommand(c, a),
-        validate: (c, a) => e.validate(c, a),
-      },
-      () => config,
+    let release: () => void = () => {};
+    const runtime = service(
+      e,
       new ChatCompletionsClient(async () => {
-        await new Promise<void>((done) => {
-          finish = done;
-        });
-        return reply({ accept: true, reason: 'preference', rationale: '可以巡逻' });
+        await new Promise<void>((r) => (release = r));
+        return result(judgment());
       }),
     );
-    service.pump();
+    runtime.pump();
     await flush();
     issue(e, { type: 'REST', targetId: 'base', duration: 30 }, 'meridian');
-    service.pump();
-    finish!();
+    runtime.pump();
+    release();
     await flush();
-    expect(e.state.admiralTasks[0].status).toBe('cancelled');
+    expect(e.state.objectives[0].status).toBe('interrupted');
     expect(e.state.ships.find((s) => s.id === 'meridian')!.current?.action.type).toBe('REST');
-    service.dispose();
+    runtime.dispose();
   });
-  it('rejects JSON-escaped credentials before they enter any judgment feedback', async () => {
-    const { e, id } = taskEngine();
-    const content = JSON.stringify({
-      accept: true,
-      reason: 'preference',
-      rationale: config.apiKey,
-    }).replace(
+  it('rejects JSON-escaped credentials before judgment feedback', async () => {
+    const { e, id } = taskEngine(),
+      request = e.cognition.prepare(id)!;
+    const escaped = JSON.stringify(judgment('accept', config.apiKey)).replace(
       config.apiKey,
-      Array.from(
-        config.apiKey,
-        (char) => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'),
-      ).join(''),
+      Array.from(config.apiKey, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join(
+        '',
+      ),
     );
     const client = new ChatCompletionsClient(
-      async () => new Response(JSON.stringify({ choices: [{ message: { content } }] })),
+      async () => new Response(JSON.stringify({ choices: [{ message: { content: escaped } }] })),
     );
-    await expect(client.judgeTask(config, e.getObservation(id)!)).rejects.toThrow('凭据');
+    await expect(
+      client.cognize(
+        config,
+        request,
+        e.state.agents.find((a) => a.id === id)!.modelConfig,
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ kind: 'credentials' });
     expect(JSON.stringify(e.state)).not.toContain(config.apiKey);
   });
-  it('sends only task facts with a short schema and preserves the selected model and NONE', async () => {
+  it('sends only judgment facts and its own schema, preserving model and provider-default reasoning', async () => {
     const { e, id } = taskEngine(),
+      request = e.cognition.prepare(id)!,
       bodies: Record<string, unknown>[] = [];
     const client = new ChatCompletionsClient(async (_url, init) => {
-      const body = JSON.parse(String(init?.body));
-      bodies.push(body);
-      return reply(
-        body.messages[0].content.startsWith('TASK_JUDGMENT:')
-          ? { accept: true, reason: 'preference', rationale: '当前状态允许巡逻' }
-          : { goal: '等待', rationale: '没有新情况', action: null },
-      );
+      bodies.push(JSON.parse(String(init?.body)));
+      return result(judgment());
     });
-    const o = e.getObservation(id)!;
-    const d = await client.judgeTask(config, o);
-    await client.decide(config, o);
-    expect(JSON.stringify(bodies[0]).length).toBeLessThan(JSON.stringify(bodies[1]).length / 3);
+    const response = await client.cognize(
+      config,
+      request,
+      e.state.agents.find((a) => a.id === id)!.modelConfig,
+      new AbortController().signal,
+    );
+    expect(request.purpose).toBe('judgment');
+    expect(request.context).not.toHaveProperty('recentChat');
+    expect(request.context).not.toHaveProperty('opportunities');
+    expect(JSON.stringify(request.schema)).not.toContain('"action"');
+    expect(JSON.stringify(request.schema)).not.toContain('"coordination"');
+    expect(JSON.stringify(bodies)).not.toContain('ATTACK_SET');
+    expect(bodies[0].model).toBe('short-model');
     expect(bodies[0]).not.toHaveProperty('reasoning_effort');
-    expect(bodies[0].model).toBe(o.self?.modelConfig.model ?? config.defaultModel);
-    expect(taskJudgmentContext(o)).not.toHaveProperty('recentChat');
-    expect(taskJudgmentContext(o)).not.toHaveProperty('opportunities');
-    expect(d.coordination).toMatchObject({
-      type: 'answerTask',
-      response: 'accept',
-      conditions: [],
+    expect(response).toMatchObject({
+      purpose: 'judgment',
+      decision: { response: 'accept', conditions: [] },
     });
-    expect(d.messages).toMatchObject([
-      { channelId: privateChannel(id), replyTo: e.state.admiralTasks[0].messageId },
-    ]);
-    expect(e.state.chatMessages.some((m) => m.content.includes('等待自主判断'))).toBe(false);
   });
-  it('an actual model refusal cancels the task and gives its reason without executing', async () => {
+  it('a refusal produces one primary reason with zero physical execution or automatic retry', async () => {
     const { e, id } = taskEngine();
     let calls = 0;
-    const service = new AgentDecisionService(
-      {
-        snapshot: () => e.snapshot(),
-        controllerPort: (a) => e.controllerPort(a),
-        command: (c, a) => e.dispatchCommand(c, a),
-        validate: (c, a) => e.validate(c, a),
-      },
-      () => config,
+    const runtime = service(
+      e,
       new ChatCompletionsClient(async () => {
         calls++;
-        return reply({ accept: false, reason: 'fatigue', rationale: '需要先休息' });
+        return result({ ...judgment('reject', '需要先休息'), reason: 'fatigue' });
       }),
     );
-    service.pump();
+    runtime.pump();
     await flush();
     expect(calls).toBe(1);
-    expect(e.state.admiralTasks[0]).toMatchObject({
+    expect(e.state.objectives[0]).toMatchObject({
       consent: 'rejected',
       status: 'cancelled',
       rounds: 0,
     });
     expect(e.state.ships.find((s) => s.id === 'meridian')!.current).toBeNull();
-    expect(e.state.chatMessages.some((m) => m.content === '拒绝任务：需要先休息')).toBe(true);
+    const parent = e.state.chatMessages.find((m) => m.sender === 'commander')!;
+    expect(
+      e.state.chatMessages
+        .filter((m) => m.sender === id && m.replyTo === parent.id)
+        .map((m) => m.content),
+    ).toEqual(['需要先休息']);
     expect(e.state.agents.find((a) => a.id === id)!.decision.lastError).toBeNull();
-    service.pump();
+    runtime.pump();
     await flush();
     expect(calls).toBe(1);
-    service.dispose();
+    runtime.dispose();
   });
-  it('one malformed judgment is corrected without switching to full decisions or negotiations', async () => {
-    const { e, id } = taskEngine();
+  it('repairs one malformed judgment without changing purpose or exposing Actions', async () => {
+    const { e, id } = taskEngine(),
+      request = e.cognition.prepare(id)!;
     let calls = 0;
     const client = new ChatCompletionsClient(async (_url, init) => {
       calls++;
       const body = JSON.parse(String(init?.body));
-      expect(body.messages[0].content).toMatch(/^TASK_JUDGMENT:/);
-      return reply(
-        calls === 1
-          ? { response: 'counter', conditions: [] }
-          : { accept: false, reason: 'risk', rationale: '风险过高' },
+      expect(body.messages[0].content).toMatch(/^TaskJudgment:/);
+      return result(
+        calls === 1 ? { response: 'counter', conditions: [] } : judgment('reject', '风险过高'),
       );
     });
-    const d = await client.judgeTask(config, e.getObservation(id)!);
+    const response = await client.cognize(
+      config,
+      request,
+      e.state.agents.find((a) => a.id === id)!.modelConfig,
+      new AbortController().signal,
+    );
     expect(calls).toBe(2);
-    expect(d.coordination).toMatchObject({ response: 'reject', conditions: [] });
+    expect(response).toMatchObject({
+      purpose: 'judgment',
+      decision: { response: 'reject', conditions: [] },
+    });
   });
 });

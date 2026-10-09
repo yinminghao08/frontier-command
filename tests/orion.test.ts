@@ -1,3 +1,4 @@
+import { runScenario } from './domain-fixtures';
 import { piracyScenario } from './orion-scenarios';
 import { describe, it, expect } from 'vitest';
 import { createWorld, makeEnemy, emptyStock } from '../src/engine/data';
@@ -19,27 +20,8 @@ import { dist } from '../src/engine/navigation';
 import { updateSiteIntel } from '../src/engine/tracking';
 import { makeDirective } from '../src/engine/command-system';
 import { advanceAgents } from '../src/engine/agents';
-import type { AgentDecision } from '../src/engine/types';
 
-const decide = (e: SimulationEngine, id: string, patch: Partial<AgentDecision>) =>
-  e.dispatchCommand(
-    {
-      type: 'agentDecision',
-      agentId: id,
-      revision: e.state.agents.find((a) => a.id === id)!.decision.revision,
-      decision: {
-        goal: '应对实际海盗威胁',
-        rationale: '基于舰载观测请求或提供救援',
-        action: null,
-        messages: [],
-        memory: null,
-        coordination: null,
-        waitMinutes: 30,
-        ...patch,
-      },
-    },
-    id,
-  );
+const decide = runScenario;
 describe('seeded persistent Orion ecology', () => {
   it.each([0, 1, 42, 1701, 236807, 4294967295])(
     'seed %s creates ten dispersed ships and remote hidden real facilities',
@@ -373,15 +355,22 @@ describe('extortion, boarding and actual cargo', () => {
   });
   it('cargo loss updates the loaded directive and finite civilian delivery, including integral ammunition', () => {
     const { e, ship, a } = piracyScenario('manual');
-    const d = makeDirective(e, {
-      type: 'HAUL',
-      sourceId: 'mine',
-      targetId: 'base',
-      cargoKind: 'materials',
-      amount: 200,
-      route: 'direct',
-      repeat: false,
-    });
+    expect(
+      issue(
+        e,
+        {
+          type: 'HAUL',
+          sourceId: 'mine',
+          targetId: 'base',
+          cargoKind: 'materials',
+          amount: 200,
+          route: 'direct',
+          repeat: false,
+        },
+        ship.id,
+      ).ok,
+    ).toBe(true);
+    const d = ship.current!;
     d.carried = 200;
     d.phase = 'delivering';
     ship.current = d;

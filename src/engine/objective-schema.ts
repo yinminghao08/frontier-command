@@ -1,0 +1,74 @@
+import { z } from 'zod';
+import { actionSchema } from './commands';
+import { conditionsSchema, conditionHistorySchema } from './condition-schema';
+import { objectiveGoalSchema } from './agent-runtime/model';
+const id = z.string().min(1).max(160),
+  n = z.number().finite(),
+  integer = n.int().min(0);
+export const objectiveSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    originInteractionId: id,
+    issuerId: id,
+    ownerAgentId: id.nullable(),
+    goal: objectiveGoalSchema,
+    constraints: z.object({ allowWormholes: z.boolean() }).strict(),
+    completionCriteria: z.string().min(1).max(2000),
+    revision: integer,
+    createdAt: n.min(0),
+    updatedAt: n.min(0),
+    originalInstruction: z.string().max(2000),
+    amendments: z
+      .array(
+        z
+          .object({
+            revision: integer,
+            instruction: z.string().min(1).max(2000),
+            goal: objectiveGoalSchema,
+            time: n.min(0),
+          })
+          .strict(),
+      )
+      .default([]),
+    id,
+    agentId: id,
+    messageId: integer,
+    channelId: id,
+    kind: z.enum([
+      'action',
+      'assign',
+      'construction',
+      'surveyRoute',
+      'cancel',
+      'factionAssault',
+      'loadReturn',
+      'salvage',
+    ]),
+    factionId: z.literal('orion').optional(),
+    directiveMode: z.enum(['REPLACE', 'QUEUE', 'INTERRUPT']).optional(),
+    status: z.enum([
+      'active',
+      'blocked',
+      'interrupted',
+      'completed',
+      'completed_partial',
+      'cancelled',
+      'failed',
+    ]),
+    action: actionSchema.nullable(),
+    targetId: id.nullable(),
+    shipId: id.nullable(),
+    facilityKind: z.enum(['mine', 'colony', 'outpost', 'platform']).nullable(),
+    sectors: z.array(z.object({ q: n.int().safe(), r: n.int().safe() }).strict()).max(65),
+    allowWormholes: z.boolean(),
+    reason: z.string().max(2000).nullable(),
+    controlMode: z.enum(['voluntary', 'direct', 'autonomous']),
+    consent: z.enum(['proposed', 'accepted', 'rejected', 'negotiating', 'withdrawn']),
+    conditions: conditionsSchema,
+    conditionHistory: conditionHistorySchema,
+    conditionVersion: integer.positive(),
+    rounds: integer.max(2),
+    turnAgentId: id,
+    creditsApproved: z.boolean(),
+  })
+  .strict();

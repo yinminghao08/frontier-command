@@ -41,6 +41,14 @@ export const actionSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('RETURN') }).strict(),
+  z
+    .object({
+      type: z.literal('LOAD'),
+      sourceId: id,
+      cargoKind: goodsSchema,
+      route: z.enum(['safe', 'direct', 'risky']),
+    })
+    .strict(),
   z.object({ type: z.enum(['ASSIST_EVENT', 'TRANSIT', 'CAPTURE']), targetId: id }).strict(),
   z
     .object({

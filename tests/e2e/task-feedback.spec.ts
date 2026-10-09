@@ -57,12 +57,12 @@ test('Electron short LLM judgments accept immediately, reject with a reason and 
     expect(Date.now() - started).toBeLessThan(5000);
     const judged = provider.requests.slice(before);
     expect(judged).toHaveLength(1);
-    expect(judged[0].messages[0].content).toMatch(/^TASK_JUDGMENT:/);
+    expect(judged[0].messages[0].content).toMatch(/^TaskJudgment:/);
     expect(judged[0]).not.toHaveProperty('reasoning_effort');
     await expect(comm.getByRole('log')).not.toContainText('等待自主判断');
     const first = (await p.evaluate(() => window.frontier.getState())).state;
     expect(first.paused).toBe(true);
-    expect(first.admiralTasks[0].rounds).toBe(0);
+    expect(first.objectives[0].rounds).toBe(0);
     const directive = first.ships.find((s) => s.id === 'meridian')!.current!.id;
     provider.mode = 'refuse';
     await comm.locator('[data-channel-id="frontier-command"]').click();
@@ -71,11 +71,11 @@ test('Electron short LLM judgments accept immediately, reject with a reason and 
     await expect
       .poll(
         async () =>
-          (await p.evaluate(() => window.frontier.getState())).state.admiralTasks.at(-1)?.consent,
+          (await p.evaluate(() => window.frontier.getState())).state.objectives.at(-1)?.consent,
         { timeout: 5000 },
       )
       .toBe('rejected');
-    await expect(comm.getByRole('log')).toContainText('拒绝任务：当前状态不适合执行');
+    await expect(comm.getByRole('log')).toContainText('当前状态不适合执行');
     const rejected = (await p.evaluate(() => window.frontier.getState())).state;
     expect(rejected.ships.find((s) => s.id === 'meridian')!.current!.id).toBe(directive);
     expect(rejected.chatMessages.some((m) => m.content.includes('等待自主判断'))).toBe(false);

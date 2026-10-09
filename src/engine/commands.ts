@@ -1,3 +1,5 @@
+import { cognitionResponseSchema } from './cognition-protocol';
+import { objectiveGoalSchema } from './agent-runtime/model';
 import { z } from 'zod';
 import { agentCareerSchema, modelConfigSchema } from './agent-schema';
 import { activitySchema, conditionsSchema, responseFields } from './condition-schema';
@@ -22,58 +24,6 @@ export {
 const id = z.string().min(1).max(160),
   n = z.number().finite(),
   count = n.int().min(1).max(10000);
-export const agentDecisionSchema = z
-  .object({
-    mode: z.enum(['act', 'continue', 'wait', 'clarify']).optional(),
-    goal: z.string().trim().min(1).max(240),
-    rationale: z.string().trim().min(1).max(600),
-    action: actionSchema.nullable(),
-    messages: z
-      .array(
-        z
-          .object({
-            channelId: id,
-            content: z.string().trim().min(1).max(1200),
-            mentions: z.array(id).max(12).default([]),
-            purpose: z.enum(['information', 'acknowledgement', 'request']).default('information'),
-            replyTo: n.int().positive().nullable().default(null),
-          })
-          .strict(),
-      )
-      .default([]),
-    memory: z.string().trim().min(1).max(300).nullable().default(null),
-    waitMinutes: n.min(5).max(180).default(30),
-    coordination: z
-      .discriminatedUnion('type', [
-        z.object({ type: z.literal('requestEscort'), agentId: id, targetShipId: id }).strict(),
-        z.object({ type: z.literal('answerEscort'), requestId: id, accept: z.boolean() }).strict(),
-        z
-          .object({
-            type: z.literal('requestTask'),
-            kind: z.enum(['escort', 'team', 'reinforce', 'logistics', 'handoff']),
-            agentId: id,
-            action: actionSchema,
-            followUp: actionSchema.nullable(),
-            conditions: conditionsSchema,
-          })
-          .strict(),
-        z.object({ type: z.literal('answerRequest'), requestId: id, ...responseFields }).strict(),
-        z.object({ type: z.literal('answerTask'), taskId: id, ...responseFields }).strict(),
-      ])
-      .nullable()
-      .default(null),
-    social: z
-      .object({
-        type: z.enum(['support', 'disagree', 'mediate', 'compete', 'preference']),
-        messageId: n.int().positive(),
-        agentId: id.nullable(),
-        activity: activitySchema.nullable(),
-      })
-      .strict()
-      .nullable()
-      .optional(),
-  })
-  .strict();
 export const careerSchema = z.enum([
   'battle',
   'science',
@@ -115,6 +65,14 @@ const groupFields = {
 export const commandSchema = z.discriminatedUnion('type', [
   z
     .object({
+      type: z.literal('cognitionDecision'),
+      agentId: id,
+      requestId: id,
+      response: cognitionResponseSchema,
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal('respondPiracy'),
       incidentId: id,
       shipId: id,
@@ -129,7 +87,7 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z
-    .object({ type: z.literal('admiralChatTask'), agentId: id, messageId: n.int().positive() })
+    .object({ type: z.literal('interpretInteraction'), agentId: id, messageId: n.int().positive() })
     .strict(),
   z.object({ type: z.literal('assignAgent'), agentId: id, shipId: id.nullable() }).strict(),
   z
@@ -178,19 +136,10 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('readChat'), channelId: id, throughId: n.int().min(0) }).strict(),
   z
     .object({
-      type: z.literal('agentDecision'),
-      agentId: id,
-      revision: n.int().min(0),
-      observedAt: n.min(0).optional(),
-      decision: agentDecisionSchema,
-    })
-    .strict(),
-  z
-    .object({
       type: z.literal('agentDecisionState'),
       agentId: id,
       revision: n.int().min(0),
-      state: z.enum(['waiting', 'error', 'offline', 'ready']),
+      state: z.enum(['waiting', 'receiving', 'validating', 'error', 'offline', 'ready']),
       error: z.string().max(400).nullable(),
     })
     .strict(),
@@ -205,6 +154,38 @@ export const commandSchema = z.discriminatedUnion('type', [
         .refine((a) => new Set(a).size === a.length),
       mode: z.enum(['REPLACE', 'QUEUE', 'INTERRUPT']),
       action: actionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('submitObjective'),
+      shipId: id,
+      goal: objectiveGoalSchema,
+      authorizationMode: z.enum(['direct', 'voluntary']),
+      instruction: z.string().min(1).max(2000),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('cancelObjective'),
+      objectiveId: id,
+      expectedRevision: n.int().min(0),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('resumeObjective'),
+      objectiveId: id,
+      expectedRevision: n.int().min(0),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('reviseObjective'),
+      objectiveId: id,
+      expectedRevision: n.int().min(0),
+      goal: objectiveGoalSchema,
+      instruction: z.string().min(1).max(2000),
     })
     .strict(),
   z.object({ type: z.literal('cancelDirective'), shipId: id }).strict(),

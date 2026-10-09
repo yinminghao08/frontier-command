@@ -38,7 +38,7 @@ test.afterEach(async () => {
 const state = async (page: Page) => (await page.evaluate(() => window.frontier.getState())).state;
 async function issueUI(page: Page, shipId: string, type: Action['type'], targetId: string) {
   await page.locator('.operation-chip[data-ship-id="' + shipId + '"]').click();
-  await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
+  await page.getByRole('button', { name: /^新指令 \/ 改令/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Admiral 指令' });
   await dialog.getByLabel('指令类型', { exact: true }).selectOption(type);
   await dialog.getByLabel('指令目标', { exact: true }).selectOption(targetId);
@@ -322,7 +322,7 @@ for (const scale of [1.25, 1.5, 2])
       await page.keyboard.press('Escape');
     }
     await page.locator('.operation-chip[data-ship-id="meridian"]').click();
-    await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
+    await page.getByRole('button', { name: /^新指令 \/ 改令/ }).click();
     await expect(page.getByRole('dialog', { name: 'Admiral 指令' })).toContainText(
       'FLEET / ALL OWNED VESSELS 舰队 / 全部己方舰船',
     );

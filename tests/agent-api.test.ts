@@ -1,3 +1,4 @@
+import { askIntent, conversation } from './provider-harness';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
@@ -14,7 +15,7 @@ import { privateChannel } from '../src/engine/chat';
 const config: ConnectionConfig = {
   baseUrl: 'https://compatible.invalid/v1',
   defaultModel: 'default-model',
-  reasoningEffort: 'medium',
+  reasoningEffort: 'provider-default',
   apiKey: 'test-only-secret-never-record',
 };
 const dirs: string[] = [];
@@ -34,59 +35,57 @@ async function flush() {
   for (let i = 0; i < 12; i++) await new Promise<void>((resolve) => setImmediate(resolve));
 }
 describe('Chat Completions compatible transport and protected credentials', () => {
-  it('NONE omits reasoning, per-Agent overrides are independent, unsupported reasoning safely retries once', async () => {
+  it('per-Agent model/thinking/effort are independent; unsupported explicit reasoning never silently changes', async () => {
     const bodies: Record<string, unknown>[] = [];
-    const fetcher: typeof fetch = async (_url, init) => {
-      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      bodies.push(body);
-      if ('reasoning_effort' in body)
-        return new Response(
-          JSON.stringify({
-            error: {
-              message: 'Unsupported parameter: reasoning_effort',
-              param: 'reasoning_effort',
-            },
-          }),
-          { status: 400 },
-        );
-      return response(jsonDecision());
-    };
-    const client = new ChatCompletionsClient(fetcher),
-      e = quietEngine();
+    const client = new ChatCompletionsClient(async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return response(JSON.stringify(conversation()));
+    });
+    const e = quietEngine(),
+      known = { ...config, baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5.1' };
     e.dispatchCommand({
       type: 'configureAgent',
       agentId: 'ops-meridian',
       enabled: true,
-      modelConfig: { model: 'freight-model', reasoningEffort: 'none' },
+      modelConfig: { model: 'gpt-5.1', reasoningEffort: 'provider-default', thinking: 'off' },
     });
     e.dispatchCommand({
       type: 'configureAgent',
       agentId: 'ops-horizon',
       enabled: true,
-      modelConfig: { model: 'tactical-model', reasoningEffort: 'high' },
+      modelConfig: { model: 'gpt-5.2', reasoningEffort: 'high', thinking: 'on' },
     });
-    await client.decide(config, e.getObservation('ops-meridian')!);
-    await client.decide(config, e.getObservation('ops-horizon')!);
-    expect(bodies[0].model).toBe('freight-model');
-    expect(bodies[0]).not.toHaveProperty('reasoning_effort');
-    expect(bodies[1].model).toBe('tactical-model');
-    expect(bodies[1].reasoning_effort).toBe('high');
-    expect(bodies[2]).not.toHaveProperty('reasoning_effort');
+    await askIntent(client, known, e.getObservation('ops-meridian')!);
+    await askIntent(client, known, e.getObservation('ops-horizon')!);
+    expect(bodies[0]).toMatchObject({ model: 'gpt-5.1', reasoning_effort: 'none' });
+    expect(bodies[1]).toMatchObject({ model: 'gpt-5.2', reasoning_effort: 'high' });
+    let requests = 0;
+    const rejected = new ChatCompletionsClient(async () => {
+      requests++;
+      return new Response('unsupported reasoning_effort', { status: 400 });
+    });
+    await expect(askIntent(rejected, known, e.getObservation('ops-horizon')!)).rejects.toThrow(
+      '未改动',
+    );
+    expect(requests).toBe(1);
+    await expect(askIntent(rejected, config, e.getObservation('ops-horizon')!)).rejects.toThrow(
+      /未确认|未知|不支持/,
+    );
+    expect(requests).toBe(1);
     expect(JSON.stringify(bodies)).not.toContain(config.apiKey);
     expect(JSON.stringify(bodies)).not.toContain('initialSeed');
   });
-  it('connectivity test supports response_format and reasoning fallback without exposing provider errors', async () => {
+  it('connectivity only negotiates output format and protects credentials', async () => {
     let count = 0;
     const client = new ChatCompletionsClient(async () => {
       count++;
-      if (count === 1) return new Response('reasoning_effort unsupported', { status: 422 });
-      if (count === 2) return new Response('response_format unsupported', { status: 400 });
+      if (count === 1) return new Response('response_format unsupported', { status: 400 });
       return response('{"ok":true}');
     });
     const result = await client.test(config);
     expect(result.ok).toBe(true);
-    expect(count).toBe(3);
-    expect(result.reason).toContain('兼容省略');
+    expect(count).toBe(2);
+    expect(result.reason).toContain('Thinking/Effort 沿用配置');
     const failing = new ChatCompletionsClient(
       async () => new Response('Provider echoed ' + config.apiKey, { status: 401 }),
     );
@@ -95,7 +94,7 @@ describe('Chat Completions compatible transport and protected credentials', () =
       response(jsonDecision(null, config.apiKey)),
     );
     await expect(
-      echoed.decide(config, quietEngine().getObservation('ops-meridian')!),
+      askIntent(echoed, config, quietEngine().getObservation('ops-meridian')!),
     ).rejects.toThrow('凭据');
     const escapedEcho = new ChatCompletionsClient(
       async () =>
@@ -113,7 +112,7 @@ describe('Chat Completions compatible transport and protected credentials', () =
         ),
     );
     await expect(
-      escapedEcho.decide(config, quietEngine().getObservation('ops-meridian')!),
+      askIntent(escapedEcho, config, quietEngine().getObservation('ops-meridian')!),
     ).rejects.toThrow('凭据');
   });
   it('rejects illegal JSON/schema/oversized responses and permits explicit cancellation of a hung provider', async () => {
@@ -124,18 +123,18 @@ describe('Chat Completions compatible transport and protected credentials', () =
       '{"goal":"x","rationale":"y","action":null,"seed":4}',
     ]) {
       await expect(
-        new ChatCompletionsClient(async () => response(output)).decide(config, obs),
-      ).rejects.toThrow(/JSON|schema/);
+        askIntent(new ChatCompletionsClient(async () => response(output)), config, obs),
+      ).rejects.toThrow(/JSON|格式/);
     }
     await expect(
-      new ChatCompletionsClient(async () => response('x'.repeat(130000))).decide(config, obs),
+      askIntent(new ChatCompletionsClient(async () => response('x'.repeat(130000))), config, obs),
     ).rejects.toThrow('过大');
     const hung: typeof fetch = async (_url, init) =>
       new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(Error('aborted')), { once: true });
       });
     const controller = new AbortController();
-    const pending = new ChatCompletionsClient(hung).decide(config, obs, controller.signal);
+    const pending = askIntent(new ChatCompletionsClient(hung), config, obs, controller.signal);
     controller.abort();
     await expect(pending).rejects.toThrow('取消');
   });
@@ -187,7 +186,7 @@ describe('Chat Completions compatible transport and protected credentials', () =
   });
 });
 describe('asynchronous decision nodes, real chat influence and late-result authority', () => {
-  it('calls only at decision nodes, keeps simulation moving while pending, and applies model-selected actions from private chat', async () => {
+  it('player conversation stays one flight while simulation advances and creates no unrequested physical task', async () => {
     const e = quietEngine();
     e.state.agents.find((a) => a.id === 'ops-horizon')!.enabled = false;
     let calls = 0,
@@ -196,22 +195,14 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
       calls++;
       const body = JSON.parse(String(init?.body));
       const observation = JSON.parse(body.messages[1].content);
-      await new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      return response(
-        jsonDecision(
-          observation.recentChat.some((m: { content: string }) => m.content.includes('休息'))
-            ? { type: 'DOCK', targetId: 'base' }
-            : { type: 'PATROL', targetId: 'mine', duration: 30 },
-          '根据 Admiral 私聊选择休息',
-        ),
-      );
+      expect(observation.input).toContain('休息');
+      await new Promise<void>((r) => (release = r));
+      return response(JSON.stringify(conversation('我会结合舰况考虑休息安排。')));
     };
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,
@@ -232,8 +223,8 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     expect(calls).toBe(1);
     release!();
     await flush();
-    expect(e.state.ships.find((s) => s.id === 'meridian')!.current?.action.type).toBe('DOCK');
-    expect(e.state.agents[1].currentGoal).toContain('私聊');
+    expect(e.state.ships.find((s) => s.id === 'meridian')!.current).toBeNull();
+    expect(e.state.objectives).toHaveLength(0);
     expect(e.state.agents[1].memory.some((m) => m.summary.includes('休息'))).toBe(true);
     service.dispose();
   });
@@ -261,12 +252,18 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,
       client,
     );
+    e.dispatchCommand({
+      type: 'sendChat',
+      channelId: privateChannel('ops-meridian'),
+      content: '计划从矿场运输到基地，请完整评估。',
+      mentions: [],
+    });
     service.pump();
     expect(e.state.agents[1].status).toBe('waiting');
     issue(e, { type: 'MOVE', point: { x: 0, y: 0 } }, 'meridian');
@@ -277,7 +274,7 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     service.dispose();
     expect(e.state.chatMessages.some((m) => m.content.includes('执行 HAUL'))).toBe(false);
   });
-  it('errors become private communications, keep valid saves, and can be retried without a tick storm', async () => {
+  it('errors update waiting state without duplicate chat and explicit retry has no tick storm', async () => {
     const e = quietEngine();
     e.state.agents[0].enabled = false;
     e.state.paused = false;
@@ -287,22 +284,28 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
       return response(
         calls <= 3
           ? 'broken JSON'
-          : jsonDecision({ type: 'PATROL', targetId: 'mine', duration: 10 }),
+          : JSON.stringify({
+              opportunityId: null,
+              riskPreference: 'cautious',
+              reason: '没有新目标，等待。',
+            }),
       );
     });
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,
       client,
     );
+    e.dispatchCommand({ type: 'retryAgent', agentId: 'ops-meridian' });
     service.pump();
     await flush();
     expect(e.state.agents[1].status).toBe('error');
-    expect(e.state.chatMessages.at(-1)?.kind).toBe('error');
+    expect(e.state.chatMessages.filter((m) => m.kind === 'error')).toHaveLength(0);
+    expect(e.state.agents[1].decision.lastError).toBeTruthy();
     run(e, 1);
     for (let i = 0; i < 30; i++) service.pump();
     expect(calls).toBe(2);
@@ -311,7 +314,7 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     service.pump();
     await flush();
     expect(calls).toBe(4);
-    expect(e.state.agents[1].status).toBe('executing');
+    expect(e.state.agents[1].status).toBe('online');
     service.dispose();
   });
 });

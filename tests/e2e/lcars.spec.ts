@@ -106,7 +106,7 @@ test('Classic geometry, eight Starbase modules, directives and Inspector at six 
   await page.locator('.operation-chip').filter({ hasText: 'VERITY' }).click();
   await expect(page.locator('.inspector')).toContainText('舰队司令拥有最终指挥权');
   await screenshot(page, 'v9-ship');
-  await page.getByRole('button', { name: '新指令 / 改令', exact: true }).click();
+  await page.getByRole('button', { name: /^新指令 \/ 改令/ }).click();
   await expect(page.getByRole('dialog', { name: 'Admiral 指令' })).toBeVisible();
   await screenshot(page, 'v9-directive');
   await page.keyboard.press('Escape');

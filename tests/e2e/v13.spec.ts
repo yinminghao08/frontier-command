@@ -47,7 +47,7 @@ async function configure(p: Page, url: string) {
   await settings.getByLabel('Agent API Base URL').fill(url);
   await settings.getByLabel('Agent API Key').fill('local-v13-e2e-key');
   await settings.getByLabel('Agent 默认模型').fill('v13-local-model');
-  await settings.getByLabel('Agent 默认推理').selectOption('none');
+  await settings.getByLabel('Agent 默认推理').selectOption('provider-default');
   await settings.getByRole('button', { name: '保存 Agent API', exact: true }).click();
   await expect(settings.locator('.api-test-success')).toContainText('系统加密');
   await settings.getByRole('button', { name: '关闭面板', exact: true }).click();
@@ -72,7 +72,17 @@ test('v13 complete model/engine chain: conditional escort, escrow, restart, real
   p.on('pageerror', (error) => errors.push(error.message));
   expect((await state(p)).escortRequests).toEqual([]);
   await configure(p, url);
+  await p.evaluate(() =>
+    window.frontier.command({
+      type: 'sendChat',
+      channelId: 'private:ops-meridian',
+      content: '请评估当前矿场40材料运输与护航风险。',
+      mentions: [],
+      controlMode: 'voluntary',
+    }),
+  );
   await wait(p, (w) => w.escortRequests.some((r) => r.status === 'awaitingApproval'));
+  provider!.mode = 'semantic';
   let comm = await chat(p);
   await comm.getByRole('button', { name: 'REQUESTS / 待处理请求', exact: true }).click();
   const request = (await state(p)).escortRequests[0];
@@ -113,7 +123,12 @@ test('v13 complete model/engine chain: conditional escort, escrow, restart, real
   );
   comm = await chat(p);
   await comm.locator('[data-channel-id="system-reports"]').click();
-  await expect(comm.getByRole('log')).toContainText('HAUL 完成');
+  expect(
+    done.agentRuntime.tasks.some(
+      (task) => task.status === 'completed' && task.progress.delivered.materials === 40,
+    ),
+  ).toBe(true);
+  await expect(comm.getByRole('log')).toContainText('承诺兑现');
   await expect(comm.getByLabel('通讯消息')).toHaveCount(0);
   await expect(comm).toContainText('不调用模型');
   await p.screenshot({ path: join(output, 'system-reports.png') });
@@ -165,7 +180,7 @@ test('v13 voluntary proposal waits; request view direct takeover executes with z
   await comm.locator('[data-channel-id="private:ops-horizon"]').click();
   await comm.getByLabel('通讯消息').fill('巡逻基地 5 分钟');
   await comm.getByRole('button', { name: 'SEND / 发送', exact: true }).click();
-  await wait(p, (w) => w.admiralTasks[0]?.consent === 'proposed');
+  await wait(p, (w) => w.objectives[0]?.consent === 'proposed');
   expect((await state(p)).ships.find((s) => s.id === 'horizon')!.current).toBeNull();
   const trust = (await state(p)).agents.find((a) => a.id === 'ops-horizon')!.trust;
   await comm.getByRole('button', { name: 'REQUESTS / 待处理请求', exact: true }).click();
@@ -173,7 +188,7 @@ test('v13 voluntary proposal waits; request view direct takeover executes with z
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: false }));
   await wait(p, (w) => w.ships.find((s) => s.id === 'horizon')?.current?.controlMode === 'direct');
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
-  expect((await state(p)).agents.find((a) => a.id === 'ops-horizon')!.trust).toBeLessThan(trust);
+  expect((await state(p)).agents.find((a) => a.id === 'ops-horizon')!.trust).toBe(trust);
   expect((await p.evaluate(() => window.frontier.agentRuntime())).requests).toBe(0);
   await p.screenshot({ path: join(output, 'direct-takeover.png') });
 });
@@ -195,10 +210,20 @@ test('unlimited model calls finish repairs immediately, ignore old quotas and re
   const url = await provider.start();
   let p = await launch(dir);
   await configure(p, url);
+  await p.evaluate(async () => {
+    for (const agentId of ['ops-meridian', 'ops-horizon'])
+      await window.frontier.command({
+        type: 'sendChat',
+        channelId: 'private:' + agentId,
+        content: '你好',
+        mentions: [],
+        controlMode: 'voluntary',
+      });
+  });
   await wait(p, (w) => w.agents.every((a) => a.status === 'error'));
   let stats = await p.evaluate(() => window.frontier.agentRuntime());
-  expect(stats.requests).toBe(6);
-  expect(stats.repairs).toBe(4);
+  expect(stats.requests).toBe(4);
+  expect(stats.repairs).toBe(2);
   expect(stats.failures).toBe(2);
   expect(stats.concurrency).toBe(0);
   expect(stats).not.toHaveProperty('queued');
@@ -210,7 +235,7 @@ test('unlimited model calls finish repairs immediately, ignore old quotas and re
     await wait(p, (w) => w.agents.find((a) => a.id === 'ops-meridian')?.status === 'error');
   }
   stats = await p.evaluate(() => window.frontier.agentRuntime());
-  expect(stats.requests).toBe(21);
+  expect(stats.requests).toBe(14);
   expect(Date.now() - started).toBeLessThan(15000);
   expect(provider.requests.every((r) => !('reasoning_effort' in r))).toBe(true);
   await p.evaluate(async () => {
@@ -218,13 +243,13 @@ test('unlimited model calls finish repairs immediately, ignore old quotas and re
     await window.frontier.command({ type: 'pause', paused: false });
   });
   await p.waitForTimeout(1700);
-  expect(provider.requests).toHaveLength(21);
+  expect(provider.requests).toHaveLength(14);
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
   await p.getByRole('button', { name: 'Console Settings', exact: true }).click();
   const settings = p.getByRole('dialog', { name: '控制台设置' });
   await expect(settings.getByLabel('全局请求上限')).toHaveCount(0);
   await expect(settings.getByLabel('Agent 请求上限')).toHaveCount(0);
-  await expect(settings.getByTestId('agent-usage')).toContainText('本次运行请求 21');
+  await expect(settings.getByTestId('agent-usage')).toContainText('本次运行请求 14');
   await settings.getByTestId('agent-usage').scrollIntoViewIfNeeded();
   await expect(settings.getByTestId('agent-usage')).toBeInViewport();
   await p.screenshot({ path: join(output, 'unlimited-call-stats.png'), animations: 'disabled' });
@@ -300,7 +325,7 @@ test('v14 starts independently from an isolated old fixture and preserves files 
   );
   let p = await launch(dir);
   const before = await state(p);
-  expect(before.version).toBe(15);
+  expect(before.version).toBe(16);
   expect(before.escortRequests).toEqual([]);
   expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(original);
   await p.evaluate(() => window.frontier.save());
@@ -345,7 +370,7 @@ test('v13 request/report/composer and Agent psychology remain reachable at 1366/
     await expect(comm.getByRole('button', { name: 'SEND / 发送', exact: true })).toBeInViewport();
     await comm.getByLabel('通讯消息').fill('@Talia 巡逻基地 5 分钟');
     await comm.getByRole('button', { name: 'SEND / 发送', exact: true }).click();
-    await wait(p, (w) => w.admiralTasks.some((t) => t.consent === 'proposed'));
+    await wait(p, (w) => w.objectives.some((t) => t.consent === 'proposed'));
     await comm.getByRole('button', { name: 'REQUESTS / 待处理请求', exact: true }).click();
     const takeover = comm.getByRole('button', { name: '直接接管', exact: true }).last();
     await takeover.scrollIntoViewIfNeeded();

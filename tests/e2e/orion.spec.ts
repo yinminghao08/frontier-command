@@ -15,7 +15,7 @@ import { makeLocation } from '../../src/engine/data';
 import { AgentTestProvider } from './agent-provider';
 import type { Snapshot } from '../../src/engine/types';
 let app: ElectronApplication | undefined, provider: AgentTestProvider | undefined;
-const output = resolve('docs/verification/v14');
+const output = resolve('.test-data/verification/v16/orion');
 const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(dir: string, width = 1366, height = 900) {
   app = await electron.launch({
@@ -58,13 +58,14 @@ function scene(enableAgents = false) {
   e.state.locations.push(
     makeLocation('rescue-refuge', 'RESCUE REFUGE', 'outpost', { x: 420, y: 1200 }),
   );
+  for (const a of e.state.agents) {
+    a.enabled = enableAgents;
+    a.modelConfig.reasoningEffort = 'provider-default';
+  }
   until(e, () => e.state.piracyIncidents.length > 0, 5);
   e.state.paused = true;
   e.state.speed = 16;
-  for (const a of e.state.agents) {
-    a.enabled = enableAgents;
-    a.modelConfig.reasoningEffort = 'none';
-  }
+
   return e.state;
 }
 test.afterEach(async () => {
@@ -78,7 +79,7 @@ test('Electron v14: real new-game reconnaissance, natural freight and private Or
   mkdirSync(output, { recursive: true });
   const dir = mkdtempSync(join(tmpdir(), 'frontier-orion-new-')),
     p = await launch(dir);
-  expect((await state(p)).version).toBe(15);
+  expect((await state(p)).version).toBe(16);
   const r = await p.evaluate(() =>
     window.frontier.command({
       type: 'issueDirective',

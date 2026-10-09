@@ -1,11 +1,13 @@
+import { conversation } from './provider-harness';
+import type { CognitionResponse, ObjectiveProposal } from '../src/engine/cognition-protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
-import { quietEngine, issue, run, until } from './helpers';
+import { quietEngine, issue, run, until, v14Fixture } from './helpers';
 import { makeEnemy } from '../src/engine/data';
 import { updateSensors } from '../src/engine/sensors';
-import { compileAdmiralIntent } from '../src/engine/admiral-intent';
+import { compileIntent, resolveProposal } from '../src/engine/intent-gateway';
 import { privateChannel } from '../src/engine/chat';
 import { parseSave } from '../src/engine/saves';
 import { SimulationEngine } from '../src/engine/engine';
@@ -40,7 +42,7 @@ function service(e: SimulationEngine, client: ChatCompletionsClient) {
   return new AgentDecisionService(
     {
       snapshot: () => e.snapshot(),
-      controllerPort: (id) => e.controllerPort(id),
+      cognitionPort: (id) => e.cognitionPort(id),
       command: (c, id) => e.dispatchCommand(c, id),
       validate: (c, id) => e.validate(c, id),
     },
@@ -53,6 +55,7 @@ function send(
   id: string,
   content: string,
   mode: 'direct' | 'voluntary' = 'direct',
+  decision?: Extract<CognitionResponse, { purpose: 'intent' }>['decision'],
 ) {
   expect(
     e.dispatchCommand({
@@ -66,9 +69,20 @@ function send(
   const message = [...e.state.chatMessages]
     .reverse()
     .find((m) => m.sender === e.state.commander.id)!;
-  expect(
-    e.dispatchCommand({ type: 'admiralChatTask', agentId: id, messageId: message.id }).ok,
-  ).toBe(true);
+  if (decision) {
+    const ticket = e.cognition.prepare(id)!;
+    expect(
+      e.dispatchCommand(
+        {
+          type: 'cognitionDecision',
+          agentId: id,
+          requestId: ticket.requestId,
+          response: { purpose: 'intent', decision },
+        },
+        id,
+      ).ok,
+    ).toBe(true);
+  }
   return message;
 }
 function targets(e: SimulationEngine) {
@@ -104,21 +118,34 @@ describe('v15 actual commands and feedback', () => {
       e,
       new ChatCompletionsClient(async (_url, init) => {
         bodies.push(String(init?.body));
-        return response({
-          accept: true,
-          reason: 'preference',
-          rationale: '舰况允许',
-          reply: '我会持续清剿已知 Orion，确认战果后继续。',
-        });
+        const purpose = JSON.parse(String(init?.body)).messages[0].content as string;
+        return response(
+          purpose.startsWith('Intent:')
+            ? {
+                disposition: 'propose',
+                proposal: { kind: 'factionAssault', factionId: 'orion' },
+                objectiveId: null,
+                allowWormholes: true,
+                reply: '计划清剿已知 Orion。',
+              }
+            : {
+                response: 'accept',
+                reason: 'preference',
+                reply: '我会持续清剿已知 Orion，确认战果后继续。',
+                conditions: [],
+              },
+        );
       }),
     );
     svc.pump();
     await flush();
-    expect(bodies).toHaveLength(1);
-    expect(Buffer.byteLength(bodies[0])).toBeLessThan(12000);
-    expect(bodies[0]).toContain('TASK_JUDGMENT:');
+    svc.pump();
+    await flush();
+    expect(bodies).toHaveLength(2);
+    expect(Buffer.byteLength(bodies[1])).toBeLessThan(Buffer.byteLength(bodies[0]));
+    expect(bodies[1]).toContain('TaskJudgment:');
     expect(bodies[0]).not.toContain('完整 JSON Schema');
-    const task = e.state.admiralTasks[0];
+    const task = e.state.objectives[0];
     expect(task.kind).toBe('factionAssault');
     expect({
       task,
@@ -132,14 +159,22 @@ describe('v15 actual commands and feedback', () => {
       e.state.chatMessages.some(
         (m) =>
           m.channelId === privateChannel(battle) &&
-          m.origin === 'agent' &&
+          m.sender === battle &&
           m.replyTo === task.messageId,
       ),
     ).toBe(true);
     until(e, () => e.state.enemies.length === 0, 120);
     run(e, 1);
     expect(task.status).toBe('blocked');
-    expect(e.state.chatMessages.some((m) => m.content.includes('实际开火'))).toBe(true);
+    expect(
+      e.state.agentRuntime.events.some(
+        (event) =>
+          event.type === 'directiveProgress' &&
+          event.payload.phase.startsWith('fired:') &&
+          event.objectiveId === task.id,
+      ),
+    ).toBe(true);
+    expect(e.state.chatMessages.some((m) => m.content.includes('实际开火'))).toBe(false);
     const enemy = makeEnemy('orion-test-new', 'raider', 'orion', { x: 40, y: 0 });
     enemy.weapons = 0;
     enemy.engines = 0;
@@ -186,10 +221,10 @@ describe('v15 actual commands and feedback', () => {
       e,
       new ChatCompletionsClient(async () =>
         response({
-          accept: true,
+          response: 'accept',
           reason: 'preference',
-          rationale: '可以改变计划',
           reply: '改为巡逻基地。',
+          conditions: [],
         }),
       ),
     );
@@ -221,7 +256,21 @@ describe('v15 actual commands and feedback', () => {
     );
     until(e, () => ship.cargo.materials === 50);
     run(e, 1);
-    const m = send(e, freight, '运输直接装满货仓，立即执行！');
+    const m = send(e, freight, '运输直接装满货仓，立即执行！', 'direct', {
+      disposition: 'revise',
+      proposal: {
+        kind: 'transport',
+        sourceId: 'mine',
+        destinationId: 'base',
+        cargoKind: 'materials',
+        amount: null,
+        repeat: false,
+        route: 'safe',
+      },
+      objectiveId: ship.current!.objectiveId!,
+      allowWormholes: true,
+      reply: '保留原任务与已装货物，追加装满后交付。',
+    });
     expect(e.state.chatMessages.some((r) => r.id > m.id && r.content.includes('请明确货物'))).toBe(
       false,
     );
@@ -256,7 +305,15 @@ describe('v15 actual commands and feedback', () => {
       ),
     ).toMatchObject({ amount: 600, loadPolicy: 'auto' });
     expect(
-      compileAdmiralIntent(o, { content: '从 mine 运送 50 材料到 base' }).intent?.action,
+      resolveProposal(o, {
+        kind: 'transport',
+        sourceId: 'mine',
+        destinationId: 'base',
+        cargoKind: 'materials',
+        amount: 50,
+        repeat: false,
+        route: 'safe',
+      }).action,
     ).toMatchObject({ amount: 50, loadPolicy: 'fixed' });
   });
   it('an amendment inherits the real route and cargo while explicit new parameters override it', () => {
@@ -275,9 +332,30 @@ describe('v15 actual commands and feedback', () => {
       'meridian',
     );
     const o = e.getObservation(freight)!;
-    expect(
-      compileAdmiralIntent(o, { content: '运输直接装满货仓，立即执行' }).intent?.action,
-    ).toMatchObject({
+    expect(compileIntent(o, { content: '运输直接装满货仓，立即执行' }).intent).toBeNull();
+    const original = o.objectiveContext.find(
+      (task) => task.goal.kind === 'operation' && task.goal.action.type === 'HAUL',
+    )!;
+    expect(original.goal).toMatchObject({
+      kind: 'operation',
+      action: { sourceId: 'mine', targetId: 'base', cargoKind: 'quantum', route: 'risky' },
+    });
+    send(e, freight, '运输直接装满货仓，立即执行', 'direct', {
+      disposition: 'revise',
+      proposal: {
+        kind: 'transport',
+        sourceId: 'mine',
+        destinationId: 'base',
+        cargoKind: 'quantum',
+        amount: null,
+        repeat: false,
+        route: 'risky',
+      },
+      objectiveId: original.id,
+      allowWormholes: true,
+      reply: '继承真实路线、货物与目标。',
+    });
+    expect(e.state.ships.find((s) => s.id === 'meridian')!.current?.action).toMatchObject({
       sourceId: 'mine',
       targetId: 'base',
       cargoKind: 'quantum',
@@ -285,16 +363,27 @@ describe('v15 actual commands and feedback', () => {
       loadPolicy: 'auto',
     });
     expect(
-      compileAdmiralIntent(o, { content: '从base运输50光子到mine，走安全路线' }).intent?.action,
-    ).toMatchObject({
-      sourceId: 'base',
-      targetId: 'mine',
-      cargoKind: 'photon',
-      amount: 50,
-      route: 'safe',
-      loadPolicy: 'fixed',
-    });
-    expect(compileAdmiralIntent(o, { content: '从未知地点运输到基地' }).clarification).toBeTruthy();
+      resolveProposal(e.getObservation(freight)!, {
+        kind: 'transport',
+        sourceId: 'base',
+        destinationId: 'mine',
+        cargoKind: 'photon',
+        amount: 50,
+        repeat: false,
+        route: 'safe',
+      }).action,
+    ).toMatchObject({ cargoKind: 'photon', amount: 50, route: 'safe', loadPolicy: 'fixed' });
+    expect(() =>
+      resolveProposal(e.getObservation(freight)!, {
+        kind: 'transport',
+        sourceId: 'unknown',
+        destinationId: 'base',
+        cargoKind: 'materials',
+        amount: 50,
+        repeat: false,
+        route: 'safe',
+      }),
+    ).toThrow('设施');
   });
   it('queued cargo cannot copy the current manifest and an immediate smaller order preserves the leftover goods', () => {
     const e = quietEngine(),
@@ -365,21 +454,16 @@ describe('v15 actual commands and feedback', () => {
       new ChatCompletionsClient(async (_url, init) => {
         calls++;
         bodies.push(String(init?.body));
-        return response(
-          calls === 1 ? { bad: true } : { goal: '等待', rationale: '当前没有新目标', action: null },
-        );
+        return response(calls === 1 ? { bad: true } : conversation('当前没有新目标'));
       }),
     );
     svc.pump();
     await flush();
     expect(bodies).toHaveLength(2);
     for (const body of bodies) {
-      expect(Buffer.byteLength(body)).toBeLessThan(12000);
-      expect(
-        JSON.parse(JSON.parse(body).messages[1].content).recentChat.some(
-          (m: { content: string }) => m.content === content,
-        ),
-      ).toBe(true);
+      expect(JSON.parse(JSON.parse(body).messages[1].content).input).toBe(content);
+      expect(body).not.toContain('actionExamples');
+      expect(body).not.toContain(config.apiKey);
     }
     svc.dispose();
   });
@@ -552,7 +636,7 @@ describe('v15 actual commands and feedback', () => {
     run(e, 30);
     expect(a.psychology.resentment - resentment).toBeCloseTo(3, 2);
     expect(workWillingness(a)).toBeLessThan(ready);
-    const events = a.decision.events.filter((v) => v.id === 'state:fatigue80');
+    const events = a.decision.events.filter((v) => v.id === 'danger:fatigue80');
     expect(events).toHaveLength(1);
   });
   it('waiting safely for stock is idle and a disabled or unconfigured Agent still answers every addressed message', async () => {
@@ -610,7 +694,7 @@ describe('v15 actual commands and feedback', () => {
     e.dispatchCommand({
       type: 'sendChat',
       channelId: privateChannel(battle),
-      content: '现在情况如何？',
+      content: '你是谁？',
       mentions: [],
     });
     const msg = [...e.state.chatMessages].reverse().find((m) => m.sender === e.state.commander.id)!;
@@ -618,7 +702,7 @@ describe('v15 actual commands and feedback', () => {
       e,
       new ChatCompletionsClient(async (_url, init) => {
         body = String(init?.body);
-        return response({ goal: '等待', rationale: '目前舰况良好', action: null });
+        return response({ content: '我是 Talia，会结合舰况与偏好判断。', purpose: 'information' });
       }, tracker),
     );
     svc.pump();
@@ -627,7 +711,7 @@ describe('v15 actual commands and feedback', () => {
     expect(msg.responses?.[battle]).toBe('replied');
     expect(
       e.state.chatMessages.some(
-        (m) => m.origin === 'agent' && m.replyTo === msg.id && m.channelId === msg.channelId,
+        (m) => m.sender === battle && m.replyTo === msg.id && m.channelId === msg.channelId,
       ),
     ).toBe(true);
     expect(tracker.stats().recentRequests[0]).toMatchObject({
@@ -637,7 +721,7 @@ describe('v15 actual commands and feedback', () => {
     expect(JSON.stringify(tracker.stats())).not.toContain(config.apiKey);
     svc.dispose();
   });
-  it('state changes merge behind a player reply and trigger one subsequent decision during direct work', async () => {
+  it('low-value fatigue changes refresh state behind a player reply without another model request', async () => {
     const e = quietEngine();
     e.state.agents.find((a) => a.id === freight)!.enabled = false;
     const a = e.state.agents.find((a) => a.id === battle)!;
@@ -658,11 +742,7 @@ describe('v15 actual commands and feedback', () => {
         calls++;
         bodies.push(String(init?.body));
         if (calls === 1) await new Promise<void>((done) => (release = done));
-        return response({
-          goal: '继续巡逻并关注疲劳',
-          rationale: '按真实状态重新判断',
-          action: null,
-        });
+        return response(conversation('继续已接受目标并关注真实状态。'));
       }),
     );
     svc.pump();
@@ -676,16 +756,12 @@ describe('v15 actual commands and feedback', () => {
     await flush();
     svc.pump();
     await flush();
-    expect(calls).toBe(2);
-    const second = JSON.parse(JSON.parse(bodies[1]).messages[1].content);
-    expect(second.self.fatigue).toBeGreaterThan(50);
-    expect(second.self.decision.events.some((v: { kind: string }) => v.kind === 'state')).toBe(
-      true,
-    );
+    expect(calls).toBe(1);
+    expect(a.fatigue).toBeGreaterThan(50);
     run(e, 5);
     svc.pump();
     await flush();
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
     expect(() => parseSave(e.state)).not.toThrow();
     svc.dispose();
   });
@@ -711,15 +787,18 @@ describe('v15 actual commands and feedback', () => {
       decision: e.state.agents.find((a) => a.id === battle)!.decision,
     }).toMatchObject({ responses: { [battle]: 'cancelled' } });
     expect(
-      e.state.chatMessages.some((m) => m.replyTo === msg.id && m.content.includes('取消')),
+      e.state.agentRuntime.replies.some(
+        (r) => r.sourceMessageId === msg.id && r.phase === 'cancelled',
+      ),
     ).toBe(true);
+    expect(
+      e.state.chatMessages.filter((m) => m.replyTo === msg.id && m.sender === battle),
+    ).toHaveLength(0);
     svc.dispose();
     e.dispatchCommand({ type: 'retryAgent', agentId: battle, messageId: msg.id });
     const next = service(
       e,
-      new ChatCompletionsClient(async () =>
-        response({ goal: '等待', rationale: '已恢复通讯', action: null }),
-      ),
+      new ChatCompletionsClient(async () => response(conversation('已恢复通讯'))),
     );
     next.pump();
     await flush();
@@ -762,7 +841,7 @@ describe('v15 actual commands and feedback', () => {
     const dir = mkdtempSync(join(tmpdir(), 'frontier-v15-migration-'));
     dirs.push(dir);
     const w = quietEngine().state;
-    const old = { ...w, version: 14, agents: w.agents.map(({ stateDynamics: _, ...a }) => a) };
+    const old = v14Fixture(w);
     const bytes = JSON.stringify(old),
       root = join(dir, 'frontiers-v14', 'frontier-000001');
     mkdirSync(root, { recursive: true });
@@ -777,20 +856,20 @@ describe('v15 actual commands and feedback', () => {
       }),
     );
     const store = new SaveStore(dir);
-    expect(store.read().world?.version).toBe(15);
+    expect(store.read().world?.version).toBe(16);
     expect(store.read().world?.history).toEqual(w.history);
     for (const name of ['head.json', 'head.json.bak', 'day-1.json']) {
       expect(readFileSync(join(root, name), 'utf8')).toBe(bytes);
       expect(
         JSON.parse(readFileSync(join(store.root, 'frontier-000001', name), 'utf8')).version,
-      ).toBe(15);
+      ).toBe(16);
     }
   });
   it('a migration with a corrupt day publishes nothing and can be retried after repairing the old file', () => {
     const dir = mkdtempSync(join(tmpdir(), 'frontier-v15-migration-error-'));
     dirs.push(dir);
     const w = quietEngine().state,
-      old = { ...w, version: 14, agents: w.agents.map(({ stateDynamics: _, ...a }) => a) },
+      old = v14Fixture(w),
       bytes = JSON.stringify(old),
       root = join(dir, 'frontiers-v14', 'frontier-000001');
     mkdirSync(root, { recursive: true });
@@ -805,15 +884,15 @@ describe('v15 actual commands and feedback', () => {
       }),
     );
     expect(new SaveStore(dir).read().blocked).toBe(true);
-    expect(existsSync(join(dir, 'timeline-v15.json'))).toBe(false);
+    expect(existsSync(join(dir, 'timeline-v16.json'))).toBe(false);
     expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(bytes);
     writeFileSync(join(root, 'day-1.json'), bytes);
     const recovered = new SaveStore(dir);
-    expect(recovered.read().world?.version).toBe(15);
-    const index = readFileSync(join(dir, 'timeline-v15.json'), 'utf8');
-    writeFileSync(join(recovered.root, '.migration-v15.json'), index);
-    rmSync(join(dir, 'timeline-v15.json'));
-    expect(new SaveStore(dir).read().world?.version).toBe(15);
+    expect(recovered.read().world?.version).toBe(16);
+    const index = readFileSync(join(dir, 'timeline-v16.json'), 'utf8');
+    writeFileSync(join(recovered.root, '.migration-v16.json'), index);
+    rmSync(join(dir, 'timeline-v16.json'));
+    expect(new SaveStore(dir).read().world?.version).toBe(16);
     expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(bytes);
   });
 });

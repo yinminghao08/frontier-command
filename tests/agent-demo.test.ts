@@ -44,14 +44,14 @@ describe('fixed-seed v13 autonomous collaboration demo', () => {
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
         validate: (c, id) => e.validate(c, id),
       },
       () => ({
         baseUrl,
         defaultModel: 'fixture-v13',
-        reasoningEffort: 'none',
+        reasoningEffort: 'provider-default',
         apiKey: 'isolated-demo-key',
       }),
       new ChatCompletionsClient(fetch, budget),
@@ -106,7 +106,12 @@ describe('fixed-seed v13 autonomous collaboration demo', () => {
         e.state.agents.find((a) => a.id === 'ops-meridian')!.relationships['ops-horizon'].trust,
       ).toBe(56);
       expect(
-        e.state.chatMessages.some((m) => m.sender === 'system' && m.content.includes('HAUL 完成')),
+        e.state.agentRuntime.tasks.some(
+          (task) =>
+            task.status === 'completed' &&
+            e.state.objectives.find((o) => o.id === task.objectiveId)?.goal.kind === 'operation' &&
+            task.progress.delivered.materials === 40,
+        ),
       ).toBe(true);
       expect(e.state.agents.some((a) => a.originPersonnelId)).toBe(true);
       e.state.paused = true;

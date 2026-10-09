@@ -1,9 +1,15 @@
+import { assignmentView,bindAssignment } from './assignment';
+import { z } from 'zod';
 import { worldSchema } from './save-schema';
 import type { WorldState, Objective } from './types';
 import { worldSchema as v14Schema } from './legacy-v14/save-schema';
 import { worldSchema as v15Schema } from './legacy-v15/save-schema';
 import { freshAgentDynamics } from './definitions/agents';
 import { createTask, criterionFor, freshRuntime, type ObjectiveGoal } from './agent-runtime/model';
+function restoreAssignments(world:z.infer<typeof worldSchema>):WorldState {
+  const agents=world.agents.map(agent=>assignmentView(world,agent));
+  const restored={...world,agents};for(const agent of agents)bindAssignment(restored,agent);return restored;
+}
 export const CURRENT_SAVE_VERSION = 16;
 export class UnsupportedSaveVersionError extends Error {}
 /** Frozen validation precedes migration. No inventory, XP or reward is replayed. */
@@ -30,7 +36,7 @@ export function parseSave(input: unknown): WorldState {
       else throw Error('Legacy objective has no provable parameters');
       const message=old.chatMessages.find(m=>m.id===t.messageId)!;
       const objective: Objective={...t,goal,schemaVersion:1,originInteractionId:`interaction:${t.messageId}:${t.agentId}`,issuerId:old.commander.id,ownerAgentId:t.agentId,
-        constraints:{allowWormholes:t.allowWormholes},completionCriteria:criterionFor(goal),revision:0,createdAt:message.time,updatedAt:old.time,originalInstruction:message.content};
+        constraints:{allowWormholes:t.allowWormholes},completionCriteria:criterionFor(goal),revision:0,createdAt:message.time,updatedAt:old.time,originalInstruction:message.content,amendments:[]};
       const task=createTask(objective,old.assignments.find(a=>a.operatorId===t.agentId)?.shipId??t.shipId);
       if(task.status==='completed'){task.status='completed_partial';objective.status='completed_partial';task.blockReason='旧存档保留完成记录；缺少完整目标证据';}
       task.progress.legacyUnknown=t.kind==='salvage';
@@ -61,7 +67,7 @@ export function parseSave(input: unknown): WorldState {
       const reply=old.chatMessages.find(m=>m.sender===agentId&&m.replyTo===message.id);
       agentRuntime.replies.push({key:`reply:${message.id}:${agentId}`,sourceMessageId:message.id,recipientAgentId:agentId,phase:reply||response==='replied'?'committed':'failed',primaryMessageId:reply?.id??null,revision:0});
     }
-    const agents=base.agents.map(a=>({...a,modelConfig:{...a.modelConfig,thinking:null,reasoningEffort:a.modelConfig.reasoningEffort==='none'?'provider-default' as const:a.modelConfig.reasoningEffort},decision:{...a.decision,revision:a.decision.revision+1,pendingReasons:[],events:[],lastAdmiralMessageId:Math.max(a.decision.lastAdmiralMessageId,0,...old.chatMessages.filter(m=>m.sender===old.commander.id&&(m.channelId==='private:'+a.id||m.mentions.includes(a.id))).map(m=>m.id))}}));
+    const agents=base.agents.map(({assignedShipId:_old,...a})=>({...a,modelConfig:{...a.modelConfig,thinking:null,reasoningEffort:a.modelConfig.reasoningEffort==='none'?'provider-default' as const:a.modelConfig.reasoningEffort},decision:{...a.decision,revision:a.decision.revision+1,pendingReasons:[],events:[],lastAdmiralMessageId:Math.max(a.decision.lastAdmiralMessageId,0,...old.chatMessages.filter(m=>m.sender===old.commander.id&&(m.channelId==='private:'+a.id||m.mentions.includes(a.id))).map(m=>m.id))}}));
     const migrated={...base,version:16 as const,ships,agents,objectives,agentRuntime};
     for(const wreck of migrated.wrecks) {
       const loss=old.losses.find(l=>'wreck:'+l.shipId===wreck.id);
@@ -77,8 +83,8 @@ export function parseSave(input: unknown): WorldState {
       for(const c of migrated.commitments.filter(c=>c.directiveId&&removed.has(c.directiveId))) {migrated.resources.credits+=c.escrow;c.escrow=0;c.status='refunded';}
       for(const r of migrated.escortRequests.filter(r=>r.action?.type==='ASSIST_EVENT'&&r.action.targetId===event.id)){r.status='cancelled';r.reason=event.outcome;}
     }
-    return worldSchema.parse(migrated);
+    return restoreAssignments(worldSchema.parse(migrated));
   }
   if(version!==CURRENT_SAVE_VERSION)throw new UnsupportedSaveVersionError('Unsupported save version: '+version);
-  return worldSchema.parse(input);
+  return restoreAssignments(worldSchema.parse(input));
 }

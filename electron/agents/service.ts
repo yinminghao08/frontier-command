@@ -22,9 +22,12 @@ export class AgentDecisionService {
   for(const a of snapshot.agents){
    const pending=snapshot.chatMessages.some(m=>m.responses?.[a.id]==='pending');
    if(!a.assignedShipId&&!pending)continue;
+   if(!a.enabled&&pending){this.host.command({type:'agentDecisionState',agentId:a.id,revision:a.decision.revision,state:'offline',error:'此 Agent 的自主决策已关闭；开启后可重试这条请求。'},a.id);continue;}
    if(!a.enabled||this.flights.has(a.id)||!a.decision.pendingReasons.length||snapshot.time<a.decision.nextAt)continue;
    const meaningful=pending||a.decision.events.some(event=>['chat','request','danger','opportunity','manual','configuration','proposal'].includes(event.kind));
    if(!meaningful)continue;
+   const acceptedWork=snapshot.agentRuntime.tasks.some(t=>t.status!=='proposed'&&['accepted','running','blocked','interrupted'].includes(t.status)&&(t.ownerAgentId===a.id||t.assignedShipIds.includes(a.assignedShipId??'')));
+   if(acceptedWork&&!pending&&!a.decision.events.some(event=>['chat','request','danger','manual','configuration'].includes(event.kind))){this.host.command({type:'agentDecisionState',agentId:a.id,revision:a.decision.revision,state:'ready',error:null},a.id);continue;}
    if(snapshot.paused&&!pending&&!a.decision.events.some(event=>['request','manual','configuration','proposal'].includes(event.kind)))continue;
    if(!config.apiKey){this.host.command({type:'agentDecisionState',agentId:a.id,revision:a.decision.revision,state:'offline',error:'Agent API 未配置，请配置后重试。'},a.id);continue;}
    let request:CognitionRequest|null;

@@ -1,3 +1,4 @@
+import { bindAssignment } from './assignment';
 import { CognitionGateway } from './cognition';
 import { advanceTrade } from './trade';
 import { advanceEvents } from './world-events';
@@ -40,6 +41,7 @@ export class SimulationEngine {
   executingContractId: string | null = null;
   constructor(world = createWorld()) {
     this.state = structuredClone(world);
+    for(const agent of this.state.agents)bindAssignment(this.state,agent);
     this.runtime = new FrontierAgentRuntime(this);
     for (const a of this.state.agents)
       if (a.status === 'waiting') wakeAgent(a, 'recovery', this.state.time, true);

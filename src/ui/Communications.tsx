@@ -264,7 +264,7 @@ export function Communications({
                             : 'Admiral ↔ ' + agent?.name}
                       </strong>
                       {ch.kind === 'private' && agent && (
-                        <small>{AGENT_STATUS[agent.status]}</small>
+                        <small>{AGENT_STATUS[agent.status]} · {world.ships.find(s=>s.id===agent.assignedShipId)?.name??'未分配舰船'}</small>
                       )}
                       <small className="chat-preview">
                         {recent ? name(recent.sender) + ': ' + recent.content : '频道就绪'}
@@ -293,6 +293,7 @@ export function Communications({
                           ? 'FRONTIER COMMAND'
                           : 'Admiral ↔ ' + channel.name}
                     </strong>
+                    <small>{channel.kind==='private'?(world.ships.find(s=>s.id===world.agents.find(a=>channel.members.includes(a.id))?.assignedShipId)?.name??'未分配舰船'):''}</small>
                     <small>
                       {channel.members.length} MEMBERS / {messages.length} TRANSMISSIONS
                     </small>

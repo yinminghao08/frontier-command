@@ -1,3 +1,4 @@
+import { vesselControl } from './assignment';
 import { rearmPreview } from './rearm';
 import { displayName, displayEntityName } from './localization';
 import { LcarsMeter } from './components/Lcars';
@@ -13,6 +14,7 @@ import { MODULES } from '../engine/definitions/progression';
 import { routeEstimate } from '../engine/navigation';
 export type ComposerRequest = {
   action: Action;
+  objectiveId?:string;
   shipId?: string;
   shipIds?: string[];
   groupId?: string;
@@ -166,6 +168,7 @@ export function OrderComposer({
     [mode, setMode] = useState<'REPLACE' | 'QUEUE' | 'INTERRUPT'>('REPLACE');
   const [formError, setFormError] = useState('');
   const [controlMode, setControlMode] = useState<'direct' | 'voluntary'>(() => {
+    if(request.objectiveId)return world.objectives.find(o=>o.id===request.objectiveId)?.controlMode??'direct';
     try {
       return localStorage.getItem('frontier.order-control-mode.v1') === 'voluntary'
         ? 'voluntary'
@@ -268,6 +271,7 @@ export function OrderComposer({
           指挥方式
           <select
             aria-label="指挥方式"
+            disabled={!!request.objectiveId}
             value={controlMode}
             onChange={(e) => {
               const value = e.target.value as 'direct' | 'voluntary';
@@ -667,7 +671,7 @@ export function OrderComposer({
           <LcarsField key={s.id}>
             <input
               type="checkbox"
-              disabled={!!request.groupId}
+              disabled={!!request.groupId||!!request.objectiveId}
               aria-label={'分配 ' + s.id}
               checked={shipIds.includes(s.id)}
               onChange={(e) =>
@@ -676,7 +680,7 @@ export function OrderComposer({
                 )
               }
             />
-            {s.name} · {s.current?.action.type ?? 'AVAILABLE'} · CARGO {Math.floor(cargoUsed(s))}/
+            {s.name} · {vesselControl(world,s.id)} · {s.current?.action.type ?? 'AVAILABLE'} · CARGO {Math.floor(cargoUsed(s))}/
             {capabilities(s).cargo}
           </LcarsField>
         ))}
@@ -686,7 +690,7 @@ export function OrderComposer({
           ? '替换当前、挂起及排队指令；货物与损伤保留'
           : mode === 'QUEUE'
             ? '当前指令结束后按顺序执行；持续命令需取消或替换'
-            : '临时行动结束后自动接续原指令；目标失效会报告'}
+            : '中断 Agent 目标后需要显式恢复；其目标与进度保留'}
         。
       </p>
       {formError && (
@@ -708,7 +712,9 @@ export function OrderComposer({
           }
           onClick={async () => {
             const r = await command(
-              controlMode === 'voluntary'
+              request.objectiveId
+                ? {type:'reviseObjective',objectiveId:request.objectiveId,expectedRevision:world.objectives.find(o=>o.id===request.objectiveId)!.revision,goal:{kind:'operation',action},instruction:'Admiral 修订 '+ACTION_LABELS[action.type]+' 的任务参数'}
+                : controlMode === 'voluntary'
                 ? { type: 'proposeDirective', shipIds, mode, action }
                 : request.groupId
                   ? { type: 'issueGroupDirective', groupId: request.groupId, mode, action }
@@ -718,7 +724,7 @@ export function OrderComposer({
             else setFormError(r.reason);
           }}
         >
-          {controlMode === 'direct' ? '下达 Admiral 指令' : '提交给 Agent'}
+          {request.objectiveId?'提交目标修订':controlMode === 'direct' ? '下达 Admiral 指令' : '提交给 Agent'}
         </LcarsButton>
         <LcarsButton tone="secondary" onClick={onClose}>
           取消

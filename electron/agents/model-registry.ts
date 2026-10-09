@@ -57,12 +57,15 @@ export class ModelRegistry {
     const paths=providerEndpoints(config.baseUrl);
     try {
       for(const url of [paths.models,paths.alternateModels].filter((url):url is string=>url!==null)) {
-        const response=await abortable(this.fetcher(url,{headers:{Authorization:'Bearer '+config.apiKey},redirect:'error',signal:controller.signal}),controller.signal);
+        const pending=this.fetcher(url,{headers:{Authorization:'Bearer '+config.apiKey},redirect:'error',signal:controller.signal});
+        void pending.then(response=>{if(controller.signal.aborted)void response.body?.cancel().catch(()=>{});},()=>{});
+        const response=await abortable(pending,controller.signal);
         if([404,405,501].includes(response.status)){await response.body?.cancel();continue;}
         if(!response.ok){await response.body?.cancel();throw httpError(response.status);}
         const bytes=await abortable(response.text(),controller.signal);
         if(bytes.length>2000000||bytes.includes(config.apiKey))throw new AgentApiError('模型目录内容无法安全读取。','protocol');
         let data:unknown;try{data=JSON.parse(bytes);}catch{throw new AgentApiError('模型目录不是有效 JSON。','protocol');}
+        if(JSON.stringify(data).includes(config.apiKey))throw new AgentApiError('模型目录包含凭据，已拒绝并保护记录。','credentials');
         const models=z.object({data:z.array(z.object({id:z.string().min(1).max(120)})).max(10000)}).safeParse(data);
         if(!models.success)throw new AgentApiError('Provider 模型目录格式不受支持；可手动输入模型 ID。','protocol');
         return {ok:true,models:[...new Set(models.data.data.map(m=>m.id))].sort().map(id=>({id,capabilities:this.capabilities(config.baseUrl,id)})),reason:'已获取模型目录；目录本身不证明推理和输出能力。',directory:'supported'};

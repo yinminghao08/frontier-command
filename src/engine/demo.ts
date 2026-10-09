@@ -1,7 +1,7 @@
 import { createWorld, makeLocation } from './data';
 import { SimulationEngine } from './engine';
 import { COMMAND_CHANNEL, privateChannel } from './chat';
-import { worldSchema } from './save-schema';
+import { parseSave } from './saves';
 import type { Command, WorldState } from './types';
 import { capabilities } from './capabilities';
 
@@ -95,5 +95,5 @@ export function createAgentDemoWorld(): WorldState {
   });
   command({ type: 'speed', speed: 16 });
   command({ type: 'pause', paused: true });
-  return worldSchema.parse(w);
+  return parseSave(w);
 }

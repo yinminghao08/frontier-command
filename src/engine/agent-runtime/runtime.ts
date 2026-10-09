@@ -79,18 +79,55 @@ export class FrontierAgentRuntime {
     if(mode==='voluntary'){objective.controlMode='voluntary';objective.consent='proposed';const task=this.register(objective);task.status='proposed';const agent=this.e.state.agents.find(a=>a.id===owner)!;wakeAgent(agent,'proposal:'+objective.id,this.e.state.time,true);}
     this.drain();return {ok:true,reason:'已创建完整目标 '+objective.id};
   }
-  revise(id:string,revision:number,goal:ObjectiveGoal,instruction:string): CommandResult {
-    const objective=this.e.state.objectives.find(o=>o.id===id),task=this.taskForObjective(id);
+  revise(id:string,revision:number,goal:ObjectiveGoal,instruction:string,authorizationMode?:'direct'|'voluntary',allowWormholes?:boolean):CommandResult {
+    this.drain();
+    const e=this.e,objective=e.state.objectives.find(o=>o.id===id),task=this.taskForObjective(id);
     if(!objective||!task||objective.revision!==revision||terminalTask(task.status))return {ok:false,reason:'目标版本已改变或已经结束'};
-    const valid=this.validateGoal(goal,task.assignedShipIds[0],objective.controlMode);if(!valid.ok)return valid;
-    const shipId=task.assignedShipIds[0],mode=objective.controlMode;
-    this.cancel(id,revision);return this.submitGoal(goal,shipId,mode,instruction);
+    const ship=e.state.ships.find(s=>s.id===task.assignedShipIds[0]);if(!ship)return {ok:false,reason:'任务舰船已失效'};
+    const valid=this.validateGoal(goal,ship.id,objective.controlMode);if(!valid.ok)return valid;
+    const previous=objective.goal;
+    // A cargo source change cannot reinterpret already loaded batches as another
+    // source. It must be expressed as a separate goal with explicit custody.
+    if(previous.kind==='loadReturn'&&goal.kind==='loadReturn'&&task.progress.loaded[previous.cargoKind]>0&&(previous.sourceId!==goal.sourceId||previous.cargoKind!==goal.cargoKind))return {ok:false,reason:'已装货物的来源与种类不能改写；请保留此交付责任或新建目标'};
+    if(previous.kind!==goal.kind)return {ok:false,reason:'目标族改变需要新建目标；当前任务货物与历史不会被改写'};
+    if(goal.kind==='recovery'&&previous.kind==='recovery'&&(goal.sourceClassId!==previous.sourceClassId||previous.wreckIds.some(id=>!goal.wreckIds.includes(id))))return {ok:false,reason:'回收修订可以扩展目标或改变交付设施，不能删除已承担的来源责任'};
+    const interrupted=task.status==='interrupted';
+    const held=[ship.current,...ship.queue,...ship.suspended].find(d=>d?.taskId===task.taskId);
+    if(held)task.checkpoint=directiveSchema.parse(held);
+    if(task.checkpoint){
+      const old=task.checkpoint.action;
+      const compatible=goal.kind==='operation'&&previous.kind==='operation'&&(JSON.stringify(old)===JSON.stringify(goal.action)||old.type==='HAUL'&&goal.action.type==='HAUL'&&old.sourceId===goal.action.sourceId&&old.cargoKind===goal.action.cargoKind);
+      if(compatible&&goal.kind==='operation')task.checkpoint=directiveSchema.parse({...task.checkpoint,action:goal.action,journey:null});
+      else if(goal.kind==='loadReturn'&&previous.kind==='loadReturn'&&old.type==='LOAD')task.checkpoint=directiveSchema.parse({...task.checkpoint,action:{...old,route:goal.route},journey:null});
+      else if(!(goal.kind==='loadReturn'&&previous.kind==='loadReturn'&&goal.destinationId===previous.destinationId&&(old.type==='RETURN'||old.type==='DOCK'||old.type==='UNLOAD')))task.checkpoint=null;
+    }
+    if(ship.current?.taskId===task.taskId){ship.current=null;ship.path=[];ship.tracking=null;ship.status='idle';}
+    ship.queue=ship.queue.filter(d=>d.taskId!==task.taskId);ship.suspended=ship.suspended.filter(d=>d.taskId!==task.taskId);
+    for(const step of task.steps.filter(s=>s.status==='running'))step.status='cancelled';
+    objective.goal=structuredClone(goal);objective.revision++;objective.updatedAt=e.state.time;objective.completionCriteria=criterionFor(goal);
+    objective.amendments.push({revision:objective.revision,instruction,goal:structuredClone(goal),time:e.state.time});
+    objective.action=goal.kind==='operation'?goal.action:null;
+    if(goal.kind==='operation')objective.targetId='targetId'in goal.action?goal.action.targetId:null;
+    if(goal.kind==='construction'){objective.targetId=goal.siteId;objective.facilityKind=goal.facilityKind;}
+    if(goal.kind==='surveyRoute'){objective.sectors=goal.sectors;objective.sectorIndex=0;objective.scannedSectorIndices=[];}
+    task.completedRevision=null;task.progress.verified=false;task.activeDirectiveId=null;task.currentStep=task.steps.length;task.revision++;task.updatedAt=e.state.time;
+    const agent=e.state.agents.find(a=>a.id===objective.ownerAgentId);if(agent){agent.decision.revision++;agent.decision.pendingReasons=[];agent.decision.events=[];}
+    if(authorizationMode)objective.controlMode=authorizationMode;
+    if(allowWormholes!==undefined){objective.allowWormholes=allowWormholes;objective.constraints.allowWormholes=allowWormholes;}
+    if(task.checkpoint){task.checkpoint.controlMode=objective.controlMode;task.checkpoint.executorAgentId=objective.ownerAgentId;task.checkpoint.allowWormholes=objective.constraints.allowWormholes;if(allowWormholes!==undefined)task.checkpoint.journey=null;}
+    if(objective.controlMode==='voluntary'){
+      objective.consent='proposed';objective.conditionVersion++;objective.turnAgentId=objective.ownerAgentId!;
+      this.transition(task,interrupted?'interrupted':'proposed','目标已修订，等待重新同意');
+      if(agent&&!interrupted)wakeAgent(agent,'proposal:'+id,e.state.time,true);
+    }else this.transition(task,interrupted?'interrupted':'accepted','目标已按 Admiral 授权修订');
+    emitDomainEvent(e,{type:'objectiveRevised',sourceId:e.state.commander.id,objectiveId:id,taskId:task.taskId,directiveId:null,payload:{revision:objective.revision,previousGoal:previous,goal:structuredClone(goal),instruction}});
+    this.drain();return {ok:true,reason:'目标已修订；实际货物、付费、承诺与交易记录保留'};
   }
   start(goal: ObjectiveGoal, shipId: string, issuerId=this.e.state.commander.id, ownerAgentId: string|null=null, instruction=criterionFor(goal), mode: 'REPLACE'|'QUEUE'|'INTERRUPT'='REPLACE'): Objective {
     const w=this.e.state;
     const id='objective-'+w.nextId++;
     const objective: Objective={id,schemaVersion:1,originInteractionId:'interaction:'+id,issuerId,ownerAgentId,goal,
-      constraints:{allowWormholes:true},completionCriteria:criterionFor(goal),revision:0,createdAt:w.time,updatedAt:w.time,originalInstruction:instruction,
+      constraints:{allowWormholes:true},completionCriteria:criterionFor(goal),revision:0,createdAt:w.time,updatedAt:w.time,originalInstruction:instruction,amendments:[],
       agentId:ownerAgentId??w.commander.id,messageId:0,channelId:'system-reports',kind:goal.kind==='loadReturn'?'loadReturn':goal.kind==='recovery'?'salvage':goal.kind==='operation'?'action':goal.kind==='assignment'?'assign':goal.kind,
       action:goal.kind==='operation'?goal.action:null,targetId:goal.kind==='construction'?goal.siteId:null,shipId,facilityKind:goal.kind==='construction'?goal.facilityKind:null,sectors:goal.kind==='surveyRoute'?goal.sectors:[],
       sectorIndex:0,scannedSectorIndices:[],allowWormholes:true,projectId:null,carrierAgentId:null,reason:null,controlMode:issuerId===w.commander.id?'direct':'voluntary',consent:'accepted',conditions:[],conditionVersion:1,rounds:0,turnAgentId:ownerAgentId??w.commander.id,creditsApproved:false,directiveMode:mode,status:'active',searchedTargets:{},...(goal.kind==='factionAssault'?{factionId:'orion' as const}:{})};
@@ -122,9 +159,10 @@ export class FrontierAgentRuntime {
   }
   taskForObjective(id: string) {return this.tasksByObjective.get(id);}
   transition(task: TaskState, status: TaskStatus, reason: string|null=null) {
-    if(terminalTask(task.status)||task.status===status&&task.blockReason===reason)return;
+    const blockReason=['blocked','interrupted','failed'].includes(status)?reason:null;
+    if(terminalTask(task.status)||task.status===status&&task.blockReason===blockReason)return;
     const from=task.status;
-    task.status=status;task.blockReason=reason;task.revision++;task.updatedAt=this.e.state.time;
+    task.status=status;task.blockReason=blockReason;task.revision++;task.updatedAt=this.e.state.time;
     const objective=this.e.state.objectives.find(o=>o.id===task.objectiveId);
     if(objective){objective.status=status==='accepted'||status==='running'||status==='proposed'?'active':status;objective.reason=reason;objective.updatedAt=this.e.state.time;}
     if(status==='completed'&&objective?.controlMode==='voluntary'&&!readyConditions(this.e,objective,'after')) {
@@ -148,7 +186,7 @@ export class FrontierAgentRuntime {
     if(objective.consent!=='accepted')return {ok:false,reason:'自愿任务尚未获得同意'};
     if(actorId!==objective.issuerId&&actorId!==objective.ownerAgentId)return {ok:false,reason:'执行者不属于目标授权'};
     if(command.type==='issueDirective'&&command.shipIds.some(id=>!task.assignedShipIds.includes(id)))return {ok:false,reason:'舰船不属于任务绑定'};
-    const key='step:'+task.currentStep;
+    const key='revision:'+objective.revision+':step:'+task.currentStep;
     const existing=task.submissionKeys[key];
     if(existing&&this.e.state.ships.some(s=>[s.current,...s.queue,...s.suspended].some(d=>d?.id===existing)))return {ok:true,reason:'既有步骤提交已复用'};
     const previous=this.e.executingObjectiveId;
@@ -197,13 +235,13 @@ export class FrontierAgentRuntime {
     if(!ship)return {ok:false,reason:'任务舰船已失效'};
     if(objective.ownerAgentId&&!this.e.state.assignments.some(a=>a.operatorId===objective.ownerAgentId&&a.shipId===ship.id))return {ok:false,reason:'舰船分配已改变，需重新确认目标绑定'};
     if(ship.current||ship.queue.length)return {ok:false,reason:'请先结束当前 Admiral 指挥'};
-    if(task.checkpoint) {
+    if(task.checkpoint&&objective.consent==='accepted') {
       const d=structuredClone(task.checkpoint),valid=validateContinuation(this.e,ship,d);
       if(!valid.ok)return valid;
       const reserved=Object.entries(d.reserved).some(([kind,n])=>n>0&&available(this.e.state,'sourceId'in d.action?d.action.sourceId:'targetId'in d.action?d.action.targetId:'',kind as keyof typeof d.reserved)<n);
       if(reserved)return {ok:false,reason:'中断期间预留库存已改变，请修订目标'};
       ship.current=d;ship.path=[];ship.status='active';task.activeDirectiveId=d.id;task.checkpoint=null;
-    } else {task.activeDirectiveId=null;task.submissionKeys={};}
+    } else {task.activeDirectiveId=null;}
     objective.revision++;
     if(objective.consent!=='accepted'&&objective.ownerAgentId) {
       const agent=this.e.state.agents.find(a=>a.id===objective.ownerAgentId)!;
@@ -245,11 +283,18 @@ export class FrontierAgentRuntime {
         const held=this.e.state.ships.flatMap(s=>[s.current,...s.queue,...s.suspended]).find(d=>d?.taskId===task.taskId);
         if(held){task.activeDirectiveId=held.id;task.blockReason=/等待|已满|不足|失效/.test(held.note)?held.note:null;continue;}
         task.activeDirectiveId=null;
+        if(ship&&task.checkpoint&&!ship.current){
+          const checkpoint=structuredClone(task.checkpoint),valid=validateContinuation(this.e,ship,checkpoint);
+          const reserved=Object.entries(checkpoint.reserved).some(([kind,amount])=>amount>0&&available(this.e.state,'sourceId'in checkpoint.action?checkpoint.action.sourceId:'targetId'in checkpoint.action?checkpoint.action.targetId:'',kind as keyof typeof checkpoint.reserved)<amount);
+          if(!valid.ok||reserved){this.transition(task,'blocked',valid.ok?'预留库存已改变，等待调整':valid.reason);continue;}
+          ship.current=checkpoint;ship.path=[];ship.status='active';task.activeDirectiveId=checkpoint.id;task.checkpoint=null;
+          task.steps.push({label:this.stepLabel(checkpoint.action),action:structuredClone(checkpoint.action),status:'running'});this.transition(task,'running');continue;
+        }
         if(ship?.current&&ship.current.objectiveId!==objective.id&&objective.directiveMode!=='INTERRUPT'&&(task.directiveIds.length>0||objective.controlMode==='voluntary'&&!(objective.issuerId===this.e.state.commander.id&&objective.directiveMode==='REPLACE')&&this.priority(objective)<=this.priority(this.e.state.objectives.find(o=>o.id===ship.current?.objectiveId))))continue;
         if(objective.goal.kind==='loadReturn'||objective.goal.kind==='recovery') {
           if(!ship){this.transition(task,'blocked','尚未分配可用舰船');continue;}
           this.runLogistics(objective,task,ship);
-        } else if(objective.goal.kind!=='operation'||task.progress.completedDirectives.length===0)planTask(this.e,objective);
+        } else if(objective.goal.kind!=='operation'||task.completedRevision!==objective.revision)planTask(this.e,objective);
       }
     } finally {this.draining=false;}
   }
@@ -278,6 +323,8 @@ export class FrontierAgentRuntime {
     }
     if(event.type==='directiveOutcome') {
       const p=event.payload;
+      if(p.interrupted){const step=task.steps.find(s=>s.status==='running');if(step)step.status='cancelled';return;}
+      task.completedRevision=objective.revision;
       if(event.directiveId&&!task.progress.completedDirectives.includes(event.directiveId))task.progress.completedDirectives.push(event.directiveId);
       const step=task.steps.find(s=>s.status==='running');if(step)step.status=p.failed?'failed':'completed';
       task.completionEvidence.push({eventId:event.eventId,tick:event.simulationTick,kind:'directive',sourceId:p.shipId,targetId:'targetId'in p.action?p.action.targetId:null,cargoKind:null,amount:0,description:p.text});

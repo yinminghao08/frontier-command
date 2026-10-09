@@ -33,9 +33,9 @@ describe('purpose-specific cognition and authoritative commits',()=>{
  });
  it('rejects cancelled, stale-session, reassigned and forged-entity responses',()=>{
   const {e,agent}=setup();send(e,agent.id,'去一个地点');const request=e.cognition.prepare(agent.id)!;
-  const response:CognitionResponse={purpose:'intent',decision:{disposition:'propose',proposal:{kind:'navigate',targetId:'secret-enemy-base',sector:null},allowWormholes:true,reply:'前往'}};
+  const response:CognitionResponse={purpose:'intent',decision:{disposition:'propose',objectiveId:null,proposal:{kind:'navigate',targetId:'secret-enemy-base',sector:null},allowWormholes:true,reply:'前往'}};
   expect(e.dispatchCommand({type:'cognitionDecision',agentId:agent.id,requestId:request.requestId,response},agent.id).ok).toBe(false);
-  const safe:CognitionResponse={purpose:'intent',decision:{disposition:'conversation',proposal:null,allowWormholes:true,reply:'请说明地点'}};
+  const safe:CognitionResponse={purpose:'intent',decision:{disposition:'conversation',objectiveId:null,proposal:null,allowWormholes:true,reply:'请说明地点'}};
   expect(new SimulationEngine(e.state).dispatchCommand({type:'cognitionDecision',agentId:agent.id,requestId:request.requestId,response:safe},agent.id).ok).toBe(false);
   e.cognition.cancel(agent.id);expect(e.dispatchCommand({type:'cognitionDecision',agentId:agent.id,requestId:request.requestId,response:safe},agent.id).ok).toBe(false);
  });
@@ -44,7 +44,7 @@ describe('purpose-specific cognition and authoritative commits',()=>{
   const client=new ChatCompletionsClient(()=>{calls++;return new Promise(r=>{resolve=r;});});
   const service=new AgentDecisionService({snapshot:()=>e.snapshot(),cognitionPort:id=>e.cognitionPort(id),command:(c,id)=>e.dispatchCommand(c,id)},()=>config,client);service.pump();await flush();
   const revision=agent.decision.revision;e.complete(ship,'到达基地');e.runtime.drain();service.pump();expect(agent.decision.revision).toBe(revision);expect(calls).toBe(1);
-  resolve(new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({disposition:'conversation',proposal:null,allowWormholes:true,reply:'你好，Admiral。'})},finish_reason:'stop'}]})));await flush();expect(e.state.chatMessages.some(m=>m.content==='你好，Admiral。')).toBe(true);service.dispose();
+  resolve(new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({content:'你好，Admiral。',purpose:'information'})},finish_reason:'stop'}]})));await flush();expect(e.state.chatMessages.some(m=>m.content==='你好，Admiral。')).toBe(true);service.dispose();
  });
  it('applies documented thinking parameters and refuses unknown explicit controls before HTTP',async()=>{
   const tracker=new RequestTracker(),bodies:Record<string,unknown>[]=[];const client=new ChatCompletionsClient(async(_url,init)=>{bodies.push(JSON.parse(String(init?.body)));return new Response(JSON.stringify({choices:[{message:{content:'{"ok":true}'},finish_reason:'stop'}],usage:{prompt_tokens:12,completion_tokens:9,total_tokens:21,completion_tokens_details:{reasoning_tokens:3}}}));},tracker);
@@ -66,7 +66,7 @@ describe('purpose-specific cognition and authoritative commits',()=>{
   expect(JSON.parse(result.content)).toEqual({ok:true});expect(bodies).toHaveLength(2);expect(bodies[1]).toMatchObject({reasoning_effort:'high',tool_choice:{type:'function',function:{name:'frontier_decision'}}});
  });
  it('bounds combined compatibility and JSON repair attempts',async()=>{
-  const {e,agent}=setup();send(e,agent.id,'你好');const request=e.cognition.prepare(agent.id)!;let calls=0;
+  const {e,agent}=setup();send(e,agent.id,'请说明现在能做什么');const request=e.cognition.prepare(agent.id)!;let calls=0;
   const client=new ChatCompletionsClient(async()=>{calls++;return calls<3?new Response('{"error":{"message":"Unsupported response_format json_object"}}',{status:400}):new Response(JSON.stringify({choices:[{message:{content:'invalid'},finish_reason:'stop'}]}));});
   await expect(client.cognize(config,request,agent.modelConfig,new AbortController().signal)).rejects.toThrow();expect(calls).toBeLessThanOrEqual(4);expect(e.state.ships.find(s=>s.id===agent.assignedShipId)!.current).toBeNull();
  });
@@ -75,5 +75,21 @@ describe('purpose-specific cognition and authoritative commits',()=>{
   await expect(hung.complete({...config,connectionTimeoutMs:5},'mock','provider-default',[])).rejects.toThrow('连接 Provider 超时');
   let cancelled=false;const idle=new ChatCompletionsClient(async()=>new Response(new ReadableStream({cancel(){cancelled=true;}}),{headers:{'content-type':'text/event-stream'}}));
   await expect(idle.complete({...config,idleTimeoutMs:5},'mock','provider-default',[])).rejects.toThrow('空闲超时');expect(cancelled).toBe(true);
+ });
+ it('uses the complete four-attempt ceiling across two protocol fallbacks and one repair',async()=>{
+  const {e,agent}=setup();send(e,agent.id,'你好');const request=e.cognition.prepare(agent.id)!,tracker=new RequestTracker();let calls=0;
+  const client=new ChatCompletionsClient(async()=>{calls++;if(calls<=2)return new Response(JSON.stringify({error:{message:calls===1?'Unsupported json_schema response_format':'Unsupported tools tool_choice'}}),{status:400});return new Response(JSON.stringify({choices:[{message:{content:calls===3?'bad JSON':'{"content":"你好","purpose":"information"}'},finish_reason:'stop'}]}));},tracker);
+  const result=await client.cognize({...config,baseUrl:'https://api.openai.com/v1',defaultModel:'gpt-5.2'},request,{model:null,reasoningEffort:null},new AbortController().signal);
+  expect(result).toEqual({purpose:'communication',decision:{content:'你好',purpose:'information'}});expect(calls).toBe(4);expect(tracker.stats()).toMatchObject({requests:4,repairs:1});
+ });
+ it('a follow-up inherits the original complete goal and a semantic amendment keeps its cargo owner',()=>{
+  const {e,ship,agent}=setup(),mine=e.state.locations.find(l=>l.id==='mine')!;ship.x=mine.x;ship.y=mine.y;mine.stock.materials=80;e.state.bodies.find(b=>b.id===mine.siteId)!.remaining=0;
+  const action={type:'HAUL' as const,sourceId:'mine',targetId:'base',cargoKind:'materials' as const,amount:50,loadPolicy:'fixed' as const,route:'safe' as const,repeat:false};
+  const o=e.runtime.start({kind:'operation',action},ship.id,e.state.commander.id,agent.id,'从矿场装载50材料并交付基地');e.runtime.drain();until(e,()=>ship.current?.carried===50);const root=e.runtime.taskForObjective(o.id)!;
+  send(e,agent.id,'那你倒是去收集啊');let request=e.cognition.prepare(agent.id)!;expect(JSON.stringify(request.context)).toContain(o.originalInstruction);
+  expect(e.dispatchCommand({type:'cognitionDecision',agentId:agent.id,requestId:request.requestId,response:{purpose:'intent',decision:{disposition:'continue',objectiveId:o.id,proposal:null,allowWormholes:true,reply:'继续原目标，不重复装载。'}}},agent.id).ok).toBe(true);expect(e.state.objectives).toHaveLength(1);
+  send(e,agent.id,'改用风险航线交付这批物资');request=e.cognition.prepare(agent.id)!;
+  expect(e.dispatchCommand({type:'cognitionDecision',agentId:agent.id,requestId:request.requestId,response:{purpose:'intent',decision:{disposition:'revise',objectiveId:o.id,proposal:{kind:'transport',sourceId:'mine',destinationId:'base',cargoKind:'materials',amount:50,repeat:false,route:'risky'},allowWormholes:true,reply:'重新判断风险航线。'}}},agent.id).ok).toBe(true);
+  expect(e.state.objectives).toHaveLength(1);expect(e.runtime.taskForObjective(o.id)?.taskId).toBe(root.taskId);expect(root.checkpoint?.carried).toBe(50);expect(ship.current).toBeNull();expect(e.state.agentRuntime.cargoLots.filter(l=>l.taskId===root.taskId).reduce((n,l)=>n+l.amount,0)).toBe(50);
  });
 });

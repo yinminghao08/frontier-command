@@ -18,6 +18,7 @@ export const objectiveSchema = z
     createdAt: n.min(0),
     updatedAt: n.min(0),
     originalInstruction: z.string().max(2000),
+    amendments:z.array(z.object({revision:integer,instruction:z.string().min(1).max(2000),goal:objectiveGoalSchema,time:n.min(0)}).strict()).default([]),
     id,
     agentId: id,
     messageId: integer,

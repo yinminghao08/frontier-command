@@ -29,7 +29,7 @@ export const evidenceSchema = z.object({ eventId: id, tick, kind: z.enum(['direc
 export type CompletionEvidence = z.infer<typeof evidenceSchema>;
 export const taskSchema = z.object({
   taskId: id, objectiveId: id, ownerAgentId: id.nullable(), status: taskStatusSchema, revision: tick,
-  coordinationId:id.nullable(), dependencyTaskIds:z.array(id), checkpoint: directiveSchema.nullable(), currentStep: tick, assignedShipIds: z.array(id), directiveIds: z.array(id), activeDirectiveId: id.nullable(),
+  coordinationId:id.nullable(), dependencyTaskIds:z.array(id), checkpoint: directiveSchema.nullable(), currentStep: tick, completedRevision:tick.nullable(),assignedShipIds: z.array(id), directiveIds: z.array(id), activeDirectiveId: id.nullable(),
   steps: z.array(z.object({ label: z.string().max(240), action: actionSchema, status: z.enum(['pending','running','completed','failed','cancelled']) }).strict()),
   progress: z.object({ loaded: stockSchema, delivered: stockSchema, lost: stockSchema, targetAmounts: z.record(id, count),
     targetRecovered: z.record(id, count), completedDirectives: z.array(id), cycles: tick, verified: z.boolean(), legacyUnknown: z.boolean() }).strict(),
@@ -47,6 +47,7 @@ const eventBase = { eventId: id, sequence: tick, sourceId: id, objectiveId: id.n
 export const domainEventSchema = z.discriminatedUnion('type', [
   z.object({...eventBase, type: z.literal('directiveOutcome'), payload: z.object({shipId: id, actorId:id, executorAgentId:id.nullable(), contractId:id.nullable(), work:count,carried:count,delivered:count,lost:count,cycle:tick,paidCredits:count,action: actionSchema, failed: z.boolean(), interrupted: z.boolean(), text: z.string().max(2000)}).strict()}).strict(),
   z.object({...eventBase, type: z.literal('cargoTransfer'), payload: z.object({ shipId: id, sourceId: id.nullable(), targetId: id.nullable(), cargoKind: goodsSchema, amount: count, disposition: z.enum(['loaded','delivered','consumed','lost']) }).strict()}).strict(),
+  z.object({...eventBase,type:z.literal('objectiveRevised'),payload:z.object({revision:tick,previousGoal:objectiveGoalSchema,goal:objectiveGoalSchema,instruction:z.string().max(2000)}).strict()}).strict(),
   z.object({...eventBase, type: z.literal('taskTransition'), payload: z.object({from: taskStatusSchema, to: taskStatusSchema, reason: z.string().max(2000).nullable()}).strict()}).strict(),
 ]);
 export type DomainEvent = z.infer<typeof domainEventSchema>;
@@ -81,6 +82,6 @@ export const criterionFor = (goal: ObjectiveGoal): string => goal.kind === 'load
 export function createTask(objective: import('../types').Objective, shipId: string|null): TaskState {
   const status: TaskStatus=objective.status==='active'?(objective.consent==='accepted'?'accepted':'proposed'):objective.status;
   return {taskId:'task:'+objective.id,objectiveId:objective.id,ownerAgentId:objective.ownerAgentId,status,revision:0,coordinationId:null,dependencyTaskIds:[],checkpoint:null,currentStep:0,
-    assignedShipIds:shipId?[shipId]:[],directiveIds:[],activeDirectiveId:null,steps:[],progress:{loaded:emptyStock(),delivered:emptyStock(),lost:emptyStock(),targetAmounts:{},targetRecovered:{},completedDirectives:[],cycles:0,verified:false,legacyUnknown:false},
+    assignedShipIds:shipId?[shipId]:[],directiveIds:[],activeDirectiveId:null,completedRevision:null,steps:[],progress:{loaded:emptyStock(),delivered:emptyStock(),lost:emptyStock(),targetAmounts:{},targetRecovered:{},completedDirectives:[],cycles:0,verified:false,legacyUnknown:false},
     blockReason:objective.reason,completionEvidence:[],processedEventIds:[],createdAt:objective.createdAt,updatedAt:objective.updatedAt,lastWorldKey:'',submissionKeys:{}};
 }

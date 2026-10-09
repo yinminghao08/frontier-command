@@ -1,3 +1,4 @@
+import { bindAssignment } from './assignment';
 import { replyRecord } from './agent-runtime/replies';
 import type { SimulationEngine } from './engine';
 import type {
@@ -68,7 +69,7 @@ export function makeAgent(
     currentGoal: career === 'battle' ? '保护边疆航线与舰队' : '将矿场库存运往有需求的设施',
     memory: [],
     relationships: {},
-    assignedShipId: shipId,
+    get assignedShipId(){return shipId;},
     originPersonnelId,
     modelConfig: { model: null, reasoningEffort: null,thinking:null },
     enabled: true,
@@ -89,6 +90,7 @@ export function makeAgent(
   };
 }
 export function registerAgent(w: WorldState, agent: Agent) {
+  bindAssignment(w,agent);
   w.agents.push(agent);
   const existing = w.operators.find((o) => o.id === agent.id);
   if (existing) {
@@ -326,6 +328,7 @@ export function applyAgentCommand(
     return null;
   const a = w.agents.find((a) => a.id === c.agentId)!;
   if (c.type === 'assignAgent') {
+    if(a.assignedShipId===c.shipId)return ok('分配关系保持不变');
     cancelObjectives(e, null, a.id);
     const old = w.ships.find((s) => s.id === a.assignedShipId);
     if (old) cancelContracts(e, old.id, 'Admiral 重新分舰', 'cancel');
@@ -334,7 +337,6 @@ export function applyAgentCommand(
     w.assignments = w.assignments.filter(
       (assignment) => assignment.operatorId !== a.id && assignment.shipId !== c.shipId,
     );
-    a.assignedShipId = c.shipId;
     w.operators.find((o) => o.id === a.id)!.availability = 'available';
     if (c.shipId) w.assignments.push({ operatorId: a.id, shipId: c.shipId, since: w.tick });
     wakeAgent(a, 'assignment', w.time, true);
@@ -393,7 +395,7 @@ export function applyAgentCommand(
       // Keep the triggering evidence durable while HTTP work is pending.
       // The service's per-Agent flight prevents concurrent logical decisions.
       a.decision.lastAt = w.time;
-    } else if (c.state === 'ready') a.status = a.assignedShipId ? 'online' : 'unassigned';
+    } else if (c.state === 'ready'){a.status=a.assignedShipId?'online':'unassigned';if(!pendingReply(w,a.id)){a.decision.pendingReasons=[];a.decision.events=[];a.decision.contextKey=decisionWorldKey(a,w);}}
     else {
       const alreadyOffline = c.state === 'offline' && a.decision.lastError === c.error;
       a.status = c.state==='error'?'error':'offline';
@@ -406,15 +408,7 @@ export function applyAgentCommand(
       if (message) finishReply(e, a.id, message.id, 'failed', c.error ?? '通讯不可用，请重试。');
       if (!alreadyOffline) {
         remember(w, a, 'decision', c.error ?? '通讯不可用');
-        if (!message)
-          appendChat(
-            e,
-            a.id,
-            privateChannel(a.id),
-            c.error ?? '通讯不可用，请稍后重试。',
-            [],
-            'error',
-          );
+
       }
     }
     return ok();
@@ -638,10 +632,10 @@ export function agentOutcome(
     a.status = a.enabled ? 'online' : 'offline';
   }
 }
-export function agentVesselLost(e: SimulationEngine, ship: Ship) {
+export function agentVesselLost(e: SimulationEngine, ship: Ship, operatorIds:readonly string[]=e.state.assignments.filter(a=>a.shipId===ship.id).map(a=>a.operatorId)) {
   const w = e.state;
   cancelContracts(e, ship.id, '协作舰船永久损失', 'failure');
-  for (const a of w.agents.filter((a) => a.assignedShipId === ship.id)) {
+  for (const a of w.agents.filter((a) => operatorIds.includes(a.id))) {
     personalFeedback(
       a,
       ship.id + ':vessel-lost',
@@ -661,7 +655,7 @@ export function agentVesselLost(e: SimulationEngine, ship: Ship) {
       settleContract(e, task, false, '执行舰船永久损失');
     }
     if (ship.current?.source === 'agent') agentOutcome(e, ship, ship.current, '舰船永久损失', true);
-    a.assignedShipId = null;
+    w.assignments=w.assignments.filter(link=>link.operatorId!==a.id);
     a.decision.revision++;
     a.status = 'unassigned';
     a.decision.pendingReasons = [];
@@ -706,7 +700,7 @@ export function advanceAgents(e: SimulationEngine, dt: number) {
   for (const a of w.agents) {
     const ship = w.ships.find((s) => s.id === a.assignedShipId);
     if (a.assignedShipId && !ship) {
-      a.assignedShipId = null;
+      w.assignments=w.assignments.filter(link=>link.operatorId!==a.id);
       a.decision.revision++;
       a.status = 'unassigned';
       remember(w, a, 'outcome', '分配舰船永久损失，等待 Admiral 分配新舰', null, 10);

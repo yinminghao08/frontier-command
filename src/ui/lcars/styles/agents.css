@@ -417,3 +417,8 @@ html[data-console-layout='compact'] .agent-attributes {
   max-width: 100%;
   min-width: 0;
 }
+
+.task-card { margin: 12px 0; padding: 0 0 12px 14px; border-left: 8px solid var(--lcars-orange, #ff9966); }
+.task-card p { margin: 7px 0; overflow-wrap: anywhere; }
+.task-card details { padding: 8px 0; }
+.task-card summary { cursor: pointer; }

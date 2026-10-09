@@ -78,7 +78,7 @@ export function wakeAgent(agent: Agent, reason: string, now: number, invalidate 
   agent.decision.pendingReasons = agent.decision.pendingReasons.slice(-8);
   if (invalidate) {
     agent.decision.revision++;
-    agent.status = agent.assignedShipId ? 'online' : 'unassigned';
+    agent.status = !agent.enabled?'offline':agent.assignedShipId ? 'online' : 'unassigned';
   }
   agent.decision.nextAt = Math.min(agent.decision.nextAt, now);
 }

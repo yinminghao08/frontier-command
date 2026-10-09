@@ -581,7 +581,7 @@ export const worldSchema = z
       const assignment = w.assignments.find((x) => x.operatorId === a.id);
       if (
         !w.operators.some((o) => o.id === a.id && o.kind === 'agent' && o.name === a.name) ||
-        (assignment?.shipId ?? null) !== a.assignedShipId
+        (assignment!==undefined&&!w.ships.some(s=>s.id===assignment.shipId))
       )
         bad('Invalid Agent/Operator/Assignment link');
       if (

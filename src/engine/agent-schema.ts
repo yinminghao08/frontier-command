@@ -111,7 +111,6 @@ export const agentSchema = z
       id,
       z.object({ trust: percent, cooperation: percent, lastInteraction: n }).strict(),
     ),
-    assignedShipId: id.nullable(),
     originPersonnelId: id.nullable(),
     modelConfig: modelConfigSchema,
     enabled: z.boolean(),

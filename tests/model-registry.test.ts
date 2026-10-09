@@ -10,6 +10,8 @@ describe('Provider model registry (local Mock only)',()=>{
   it('unsupported directories preserve manual selection; errors cannot echo credentials',async()=>{
     const unavailable=new ModelRegistry(async()=>new Response('{}',{status:404}));expect((await unavailable.fetchModels(config)).directory).toBe('unsupported');
     const echo=new ModelRegistry(async()=>new Response(JSON.stringify({data:[{id:config.apiKey}]})));const result=await echo.fetchModels(config);expect(result.ok).toBe(false);expect(JSON.stringify(result)).not.toContain(config.apiKey);
+    const escaped=config.apiKey.split('').map(c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0')).join('');
+    const escapedEcho=new ModelRegistry(async()=>new Response('{"data":[{"id":"'+escaped+'"}]}'));const rejected=await escapedEcho.fetchModels(config);expect(rejected.ok).toBe(false);expect(JSON.stringify(rejected)).not.toContain(config.apiKey);
   });
   it('Thinking OFF is an actual provider parameter and unknown controls fail without fallback',()=>{
     const registry=new ModelRegistry();expect(registry.reasoningParameters('https://api.openai.com/v1','gpt-5.1','off','provider-default')).toEqual({reasoning_effort:'none'});

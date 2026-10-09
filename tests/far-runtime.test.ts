@@ -17,6 +17,27 @@ function logistics(stock: number) {
   return {e,mine,ship};
 }
 describe('FAR authoritative logistics and event ownership',()=>{
+  it('revises delivery on the same root while retaining loaded cargo and history',()=>{
+    const {e,ship}=logistics(50);
+    const o=e.runtime.start({kind:'loadReturn',sourceId:'mine',destinationId:'base',cargoKind:'materials',deliver:false,route:'safe'},ship.id);
+    e.runtime.drain();until(e,()=>ship.current?.action.type==='RETURN');
+    const task=e.runtime.taskForObjective(o.id)!,id=task.taskId,base=e.base.stock.materials;
+    expect(e.dispatchCommand({type:'reviseObjective',objectiveId:o.id,expectedRevision:o.revision,goal:{...o.goal,kind:'loadReturn',sourceId:'mine',destinationId:'base',cargoKind:'materials',deliver:true,route:'safe'},instruction:'返航后交付这些材料'}).ok).toBe(true);
+    expect(task.taskId).toBe(id);expect(task.progress.loaded.materials).toBe(50);expect(o.amendments).toHaveLength(1);
+    const reloaded=new SimulationEngine(parseSave(JSON.parse(JSON.stringify(e.state))));until(reloaded,()=>reloaded.runtime.taskForObjective(o.id)?.status==='completed');
+    expect(reloaded.base.stock.materials).toBe(base+50);expect(reloaded.runtime.taskForObjective(o.id)!.progress.loaded.materials).toBe(50);expect(reloaded.state.agentRuntime.tasks.filter(t=>t.objectiveId===o.id)).toHaveLength(1);
+  });
+  it('revising an accepted voluntary haul pauses its manifest until new consent',()=>{
+    const {e,ship}=logistics(80),agent=e.state.agents.find(a=>a.assignedShipId===ship.id)!;agent.enabled=true;
+    const action={type:'HAUL' as const,sourceId:'mine',targetId:'base',cargoKind:'materials' as const,amount:50,loadPolicy:'fixed' as const,route:'safe' as const,repeat:false};
+    const o=e.runtime.start({kind:'operation',action},ship.id,e.state.commander.id,agent.id);o.controlMode='voluntary';o.consent='accepted';e.runtime.drain();until(e,()=>ship.current?.carried===50);
+    const checkpointId=ship.current!.id;expect(e.dispatchCommand({type:'reviseObjective',objectiveId:o.id,expectedRevision:o.revision,goal:{kind:'operation',action:{...action,route:'risky'}},instruction:'使用风险航线完成原交付'}).ok).toBe(true);
+    const task=e.runtime.taskForObjective(o.id)!;expect(ship.current).toBeNull();expect(task.checkpoint?.carried).toBe(50);expect(ship.cargo.materials).toBe(50);
+    const restored=new SimulationEngine(parseSave(JSON.parse(JSON.stringify(e.state)))),request=restored.cognition.prepare(agent.id)!;
+    expect(restored.dispatchCommand({type:'cognitionDecision',agentId:agent.id,requestId:request.requestId,response:{purpose:'judgment',decision:{response:'accept',reason:'preference',reply:'按新航线交付现有货物。',conditions:[]}}},agent.id).ok).toBe(true);
+    expect(restored.state.ships.find(s=>s.id===ship.id)!.current?.id).toBe(checkpointId);until(restored,()=>restored.runtime.taskForObjective(o.id)?.status==='completed');
+    expect(restored.runtime.taskForObjective(o.id)!.progress.loaded.materials).toBe(50);expect(restored.runtime.taskForObjective(o.id)!.progress.delivered.materials).toBe(50);
+  });
   it.each([600,17,17.4])('loads actual stock %s then returns without changing RETURN semantics',stock=>{
     const {e,mine,ship}=logistics(stock),capacity=capabilities(ship).cargo;
     const objective=e.runtime.start({kind:'loadReturn',sourceId:mine.id,destinationId:'base',cargoKind:'materials',deliver:false,route:'safe'},ship.id);
@@ -72,7 +93,7 @@ describe('FAR authoritative logistics and event ownership',()=>{
   it('Cadet 28 consumes no autonomous requests while unassigned but answers a player',async()=>{
     const {e}=logistics(0);for(const agent of e.state.agents)agent.enabled=false;
     const cadet=makeAgent('cadet-28','Cadet 28','logistics');registerAgent(e.state,cadet);
-    let calls=0;const client=new ChatCompletionsClient(async()=>{calls++;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({disposition:'conversation',proposal:null,allowWormholes:true,reply:'你好'})}}]}));});
+    let calls=0;const client=new ChatCompletionsClient(async()=>{calls++;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({content:'你好',purpose:'information'})}}]}));});
     const service=new AgentDecisionService({snapshot:()=>e.snapshot(),cognitionPort:id=>e.cognitionPort(id),command:(c,id)=>e.dispatchCommand(c,id),validate:(c,id)=>e.validate(c,id)},()=>({baseUrl:'http://mock.invalid/v1',defaultModel:'mock',reasoningEffort:'none',apiKey:'isolated-test-key'}),client);
     for(let i=0;i<10;i++){run(e,20);service.pump();}
     await new Promise(resolve=>setTimeout(resolve,20));expect(calls).toBe(0);

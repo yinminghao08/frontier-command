@@ -6,6 +6,7 @@ import { resolveProposal } from './intent-gateway';
 import { receiveObjective } from './objectives';
 import { commitPrimaryReply } from './agent-runtime/replies';
 import { wakeAgent,remember } from './chat';
+import { capabilities,cargoUsed } from './capabilities';
 import { goalFromProposal } from './agent-runtime/runtime';
 
 let nextSession = 0;
@@ -21,30 +22,35 @@ export class CognitionGateway {
   constructor(private readonly engine:SimulationEngine){}
   cancel(agentId:string){this.tickets.delete(agentId);}
   prepare(agentId:string):CognitionRequest|null {
-    const e=this.engine,o=e.getObservation(agentId),a=e.state.agents.find(a=>a.id===agentId);
+    const e=this.engine,o=e.getObservation(agentId,false),a=e.state.agents.find(a=>a.id===agentId);
     if(!o?.self||!a?.enabled)return null;
     const message=e.state.chatMessages.find(m=>m.responses?.[agentId]==='pending');
     if(!o.ship&&!message)return null;
     const objective=e.state.objectives.find(t=>t.ownerAgentId===agentId&&['proposed','negotiating'].includes(t.consent)&&t.turnAgentId===agentId&&['active','blocked'].includes(t.status));
     const contract=e.state.escortRequests.find(r=>['pending','negotiating'].includes(r.status)&&r.turnAgentId===agentId);
-    const purpose=objective?'judgment':message?'intent':contract?'collaboration':'strategy';
+    const smallTalk=message&&/^(?:你好|您好|早上好|晚上好|谢谢|你是谁|你怎么样|hi|hello|thanks|how are you|who are you)[!！?.。？\s]*$/i.test(message.content.trim());
+    const purpose=objective?'judgment':message?(smallTalk?'communication':'intent'):contract?'collaboration':'strategy';
     const existing=this.tickets.get(agentId);
     if(existing&&existing.request.revision===a.decision.revision)return structuredClone(existing.request);
-    const self={id:a.id,name:a.name,personality:a.personality,profile:a.profile,skills:a.skills,fatigue:a.fatigue,psychology:a.psychology,relationships:a.relationships,taskPreferences:a.taskPreferences,longTermGoal:a.longTermGoal};
-    const active=e.state.objectives.filter(t=>t.ownerAgentId===agentId&&['active','blocked','interrupted'].includes(t.status)).map(t=>({id:t.id,goal:t.goal,originalInstruction:t.originalInstruction,constraints:t.constraints,consent:t.consent,status:t.status,revision:t.revision,conditions:t.conditions,task:e.state.agentRuntime.tasks.find(r=>r.objectiveId===t.id)}));
-    const knowledge={locations:o.locations,systems:o.systems,bodies:o.bodies,ownShips:o.ownShips,wrecks:o.wrecks,inventories:o.inventories,contacts:o.contacts,opportunities:o.opportunities};
+    const self={id:a.id,name:a.name,personality:a.personality,profile:a.profile,skills:a.skills,fatigue:a.fatigue,psychology:a.psychology,relationships:a.relationships,taskPreferences:a.taskPreferences,longTermGoal:a.longTermGoal,memory:[...o.self.memory].sort((l,r)=>r.salience-l.salience||r.time-l.time).slice(0,8)};
+    const active=o.objectiveContext.map(t=>({id:t.id,goal:t.goal,originalInstruction:t.originalInstruction,amendments:t.amendments,constraints:t.constraints,consent:t.consent,status:t.status,revision:t.revision,conditions:t.conditions,task:this.taskFacts(o,t.id)}));
+    const ship=o.ship?{id:o.ship.id,name:o.ship.name,classId:o.ship.classId,hull:o.ship.hull,shield:o.ship.shield,core:o.ship.core,capacity:capabilities(o.ship),cargo:o.ship.cargo,cargoUsed:cargoUsed(o.ship),modules:o.ship.modules,position:{x:o.ship.x,y:o.ship.y},current:o.ship.current?.action??null,standing:o.ship.standing}:null;
+    const knowledge={locations:o.locations,systems:o.systems,bodies:o.bodies,ownShips:o.ownShips.map(s=>({id:s.id,name:s.name,classId:s.classId,x:s.x,y:s.y})),fleet:o.fleet,wormholes:o.wormholes,wrecks:o.wrecks,inventories:o.inventories,contacts:o.contacts,opportunities:o.opportunities};
     let context:Record<string,unknown>,prompt:string;
     if(purpose==='judgment'){
-      context={self,objective:active.find(t=>t.id===objective!.id),ship:o.ship,risks:o.contacts.filter(t=>t.live&&t.hostile),resources:o.inventories,constructionOptions:o.constructionOptions,commitments:o.commitments};
+      context={self,objective:active.find(t=>t.id===objective!.id),ship,risks:o.contacts.filter(t=>t.live&&t.hostile),resources:o.inventories,constructionOptions:o.constructionOptions,commitments:o.commitments};
       prompt='TaskJudgment: 只判断这个自愿目标。response=accept/reject/counter。reply表达意图和真实原因，不能宣称执行完成。conditions只在counter时提出，其他情况为空数组；不生成物理动作。原始目标和约束必须保持完整。';
+    }else if(purpose==='communication'){
+      context={self,input:message!.content,activeObjectives:active,ship:o.ship?{id:o.ship.id,name:o.ship.name,hull:o.ship.hull,cargo:o.ship.cargo}:null,recentInteractions:o.recentChat.filter(m=>m.channelId===message!.channelId).slice(-6)};
+      prompt='CommunicationDecision: 仅回应这条玩家聊天。content表达性格与真实主观判断，purpose=information/acknowledgement。不创建目标、不发送协作、不宣称未核验的物理行动。';
     }else if(purpose==='intent'){
       context={self,input:message!.content,authorizationMode:message!.controlMode??'voluntary',activeObjectives:active,publicFacts:knowledge,recentInteractions:o.recentChat.filter(m=>m.channelId===message!.channelId).slice(-8)};
-      prompt='Intent: 理解 Admiral 的完整目标。只返回 disposition/proposal/allowWormholes/reply。复合装满后返航用loadReturn；RETURN保留货物，明确交付才deliver=true。回收指定全部Scout残骸用recovery并includeDiscoveries=true，舰级和ID只引用公开事实，不能猜测。Frontier q/r导航用navigate.sector，测绘具体天体用survey，不能互换。指代和催促必须引用持久原始目标：continue保留完整目标，不把最后一句话当作新行动。关键信息不足用clarify，普通聊天用conversation。无法完整表达的复合目标必须澄清，不降级为单一步骤。只有propose有非空proposal；其他情况proposal=null。reply不得声明尚未核验的物理结果。';
+      prompt='Intent: 理解 Admiral 的完整目标。只返回 disposition/proposal/objectiveId/allowWormholes/reply。复合装满后返航用loadReturn；RETURN保留货物，明确交付才deliver=true。回收指定全部Scout残骸用recovery并includeDiscoveries=true，舰级和ID只引用公开事实，不能猜测。Frontier q/r导航用navigate.sector，测绘具体天体用survey，不能互换。指代和催促必须引用持久原始目标：continue保留完整目标，不把最后一句话当作新行动。关键信息不足用clarify，普通聊天用conversation。无法完整表达的复合目标必须澄清，不降级为单一步骤。补充修改现有任务用revise，objectiveId必须引用给定目标，完整proposal继承其路线、来源和真实货物约束。propose/revise有非空proposal；其他情况proposal=null。只有revise的objectiveId非空。reply不得声明尚未核验的物理结果。';
     }else if(purpose==='collaboration'){
-      context={self,request:contract,ship:o.ship,activeObjectives:active,publicFacts:knowledge,commitments:o.commitments};
+      context={self,request:contract,ship,activeObjectives:active,publicFacts:knowledge,commitments:o.commitments};
       prompt='CollaborationDecision: 只响应给定requestId和version，accept/reject/counter，reason及reply解释当前决定；仅counter可修改conditions。不生成物理动作或虚构履约。';
     }else{
-      context={self,ship:o.ship,activeObjectives:active,opportunities:o.opportunities,decisionContext:o.decisionContext,publicFacts:knowledge};
+      context={self,ship,activeObjectives:active,opportunities:o.opportunities,decisionContext:o.decisionContext,publicFacts:knowledge};
       prompt='StrategicDecision: 仅选择给定opportunityId，或null表示保持当前目标/等待。riskPreference=cautious/balanced/bold，reason为简短真实理由。已有承诺和Admiral接管优先，不允许创建或猜测Action。';
     }
     if(JSON.stringify(context).length>100000)throw Error('必要目标上下文超出认知预算，未发出模型请求');
@@ -63,13 +69,15 @@ export class CognitionGateway {
   }
   validate(agentId:string,requestId:string,response:CognitionResponse):CommandResult {
     const t=this.current(agentId,requestId,response);if('ok' in t)return t;
-    const o=this.engine.getObservation(agentId)!;
+    const o=this.engine.getObservation(agentId,false)!;
     try{
       if(response.purpose==='intent'){
         const d=response.decision;
-        if((d.disposition==='propose')!==(d.proposal!==null))return rejected('意图阶段与目标参数不一致');
-        if(d.proposal){const p=resolveProposal(o,d.proposal),goal=p.goal??goalFromProposal(p);if(o.ship&&!['assignment','cancel'].includes(goal.kind)){const valid=this.engine.runtime.validateGoal(goal,o.ship.id,'direct');if(!valid.ok)return valid;}}
-        if(d.disposition==='continue'&&!this.engine.state.objectives.some(t=>t.ownerAgentId===agentId&&['active','blocked','interrupted'].includes(t.status)))return rejected('没有可以继承的持久目标，请澄清');
+        if(['propose','revise'].includes(d.disposition)!==(d.proposal!==null))return rejected('意图阶段与目标参数不一致');
+        if(d.disposition==='revise'&&d.objectiveId===null||d.objectiveId!==null&&!['revise','continue'].includes(d.disposition))return rejected('目标修订必须引用唯一已有目标');
+        if(d.disposition==='revise'){const observed=t.request.context.activeObjectives;if(!Array.isArray(observed))return rejected('修订缺少原始目标上下文');const origin=observed.find((item:unknown)=>item!==null&&typeof item==='object'&&'id'in item&&item.id===d.objectiveId);const target=this.engine.state.objectives.find(o=>o.id===d.objectiveId);if(!origin||!target||target.ownerAgentId!==agentId||!['active','blocked','interrupted'].includes(target.status)||!('revision'in origin)||origin.revision!==target.revision)return rejected('待修订目标已改变或不属于此交互');}
+        if(d.proposal){const p=resolveProposal(o,d.proposal),goal=p.goal??goalFromProposal(p);if(!o.ship&&!['assignment','cancel'].includes(goal.kind))return rejected('尚未分配舰船；请指定可用舰船，再确认这个目标');if(o.ship&&!['assignment','cancel'].includes(goal.kind)){const valid=this.engine.runtime.validateGoal(goal,o.ship.id,'direct');if(!valid.ok)return valid;}}
+        if(d.disposition==='continue'){const targets=this.engine.state.objectives.filter(t=>t.ownerAgentId===agentId&&['active','blocked','interrupted'].includes(t.status));if(d.objectiveId!==null&&!targets.some(t=>t.id===d.objectiveId)||d.objectiveId===null&&targets.length!==1)return rejected(targets.length?'存在多个目标；请明确继续哪一个':'没有可以继承的持久目标，请澄清');}
       }else if(response.purpose==='judgment'||response.purpose==='collaboration'){
         if(response.decision.response!=='counter'&&response.decision.conditions.length)return rejected('接受或拒绝不能偷偷修改约定条件');
         if(response.purpose==='collaboration'&&(response.decision.requestId!==t.contractId||response.decision.version!==t.contractVersion))return rejected('协作请求或版本不匹配');
@@ -86,11 +94,11 @@ export class CognitionGateway {
   // an output schema or an execution port granted to the provider.
   private negotiationCommand(t:Ticket,response:Extract<CognitionResponse,{purpose:'judgment'|'collaboration'}>) {
     const d=response.decision;
-    const decision:AgentDecision={goal:'判断自愿任务',rationale:d.reply,action:null,messages:[],memory:null,waitMinutes:30,coordination:response.purpose==='judgment'?{type:'answerTask',taskId:t.objectiveId!,version:this.engine.state.objectives.find(o=>o.id===t.objectiveId)!.conditionVersion,response:d.response,conditions:d.conditions,reason:d.reason}:{type:'answerRequest',requestId:t.contractId!,version:t.contractVersion!,response:d.response,conditions:d.conditions,reason:d.reason}};
+    const decision:AgentDecision={goal:(this.engine.state.objectives.find(o=>o.id===t.objectiveId)?.originalInstruction??'判断协作承诺').slice(0,240),rationale:d.reply,action:null,messages:[],memory:null,waitMinutes:30,coordination:response.purpose==='judgment'?{type:'answerTask',taskId:t.objectiveId!,version:this.engine.state.objectives.find(o=>o.id===t.objectiveId)!.conditionVersion,response:d.response,conditions:d.conditions,reason:d.reason}:{type:'answerRequest',requestId:t.contractId!,version:t.contractVersion!,response:d.response,conditions:d.conditions,reason:d.reason}};
     return {type:'agentDecision' as const,agentId:t.request.agentId,revision:t.request.revision,decision};
   }
   commit(agentId:string,requestId:string,response:CognitionResponse):CommandResult {
-    const valid=this.validate(agentId,requestId,response);if(!valid.ok)return valid;
+    const valid=this.validate(agentId,requestId,response);if(!valid.ok){const ticket=this.current(agentId,requestId,response);if(response.purpose==='intent'&&!('ok'in ticket)&&ticket.messageId){commitPrimaryReply(this.engine,agentId,ticket.messageId,valid.reason,'request');this.tickets.delete(agentId);}return valid;}
     const t=this.tickets.get(agentId)!,e=this.engine,a=e.state.agents.find(a=>a.id===agentId)!;
     this.tickets.delete(agentId);
     if(response.purpose==='judgment'||response.purpose==='collaboration'){
@@ -98,25 +106,46 @@ export class CognitionGateway {
       return e.dispatchCommand(this.negotiationCommand(t,response),agentId);
     }
     a.decision.pendingReasons=[];a.decision.events=[];a.decision.failures=0;a.decision.lastError=null;a.decision.nextAt=e.state.time+30;
-    a.status=a.assignedShipId?'online':'unassigned';
+    const assignedShip=e.state.ships.find(s=>s.id===a.assignedShipId);
+    a.status=assignedShip?.current?.source==='admiral'&&assignedShip.current.controlMode==='direct'?'admiral':assignedShip?.current?'executing':a.assignedShipId?'online':'unassigned';
+    a.decision.lastChatId=e.state.nextChat-1;
     if(t.messageId){const interaction=e.state.agentRuntime.interactions.find(i=>i.sourceMessageId===t.messageId&&i.recipientAgentId===agentId);if(interaction)interaction.phase='committed';}
     if(response.purpose==='intent'){
       const d=response.decision;
-      if(d.proposal){const p=resolveProposal(e.getObservation(agentId)!,d.proposal);p.allowWormholes=d.allowWormholes;receiveObjective(e,agentId,t.messageId!,p);}
+      if(d.proposal){
+        const p=resolveProposal(e.getObservation(agentId,false)!,d.proposal);p.allowWormholes=d.allowWormholes;
+        if(d.disposition==='revise'){
+          const target=e.state.objectives.find(o=>o.id===d.objectiveId)!,message=e.state.chatMessages.find(m=>m.id===t.messageId)!;
+          const revised=e.runtime.revise(target.id,target.revision,p.goal??goalFromProposal(p),message.content,message.controlMode??'voluntary',d.allowWormholes);
+          if(!revised.ok){commitPrimaryReply(e,agentId,t.messageId!,revised.reason,'request');return revised;}
+          const interaction=e.state.agentRuntime.interactions.find(i=>i.sourceMessageId===message.id&&i.recipientAgentId===agentId);if(interaction)interaction.objectiveId=target.id;
+          if(target.controlMode==='direct')commitPrimaryReply(e,agentId,message.id,'已按直接授权修订完整目标，现有物资与历史保留。');
+        }else receiveObjective(e,agentId,t.messageId!,p);
+      }
       else if(d.disposition==='continue'){
-        const target=[...e.state.objectives].reverse().find(o=>o.ownerAgentId===agentId&&['active','blocked','interrupted'].includes(o.status))!;
+        const target=e.state.objectives.find(o=>o.ownerAgentId===agentId&&['active','blocked','interrupted'].includes(o.status)&&(d.objectiveId===null||o.id===d.objectiveId))!;
         if(target.status==='interrupted')commitPrimaryReply(e,agentId,t.messageId!,'原目标保留为中断状态。请在任务面板明确恢复后继续。','request');
         else {commitPrimaryReply(e,agentId,t.messageId!,d.reply);if(['proposed','negotiating'].includes(target.consent))wakeAgent(a,'proposal:'+target.id,e.state.time,true);e.runtime.drain();}
       }else commitPrimaryReply(e,agentId,t.messageId!,d.reply,d.disposition==='clarify'?'request':'reply');
     }else if(response.purpose==='communication'&&t.messageId)commitPrimaryReply(e,agentId,t.messageId,response.decision.content);
     else if(response.purpose==='strategy'&&response.decision.opportunityId){
       // ROE validation and deterministic task planning remain engine responsibilities.
-      const action=this.opportunityGoal(e.getObservation(agentId)!,response.decision.opportunityId)!;
+      const observation=e.getObservation(agentId,false)!,action=this.opportunityGoal(observation,response.decision.opportunityId);
+      if(!action)return rejected('机会已失效或没有合法本地策略');
+      remember(e.state,a,'decision',response.decision.reason,null,5);
       return e.runtime.startCommand({type:'issueDirective',shipIds:[t.shipId!],mode:'REPLACE',action},agentId);
     }
     const explanation=response.purpose==='strategy'?response.decision.reason:response.purpose==='communication'?response.decision.content:response.purpose==='intent'?response.decision.reply:null;
     if(explanation)remember(e.state,a,'decision',explanation,null,5);
     return accepted();
+  }
+  private taskFacts(o:Observation,objectiveId:string) {
+    const task=o.taskContext.find(t=>t.objectiveId===objectiveId);
+    if(!task)return null;
+    return {taskId:task.taskId,status:task.status,revision:task.revision,currentStep:task.currentStep,
+      assignedShipIds:task.assignedShipIds,dependencyTaskIds:task.dependencyTaskIds,blockReason:task.blockReason,
+      progress:task.progress,steps:task.steps,completionEvidence:task.completionEvidence,
+      retainedAction:task.checkpoint?.action??null};
   }
   private opportunityGoal(o:Observation,id:string) {
     const opportunity=o.opportunities.find(p=>p.id===id);if(!opportunity||!o.ship||o.objective&&['active','blocked','interrupted'].includes(o.objective.status))return null;

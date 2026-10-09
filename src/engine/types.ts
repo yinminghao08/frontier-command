@@ -108,7 +108,7 @@ export interface Agent {
   currentGoal: string;
   memory: AgentMemory[];
   relationships: Record<string, { trust: number; cooperation: number; lastInteraction: number }>;
-  assignedShipId: string | null;
+  readonly assignedShipId: string | null;
   originPersonnelId: string | null;
   modelConfig: { model: string | null; reasoningEffort: ReasoningEffort | null; thinking?: ThinkingMode | null };
   enabled: boolean;
@@ -162,6 +162,7 @@ export interface Objective {
   createdAt: number;
   updatedAt: number;
   originalInstruction: string;
+  amendments: {revision:number;instruction:string;goal:ObjectiveGoal;time:number}[];
   id: string;
   agentId: string;
   messageId: number;
@@ -1159,6 +1160,8 @@ interface ObservationData {
   currentTask: Directive | null;
   objective: Objective | null;
   runtimeTask: import('./agent-runtime/model').TaskState|null;
+  objectiveContext:Objective[];
+  taskContext:import('./agent-runtime/model').TaskState[];
   taskProposals: Objective[];
   actionAvailability: { action: Action; autonomous: boolean; reason: string | null }[];
   constructionOptions: {

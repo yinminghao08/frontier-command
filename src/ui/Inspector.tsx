@@ -1,3 +1,4 @@
+import { vesselAgent,vesselControl } from './assignment';
 import { currentMovementSpeed } from '../engine/navigation';
 import {
   displayName,
@@ -209,6 +210,7 @@ export function Inspector({
       <>
         <LcarsTextBar literal>{name(s)}</LcarsTextBar>
         <p>{SHIP_LABELS[s.classId]} · 舰队司令拥有最终指挥权</p>
+        <p data-testid="vessel-assignment">{vesselControl(world,s.id)}</p>
         <PiracyStatus world={world} shipId={s.id} command={command} />
         {c.cloak && (
           <>
@@ -260,14 +262,14 @@ export function Inspector({
           <p key={d.id}>挂起 · {ACTION_LABELS[d.action.type]} / 保留进度</p>
         ))}
         <div className="inline-actions">
-          <LcarsButton onClick={() => launch('MOVE', s.id)}>新指令 / 改令</LcarsButton>
+          <LcarsButton onClick={() => launch('MOVE', s.id)}>新指令 / 改令 · {vesselAgent(world,s.id)?.name??'Admiral'}</LcarsButton>
           <LcarsButton
             tone="danger"
             onClick={() => command({ type: 'cancelDirective', shipId: s.id })}
           >
-            取消全部指令
+            取消全部指令 · {vesselAgent(world,s.id)?.name??'Admiral'}
           </LcarsButton>
-          <LcarsButton onClick={() => launch('RETREAT', s.id)}>撤退</LcarsButton>
+          <LcarsButton onClick={() => launch('RETREAT', s.id)}>撤退 · {vesselAgent(world,s.id)?.name??'Admiral'}</LcarsButton>
         </div>
         <LcarsTextBar>
           货舱 / {Math.floor(cargoUsed(s))} / {c.cargo}
@@ -277,7 +279,7 @@ export function Inspector({
             {GOODS_LABELS[k as keyof typeof GOODS_LABELS]} {Math.floor(v)}
           </p>
         ))}
-        <LcarsButton onClick={() => launch('UNLOAD', s.id)}>卸货入库</LcarsButton>
+        <LcarsButton onClick={() => launch('UNLOAD', s.id)}>卸货入库 · {vesselAgent(world,s.id)?.name??'Admiral'}</LcarsButton>
         {returnActions}
         <LcarsTextBar>
           模块 / {s.modules.length} / {c.moduleSlots}

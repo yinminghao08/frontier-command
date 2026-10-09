@@ -63,7 +63,7 @@ export function receiveObjective(
   const task: Objective = {
     schemaVersion: 1, originInteractionId: 'interaction:' + message.id + ':' + agent.id, issuerId: w.commander.id,
     ownerAgentId: agent.id, goal, constraints: { allowWormholes: result.intent.allowWormholes },
-    completionCriteria: criterionFor(goal), revision: 0, createdAt: w.time, updatedAt: w.time, originalInstruction: message.content,
+    completionCriteria: criterionFor(goal), revision: 0, createdAt: w.time, updatedAt: w.time, originalInstruction: message.content,amendments:[],
     ...result.intent,
     id: 'admiral-task-' + w.nextId,
     agentId,

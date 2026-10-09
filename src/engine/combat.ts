@@ -123,8 +123,8 @@ export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
       ammunition: { photon: s.photon, quantum: s.quantum },
       operatorIds,
     });
+    agentVesselLost(e, s,operatorIds);
     w.assignments = w.assignments.filter((a) => a.shipId !== s.id);
-    agentVesselLost(e, s);
     for (const op of w.operators) if (operatorIds.includes(op.id)) op.availability = 'vesselLost';
     for (const p of w.personnel)
       if (p.posting?.id === s.id) {

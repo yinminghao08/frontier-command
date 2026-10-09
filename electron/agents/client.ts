@@ -59,7 +59,7 @@ export class ChatCompletionsClient {
     const network=requestContext??{startedAt:Date.now(),agentId:'admiral:test',kind:'test' as const};
     const budget=options.attempts??{used:0},key=config.baseUrl+'\n'+model;
     const cached=this.compatibility.get(key);
-    let format:'schema'|'tool'|'object'|'text'=cached?.format??(schema&&cap.strictSchema==='supported'?'schema':'object');
+    let format:'schema'|'tool'|'object'|'text'=cached?.format??(schema&&cap.strictSchema==='supported'?'schema':/dashscope/.test(new URL(config.baseUrl).hostname)&&cap.thinkingOn==='supported'&&reasoning.enable_thinking!==false?'text':'object');
     let stream=cached?.stream!==false,formatFallback=false;
     let timing:AgentRequestTiming|undefined,release:(()=>void)|undefined;
     for(let compatibilityAttempt=0;compatibilityAttempt<=2&&budget.used<4;compatibilityAttempt++){
@@ -72,7 +72,7 @@ export class ChatCompletionsClient {
         if(this.tracker)release=await this.tracker.acquire(network.agentId,compatibilityAttempt?'compatibility':network.kind,controller.signal);
         const reasoningBudget=cap.thinkingOn==='supported'&&options.thinking!=='off';
         const maxTokens=reasoningBudget?Math.max(8192,options.outputBudget??900):options.outputBudget??1200;
-        const body=JSON.stringify({model,messages,stream,...reasoning,
+        const body=JSON.stringify({model,messages:[...messages,...(schema&&['object','text'].includes(format)?[{role:'system',content:'当前决策仅允许此 JSON Schema：'+JSON.stringify(schema)}]:[])],stream,...reasoning,
           ...(new URL(config.baseUrl).hostname==='api.openai.com'?{max_completion_tokens:maxTokens}:{max_tokens:maxTokens}),
           ...(stream?{stream_options:{include_usage:true}}:{}),
           ...(format==='tool'&&schema?{tools:[{type:'function',function:{name:'frontier_decision',description:'Submit this one purpose decision.',strict:true,parameters:schema}}],tool_choice:{type:'function',function:{name:'frontier_decision'}},parallel_tool_calls:false}:{}),

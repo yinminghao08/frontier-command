@@ -166,10 +166,10 @@ export function v15Fixture(world: WorldState) {
     return {...old,taskId:d.objectiveId??d.taskId};
   };
   const oldTasks=objectives.filter(o=>o.messageId>0).map(o=>{
-    const {schemaVersion:_schema,originInteractionId:_i,issuerId:_issuer,ownerAgentId:_owner,goal:_goal,constraints:_constraints,completionCriteria:_c,revision:_r,createdAt:_created,updatedAt:_updated,originalInstruction:_instruction,...old}=o;
+    const {schemaVersion:_schema,originInteractionId:_i,issuerId:_issuer,ownerAgentId:_owner,goal:_goal,constraints:_constraints,completionCriteria:_c,revision:_r,createdAt:_created,updatedAt:_updated,originalInstruction:_instruction,amendments:_amendments,...old}=o;
     return {...old,status:['interrupted','completed_partial'].includes(old.status)?'blocked':old.status,...(o.goal.kind==='recovery'?{salvage:{wreckIds:o.goal.wreckIds,destinationId:o.goal.destinationId}}:{})};
   });
-  return v15Schema.parse({...base,version:15,agents:base.agents.map(a=>({...a,modelConfig:{model:a.modelConfig.model,reasoningEffort:a.modelConfig.reasoningEffort===null?null:['low','medium','high'].includes(a.modelConfig.reasoningEffort)?a.modelConfig.reasoningEffort:'none'}})),admiralTasks:oldTasks,ships:base.ships.map(s=>({...s,current:s.current?clean(s.current):null,queue:s.queue.map(clean),suspended:s.suspended.map(clean)})),wrecks:base.wrecks.map(({sourceShipId:_ship,sourceClassId:_class,...w})=>w)});
+  return v15Schema.parse({...base,version:15,agents:base.agents.map(a=>({...a,assignedShipId:world.assignments.find(link=>link.operatorId===a.id)?.shipId??null,modelConfig:{model:a.modelConfig.model,reasoningEffort:a.modelConfig.reasoningEffort===null?null:['low','medium','high'].includes(a.modelConfig.reasoningEffort)?a.modelConfig.reasoningEffort:'none'}})),admiralTasks:oldTasks,ships:base.ships.map(s=>({...s,current:s.current?clean(s.current):null,queue:s.queue.map(clean),suspended:s.suspended.map(clean)})),wrecks:base.wrecks.map(({sourceShipId:_ship,sourceClassId:_class,...w})=>w)});
 }
 export function v14Fixture(world: WorldState) {
   const v15=v15Fixture(world);

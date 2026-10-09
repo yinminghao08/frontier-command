@@ -159,6 +159,7 @@ function AgentDetail({
             : agent.status
         }
       />
+      <p data-testid="agent-assignment">VESSEL / {ship?.name??'未分配舰船'}{ship?.current?.source==='admiral'&&ship.current.controlMode==='direct'?' · Admiral 直接指挥':''}</p>
       <p>CURRENT GOAL / {agent.currentGoal}</p>
       <p>LONG TERM / {agent.longTermGoal.summary}</p>
       <p>

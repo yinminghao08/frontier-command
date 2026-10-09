@@ -28,8 +28,9 @@ export const objectiveProposalSchema = z.discriminatedUnion('kind', [
 ]);
 export type ObjectiveProposal = z.infer<typeof objectiveProposalSchema>;
 export const intentDecisionSchema = z.object({
-  disposition:z.enum(['propose','clarify','conversation','continue']),
+  disposition:z.enum(['propose','revise','clarify','conversation','continue']),
   proposal:objectiveProposalSchema.nullable(),
+  objectiveId:id.nullable().default(null),
   allowWormholes:z.boolean(),
   reply,
 }).strict();

@@ -203,7 +203,7 @@ test('v15 Ctrl enemy selection retains allies, toggles accurately, remembers con
   provider!.mode = 'refuse';
   await p.locator('.inspector').getByRole('button', { name: '跟踪', exact: true }).click();
   await d.getByRole('button', { name: '提交给 Agent', exact: true }).click();
-  await expect.poll(async () => (await state(p)).admiralTasks.at(-1)?.consent).toBe('rejected');
+  await expect.poll(async () => (await state(p)).objectives.at(-1)?.consent).toBe('rejected');
   expect((await state(p)).ships.find((s) => s.id === 'horizon')?.current?.action.type).toBe(
     'ATTACK_SET',
   );
@@ -273,7 +273,7 @@ test('v15 a voluntary full-hold amendment inherits the underway route, reports i
   await p.getByLabel('状态变化速率').scrollIntoViewIfNeeded();
   await expect(p.getByLabel('状态变化速率')).toBeVisible();
   await p.screenshot({ path: join(output, 'agent-rates.png') });
-  await wait(p, (w) => w.admiralTasks.at(-1)?.status === 'completed');
+  await wait(p, (w) => w.objectives.at(-1)?.status === 'completed');
   expect((await state(p)).ships.find((s) => s.id === 'meridian')?.cargo.materials).toBe(0);
 });
 test('v15 slow streaming replies exceed 25 seconds, remain cancellable and support real-error retry', async () => {

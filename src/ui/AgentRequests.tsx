@@ -22,7 +22,7 @@ export function AgentRequests({
   command: CommandSender;
   agentId?: string;
 }) {
-  const tasks = world.admiralTasks.filter(
+  const tasks = world.objectives.filter(
     (t) => ['active', 'blocked'].includes(t.status) && (!agentId || t.agentId === agentId),
   );
   const requests = world.escortRequests.filter(

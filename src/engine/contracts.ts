@@ -1,7 +1,7 @@
 import type { SimulationEngine } from './engine';
 import type {
   Action,
-  AdmiralTask,
+  Objective,
   Agent,
   AgentDecision,
   CollaborationRequest,
@@ -15,12 +15,12 @@ import { dist } from './navigation';
 import { validateAction, no, ok } from './command-system';
 import { personalFeedback, clampMood, decisionWorldKey } from './personality';
 
-type Contract = AdmiralTask | CollaborationRequest;
+type Contract = Objective | CollaborationRequest;
 export const liveRequest = (r: CollaborationRequest) =>
   ['pending', 'negotiating', 'awaitingApproval', 'accepted'].includes(r.status);
 export const findContract = (e: SimulationEngine, id: string): Contract | undefined =>
-  e.state.admiralTasks.find((t) => t.id === id) ?? e.state.escortRequests.find((r) => r.id === id);
-const isTask = (c: Contract): c is AdmiralTask => 'consent' in c;
+  e.state.objectives.find((t) => t.id === id) ?? e.state.escortRequests.find((r) => r.id === id);
+const isTask = (c: Contract): c is Objective => 'consent' in c;
 const beneficiary = (c: Contract) => (isTask(c) ? c.agentId : c.responderId);
 function hasContractWork(e: SimulationEngine, id: string, except?: string) {
   return e.state.ships.some((s) =>
@@ -667,6 +667,7 @@ export function contractDirectiveOutcome(
   directiveId: string,
   contractId: string | null,
   failed: boolean,
+  executorId?: string,
 ) {
   if (!contractId) return;
   const c = findContract(e, contractId);
@@ -681,7 +682,7 @@ export function contractDirectiveOutcome(
   }
   if (!isTask(c)) {
     const directive = e.state.ships.find((s) => s.current?.id === directiveId)?.current;
-    if (directive?.actorId !== c.responderId) {
+    if ((executorId??directive?.actorId) !== c.responderId) {
       if (failed) settleContract(e, c, false, '协作后续行动失败');
       else if (
         c.reason === 'physicalComplete' &&
@@ -700,7 +701,7 @@ export function contractDirectiveOutcome(
     }
   }
 }
-export function advanceContracts(e: SimulationEngine) {
+export function advanceCoordination(e: SimulationEngine) {
   if (e.state.tick % 10 !== 0) return;
   for (const r of e.state.escortRequests) {
     if (['failed', 'cancelled', 'rejected'].includes(r.status)) {
@@ -760,6 +761,7 @@ export function advanceContracts(e: SimulationEngine) {
           continue;
         }
         // Loaded goods stay on their original vessel. Only future, unladen intent moves.
+        if(remaining.objectiveId){const objective=e.state.objectives.find(o=>o.id===remaining.objectiveId);if(objective)e.runtime.cancel(objective.id,objective.revision);}
         if (requesterShip?.current?.id === remaining.id) {
           requesterShip.current = null;
           requesterShip.path = [];
@@ -797,7 +799,7 @@ export function advanceContracts(e: SimulationEngine) {
       }
     }
   }
-  for (const task of e.state.admiralTasks.filter(
+  for (const task of e.state.objectives.filter(
     (t) => t.status === 'completed' && !e.state.settledOutcomes.includes(t.id + ':settled'),
   )) {
     if (task.controlMode === 'direct' || readyConditions(e, task, 'after'))

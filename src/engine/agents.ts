@@ -14,7 +14,7 @@ import { hasAdmiralWork } from './fleet';
 import { dist } from './navigation';
 import { AGENT_RULES } from './definitions/agents';
 import { advanceAgentState } from './agent-state';
-import { cancelAdmiralTasks, advanceAdmiralTask } from './admiral-tasks';
+import { cancelObjectives } from './objectives';
 import { personalState, personalFeedback, decisionWorldKey } from './personality';
 import {
   applyNegotiation,
@@ -144,7 +144,7 @@ export function validateAgentCommand(
   actorId: string,
 ): CommandResult | null {
   const w = e.state;
-  if (c.type === 'admiralChatTask') return null;
+  if (c.type === 'interpretInteraction') return null;
   if (c.type === 'sendChat') {
     const reason = chatReason(w, actorId, c.channelId, c.content, c.mentions);
     return reason ? no(reason) : ok();
@@ -297,7 +297,7 @@ export function applyAgentCommand(
   actorId: string,
 ): CommandResult | null {
   const w = e.state;
-  if (c.type === 'admiralChatTask') return null;
+  if (c.type === 'interpretInteraction') return null;
   if (c.type === 'sendChat') {
     appendChat(e, actorId, c.channelId, c.content, c.mentions, 'message', {
       controlMode: c.controlMode,
@@ -323,7 +323,7 @@ export function applyAgentCommand(
     return null;
   const a = w.agents.find((a) => a.id === c.agentId)!;
   if (c.type === 'assignAgent') {
-    cancelAdmiralTasks(e, null, a.id);
+    cancelObjectives(e, null, a.id);
     const old = w.ships.find((s) => s.id === a.assignedShipId);
     if (old) cancelContracts(e, old.id, 'Admiral 重新分舰', 'cancel');
     if (old?.current?.source === 'agent' && old.current.actorId === a.id)
@@ -362,7 +362,7 @@ export function applyAgentCommand(
   }
   if (c.type === 'cancelAgentReply') {
     finishReply(e, a.id, c.messageId, 'cancelled', '模型请求已取消，未执行该请求的动作。');
-    for (const task of w.admiralTasks.filter(
+    for (const task of w.objectives.filter(
       (t) => t.messageId === c.messageId && t.agentId === a.id && t.consent === 'proposed',
     ))
       task.status = 'cancelled';
@@ -521,8 +521,8 @@ export function applyAgentCommand(
   if (bufferedState.length) a.decision.nextAt = w.time;
   a.decision.contextKey = decisionWorldKey(a, w);
   if (coordination?.type === 'answerTask' && coordination.response === 'accept') {
-    const task = w.admiralTasks.find((t) => t.id === coordination.taskId);
-    if (task) advanceAdmiralTask(e, task);
+    const task = w.objectives.find((t) => t.id === coordination.taskId);
+    if (task) e.runtime.drain();
   }
   if (
     coordination?.type === 'answerTask' ||
@@ -530,7 +530,7 @@ export function applyAgentCommand(
     coordination?.type === 'answerEscort'
   ) {
     const pending =
-      w.admiralTasks.find(
+      w.objectives.find(
         (t) =>
           t.agentId === a.id &&
           t.controlMode === 'voluntary' &&
@@ -611,8 +611,7 @@ export function agentOutcome(
   }
   remember(w, a, 'outcome', action.type + ': ' + text, ship.id, 8);
   if (
-    !directive.taskId ||
-    e.state.admiralTasks.find((t) => t.id === directive.taskId)?.kind !== 'action'
+    !directive.objectiveId
   )
     appendChat(
       e,
@@ -646,13 +645,13 @@ export function agentVesselLost(e: SimulationEngine, ship: Ship) {
       w.time,
       '舰船永久损失',
     );
-    for (const task of w.admiralTasks.filter(
+    for (const task of w.objectives.filter(
       (t) => t.agentId === a.id && ['active', 'blocked'].includes(t.status),
     )) {
       task.status = 'cancelled';
       appendChat(e, a.id, task.channelId, '舰船已永久损失，本任务终止。', [], 'danger', {
         origin: 'engine',
-        replyTo: task.messageId,
+        replyTo: task.messageId||null,
         eventId: task.id + ':ship-lost',
       });
       settleContract(e, task, false, '执行舰船永久损失');

@@ -93,7 +93,11 @@ export function snapshot(this: SimulationEngine): Snapshot {
     agents: w.agents,
     chatChannels: w.chatChannels,
     chatMessages: w.chatMessages,
-    admiralTasks: w.admiralTasks,
+    objectives: w.objectives,
+    agentRuntime: {
+      ...w.agentRuntime,
+      events: w.agentRuntime.events.filter(event => event.taskId !== null),
+    },
     escortRequests: w.escortRequests,
     commitments: w.commitments,
     losses: w.losses,
@@ -309,16 +313,16 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
   const sources = snap.inventories
     .filter((i) => i.available.materials >= 10)
     .map((i) => i.locationId);
-  const taskProposals = snap.admiralTasks.filter(
+  const taskProposals = snap.objectives.filter(
     (t) =>
       t.agentId === operatorId &&
       t.controlMode === 'voluntary' &&
       ['active', 'blocked'].includes(t.status) &&
       ['proposed', 'negotiating'].includes(t.consent),
   );
-  const admiralTask =
+  const objective =
     [...taskProposals].reverse().find((t) => t.turnAgentId === operatorId) ??
-    [...snap.admiralTasks]
+    [...snap.objectives]
       .reverse()
       .find(
         (t) =>
@@ -385,7 +389,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
     self,
     ship,
     currentTask: ship?.current ?? null,
-    admiralTask,
+    objective,
     taskProposals,
     constructionOptions,
     actionAvailability: ship
@@ -418,7 +422,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
             ship,
             l,
             self?.personality.riskTolerance,
-            admiralTask?.allowWormholes ?? true,
+            objective?.allowWormholes ?? true,
           ),
         }))
       : [],

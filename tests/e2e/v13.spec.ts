@@ -165,7 +165,7 @@ test('v13 voluntary proposal waits; request view direct takeover executes with z
   await comm.locator('[data-channel-id="private:ops-horizon"]').click();
   await comm.getByLabel('通讯消息').fill('巡逻基地 5 分钟');
   await comm.getByRole('button', { name: 'SEND / 发送', exact: true }).click();
-  await wait(p, (w) => w.admiralTasks[0]?.consent === 'proposed');
+  await wait(p, (w) => w.objectives[0]?.consent === 'proposed');
   expect((await state(p)).ships.find((s) => s.id === 'horizon')!.current).toBeNull();
   const trust = (await state(p)).agents.find((a) => a.id === 'ops-horizon')!.trust;
   await comm.getByRole('button', { name: 'REQUESTS / 待处理请求', exact: true }).click();
@@ -345,7 +345,7 @@ test('v13 request/report/composer and Agent psychology remain reachable at 1366/
     await expect(comm.getByRole('button', { name: 'SEND / 发送', exact: true })).toBeInViewport();
     await comm.getByLabel('通讯消息').fill('@Talia 巡逻基地 5 分钟');
     await comm.getByRole('button', { name: 'SEND / 发送', exact: true }).click();
-    await wait(p, (w) => w.admiralTasks.some((t) => t.consent === 'proposed'));
+    await wait(p, (w) => w.objectives.some((t) => t.consent === 'proposed'));
     await comm.getByRole('button', { name: 'REQUESTS / 待处理请求', exact: true }).click();
     const takeover = comm.getByRole('button', { name: '直接接管', exact: true }).last();
     await takeover.scrollIntoViewIfNeeded();

@@ -1,3 +1,4 @@
+import { objectiveGoalSchema } from './agent-runtime/model';
 import { z } from 'zod';
 import { agentCareerSchema, modelConfigSchema } from './agent-schema';
 import { activitySchema, conditionsSchema, responseFields } from './condition-schema';
@@ -129,7 +130,7 @@ export const commandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z
-    .object({ type: z.literal('admiralChatTask'), agentId: id, messageId: n.int().positive() })
+    .object({ type: z.literal('interpretInteraction'), agentId: id, messageId: n.int().positive() })
     .strict(),
   z.object({ type: z.literal('assignAgent'), agentId: id, shipId: id.nullable() }).strict(),
   z
@@ -207,6 +208,10 @@ export const commandSchema = z.discriminatedUnion('type', [
       action: actionSchema,
     })
     .strict(),
+  z.object({type:z.literal('submitObjective'),shipId:id,goal:objectiveGoalSchema,authorizationMode:z.enum(['direct','voluntary']),instruction:z.string().min(1).max(2000)}).strict(),
+  z.object({type:z.literal('cancelObjective'),objectiveId:id,expectedRevision:n.int().min(0)}).strict(),
+  z.object({type:z.literal('resumeObjective'),objectiveId:id,expectedRevision:n.int().min(0)}).strict(),
+  z.object({type:z.literal('reviseObjective'),objectiveId:id,expectedRevision:n.int().min(0),goal:objectiveGoalSchema,instruction:z.string().min(1).max(2000)}).strict(),
   z.object({ type: z.literal('cancelDirective'), shipId: id }).strict(),
   z.object({ type: z.literal('modifyCurrentTask'), shipId: id, action: actionSchema }).strict(),
   z.object({ type: z.literal('standingOrders'), shipId: id, orders: standingSchema }).strict(),

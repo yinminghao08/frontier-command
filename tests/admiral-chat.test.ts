@@ -40,8 +40,8 @@ function order(
   const messageId = [...e.state.chatMessages]
     .reverse()
     .find((m) => m.sender === e.state.commander.id)!.id;
-  expect(e.dispatchCommand({ type: 'admiralChatTask', agentId, messageId }).ok).toBe(true);
-  return e.state.admiralTasks.at(-1)!;
+  expect(e.dispatchCommand({ type: 'interpretInteraction', agentId, messageId }).ok).toBe(true);
+  return e.state.objectives.at(-1)!;
 }
 function resource(e: SimulationEngine) {
   const sector = materialize(e.state, { q: 0, r: 2 });
@@ -78,7 +78,7 @@ describe('Admiral chat becomes scoped real engine commands', () => {
     order(e, battle, '沿 0/9999999999999999999999 一路测绘回来直到 0/0');
     order(e, freight, '从 mine 运送 999999999999 Materials 到 base');
     expect(active.status).toBe('active');
-    expect(e.state.admiralTasks).toHaveLength(1);
+    expect(e.state.objectives).toHaveLength(1);
     expect(e.state.chatMessages.some((m) => m.content.includes('参数超出'))).toBe(true);
     expect(() => parseSave(e.state)).not.toThrow();
   });
@@ -117,17 +117,17 @@ describe('Admiral chat becomes scoped real engine commands', () => {
     const task = order(e, battle, '直接开火。实时跟踪其位置！');
     expect(ship.current?.action).toEqual({ type: 'ATTACK', targetId: target.id });
     expect(
-      e.dispatchCommand({ type: 'admiralChatTask', agentId: freight, messageId: task.messageId })
+      e.dispatchCommand({ type: 'interpretInteraction', agentId: freight, messageId: task.messageId })
         .ok,
     ).toBe(false);
     expect(
       e.dispatchCommand(
-        { type: 'admiralChatTask', agentId: battle, messageId: task.messageId },
+        { type: 'interpretInteraction', agentId: battle, messageId: task.messageId },
         battle,
       ).ok,
     ).toBe(false);
     expect(
-      e.dispatchCommand({ type: 'admiralChatTask', agentId: battle, messageId: 99999 }).ok,
+      e.dispatchCommand({ type: 'interpretInteraction', agentId: battle, messageId: 99999 }).ok,
     ).toBe(false);
   });
   it('group @ allocation really changes Assignment and refuses to displace another Agent', () => {
@@ -190,7 +190,7 @@ describe('Admiral chat becomes scoped real engine commands', () => {
     const resumed = new SimulationEngine(parseSave(e.state));
     until(
       resumed,
-      () => resumed.state.admiralTasks.find((t) => t.id === task.id)?.status === 'completed',
+      () => resumed.state.objectives.find((t) => t.id === task.id)?.status === 'completed',
       600,
     );
     const mine = resumed.state.locations.find((l) => l.siteId === body.id && l.kind === 'mine');
@@ -263,7 +263,7 @@ describe('Admiral chat becomes scoped real engine commands', () => {
   it('questions grant no authority, model claims cannot allocate ships, and direct group control stops task progression', () => {
     const e = quietEngine();
     order(e, battle, '为什么要建设矿场？');
-    expect(e.state.admiralTasks).toEqual([]);
+    expect(e.state.objectives).toEqual([]);
     const cadet = makeAgent('cadet', 'Cadet 5', 'battle');
     registerAgent(e.state, cadet);
     const before = structuredClone(e.state);
@@ -423,8 +423,8 @@ describe('v14 starts an independent world and preserves historical chat files', 
     expect(store.read().world).toBeNull();
     expect(store.read().blocked).toBe(false);
     store.write(quietEngine().state);
-    expect(store.read().world?.version).toBe(15);
-    expect(store.read().world?.admiralTasks).toEqual([]);
+    expect(store.read().world?.version).toBe(16);
+    expect(store.read().world?.objectives).toEqual([]);
     expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(old);
     expect(readFileSync(join(dir, 'timeline-v11.json'), 'utf8')).toBe(index);
   });

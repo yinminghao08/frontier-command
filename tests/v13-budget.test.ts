@@ -258,7 +258,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     service.pump();
     await flush();
     expect(calls).toBe(2);
-    expect(e.state.admiralTasks[0].consent).toBe('accepted');
+    expect(e.state.objectives[0].consent).toBe('accepted');
     expect(e.state.ships.find((s) => s.id === 'meridian')!.current?.action.type).toBe('PATROL');
     resolves[0]();
     await flush();

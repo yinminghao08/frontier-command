@@ -28,7 +28,7 @@ const metaSchema = z
   })
   .strict();
 const indexSchema = z
-  .object({ version: z.literal(15), activeId: branchId, branches: z.array(metaSchema) })
+  .object({ version: z.literal(16), activeId: branchId, branches: z.array(metaSchema) })
   .strict();
 type Index = z.infer<typeof indexSchema>;
 function atomic(path: string, data: unknown) {
@@ -47,12 +47,12 @@ export class SaveStore {
   private blocked = false;
   private indexBlocked = false;
   constructor(readonly directory: string) {
-    this.root = join(directory, 'frontiers-v15');
-    this.indexPath = join(directory, 'timeline-v15.json');
+    this.root = join(directory, 'frontiers-v16');
+    this.indexPath = join(directory, 'timeline-v16.json');
     if (
       existsSync(directory) &&
       readdirSync(directory).some(
-        (file) => Number(/^timeline-v(\d+)\.json$/.exec(file)?.[1] ?? 0) > 15,
+        (file) => Number(/^timeline-v(\d+)\.json$/.exec(file)?.[1] ?? 0) > 16,
       )
     ) {
       this.blocked = true;
@@ -61,9 +61,9 @@ export class SaveStore {
       return;
     }
     mkdirSync(this.root, { recursive: true });
-    if (!existsSync(this.indexPath) && existsSync(join(directory, 'timeline-v14.json'))) {
+    if (!existsSync(this.indexPath) && [15,14].some(v=>existsSync(join(directory, 'timeline-v'+v+'.json')))) {
       try {
-        this.migrateV14();
+        this.migratePrevious(existsSync(join(directory,'timeline-v15.json'))?15:14);
       } catch {
         this.blocked = true;
         this.indexBlocked = true;
@@ -102,10 +102,10 @@ export class SaveStore {
       }
     }
   }
-  private migrateV14() {
+  private migratePrevious(version: 14|15) {
     const old = indexSchema
-      .extend({ version: z.literal(14) })
-      .parse(JSON.parse(readFileSync(join(this.directory, 'timeline-v14.json'), 'utf8')));
+      .extend({ version: z.literal(version) })
+      .parse(JSON.parse(readFileSync(join(this.directory, 'timeline-v'+version+'.json'), 'utf8')));
     if (
       !old.branches.some((b) => b.id === old.activeId) ||
       new Set(old.branches.map((b) => b.id)).size !== old.branches.length
@@ -122,8 +122,8 @@ export class SaveStore {
         at = parent.parent?.id ?? null;
       }
     }
-    const next = { ...old, version: 15 as const };
-    const marker = join(this.root, '.migration-v15.json');
+    const next = { ...old, version: 16 as const };
+    const marker = join(this.root, '.migration-v16.json');
     if (existsSync(marker)) {
       const prepared = indexSchema.parse(JSON.parse(readFileSync(marker, 'utf8')));
       if (JSON.stringify(prepared) !== JSON.stringify(next)) throw Error('迁移时间线发生变化');
@@ -147,12 +147,12 @@ export class SaveStore {
       return;
     }
     if (readdirSync(this.root).length) throw Error('迁移目标已存在，禁止覆盖');
-    const stage = join(this.directory, '.migrate-v15-' + randomUUID());
+    const stage = join(this.directory, '.migrate-v16-' + randomUUID());
     if (!resolve(stage).startsWith(resolve(this.directory) + sep)) throw Error('非法迁移路径');
     mkdirSync(stage);
     try {
       for (const branch of old.branches) {
-        const source = join(this.directory, 'frontiers-v14', branchId.parse(branch.id));
+        const source = join(this.directory, 'frontiers-v'+version, branchId.parse(branch.id));
         const target = join(stage, branch.id);
         mkdirSync(target);
         let readable = false;
@@ -170,8 +170,8 @@ export class SaveStore {
         atomic(join(target, 'branch.json'), branch);
       }
       // Publish every branch together, then the index. The marker makes the gap recoverable.
-      atomic(join(stage, '.migration-v15.json'), next);
-      if (resolve(this.root) !== resolve(this.directory, 'frontiers-v15'))
+      atomic(join(stage, '.migration-v16.json'), next);
+      if (resolve(this.root) !== resolve(this.directory, 'frontiers-v16'))
         throw Error('非法迁移目标');
       rmdirSync(this.root); // Verified empty directory; no existing saves are removed.
       renameSync(stage, this.root);
@@ -292,12 +292,12 @@ export class SaveStore {
         message: '时间线索引损坏或版本不支持；已保留原文件并阻止覆盖。',
         blocked: true,
       };
-    if (!this.index) return { world: null, message: 'v15 持久海盗边疆就绪。', blocked: false };
+    if (!this.index) return { world: null, message: 'v16 持久海盗边疆就绪。', blocked: false };
     try {
       const loaded = this.readBranch(this.index.activeId);
       return {
         world: loaded.world,
-        message: loaded.backup ? '已从同代备份恢复' : '已恢复 v15 时间线',
+        message: loaded.backup ? '已从同代备份恢复' : '已恢复 v16 时间线',
         blocked: false,
       };
     } catch (error) {
@@ -353,7 +353,7 @@ export class SaveStore {
       writeFileSync(journal, '', { flag: 'wx' });
       renameSync(dir, destination);
       moved = true;
-      this.commit({ version: 15, activeId: id, branches: [...(this.index?.branches ?? []), meta] });
+      this.commit({ version: 16, activeId: id, branches: [...(this.index?.branches ?? []), meta] });
     } catch (error) {
       rmSync(dir, { recursive: true, force: true });
       if (moved) rmSync(destination, { recursive: true, force: true });

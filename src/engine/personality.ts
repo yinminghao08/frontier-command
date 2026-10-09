@@ -110,7 +110,7 @@ export function decisionContext(a: Agent, w: WorldState): Observation['decisionC
     [ship.current, ...ship.queue, ...ship.suspended].some(
       (d) =>
         d?.source === 'admiral' &&
-        !w.admiralTasks.some((t) => t.id === d.taskId && t.controlMode === 'voluntary'),
+        !w.objectives.some((t) => t.id === d.taskId && t.controlMode === 'voluntary'),
     )
       ? ['directAdmiralControl']
       : [];

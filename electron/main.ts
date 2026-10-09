@@ -180,7 +180,7 @@ app.whenReady().then(async () => {
       command &&
       typeof command === 'object' &&
       'type' in command &&
-      command.type === 'admiralChatTask'
+      command.type === 'interpretInteraction'
     )
       return { ok: false, reason: '聊天任务授权仅由主进程处理真实消息' };
     const session = z

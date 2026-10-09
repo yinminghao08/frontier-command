@@ -8,7 +8,7 @@ import { DEVELOPMENT } from './definitions/frontier';
 import { tradeReason, orderTrade } from './trade';
 import { eventAt, finishEvent } from './world-events';
 import { AGENT_RULES } from './definitions/agents';
-import { cancelAdmiralTasks } from './admiral-tasks';
+import { cancelObjectives } from './objectives';
 import { agentOutcome } from './agents';
 import { wakeAgent } from './chat';
 import { cancelContracts } from './contracts';
@@ -158,7 +158,7 @@ export function applyFrontierCommand(e: SimulationEngine, c: Command): CommandRe
         (id) => w.ships.find((s) => s.id === id)!,
       );
     for (const [slot, s] of members.entries()) {
-      if (c.mode !== 'INTERRUPT') cancelAdmiralTasks(e, s.id, undefined, c.mode !== 'QUEUE');
+      if (c.mode !== 'INTERRUPT') cancelObjectives(e, s.id, undefined, c.mode !== 'QUEUE');
       if (c.mode === 'REPLACE') cancelContracts(e, s.id);
       if (c.mode === 'REPLACE' && s.current?.source === 'agent')
         agentOutcome(e, s, s.current, 'Admiral 编队指令接管', true);

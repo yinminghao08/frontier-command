@@ -1,3 +1,4 @@
+import { recordCargoTransfer } from './agent-runtime/journal';
 import { loseStock } from './inventory';
 import { personnelBonus } from './society';
 import type { Enemy, Location, Ship } from './types';
@@ -179,10 +180,13 @@ export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
       }
     }
   }
+  for(const kind of GOODS)recordCargoTransfer(e,s.id,s.id,'wreck:'+s.id,kind,s.cargo[kind],'lost',s.current??undefined);
   const stock = emptyStock();
   for (const k of GOODS) stock[k] = Math.floor(s.cargo[k] * 0.65);
   stock.materials += Math.round(SHIP_CLASSES[s.classId].hull * 0.08);
   w.wrecks.push({
+    sourceShipId: s.id,
+    sourceClassId: s.classId,
     id: 'wreck:' + s.id,
     name: s.name + ' 残骸',
     x: s.x,

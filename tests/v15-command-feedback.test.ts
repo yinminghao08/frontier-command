@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
-import { quietEngine, issue, run, until } from './helpers';
+import { quietEngine, issue, run, until, v14Fixture } from './helpers';
 import { makeEnemy } from '../src/engine/data';
 import { updateSensors } from '../src/engine/sensors';
-import { compileAdmiralIntent } from '../src/engine/admiral-intent';
+import { compileIntent } from '../src/engine/intent-gateway';
 import { privateChannel } from '../src/engine/chat';
 import { parseSave } from '../src/engine/saves';
 import { SimulationEngine } from '../src/engine/engine';
@@ -67,7 +67,7 @@ function send(
     .reverse()
     .find((m) => m.sender === e.state.commander.id)!;
   expect(
-    e.dispatchCommand({ type: 'admiralChatTask', agentId: id, messageId: message.id }).ok,
+    e.dispatchCommand({ type: 'interpretInteraction', agentId: id, messageId: message.id }).ok,
   ).toBe(true);
   return message;
 }
@@ -118,7 +118,7 @@ describe('v15 actual commands and feedback', () => {
     expect(Buffer.byteLength(bodies[0])).toBeLessThan(12000);
     expect(bodies[0]).toContain('TASK_JUDGMENT:');
     expect(bodies[0]).not.toContain('完整 JSON Schema');
-    const task = e.state.admiralTasks[0];
+    const task = e.state.objectives[0];
     expect(task.kind).toBe('factionAssault');
     expect({
       task,
@@ -256,7 +256,7 @@ describe('v15 actual commands and feedback', () => {
       ),
     ).toMatchObject({ amount: 600, loadPolicy: 'auto' });
     expect(
-      compileAdmiralIntent(o, { content: '从 mine 运送 50 材料到 base' }).intent?.action,
+      compileIntent(o, { content: '从 mine 运送 50 材料到 base' }).intent?.action,
     ).toMatchObject({ amount: 50, loadPolicy: 'fixed' });
   });
   it('an amendment inherits the real route and cargo while explicit new parameters override it', () => {
@@ -276,7 +276,7 @@ describe('v15 actual commands and feedback', () => {
     );
     const o = e.getObservation(freight)!;
     expect(
-      compileAdmiralIntent(o, { content: '运输直接装满货仓，立即执行' }).intent?.action,
+      compileIntent(o, { content: '运输直接装满货仓，立即执行' }).intent?.action,
     ).toMatchObject({
       sourceId: 'mine',
       targetId: 'base',
@@ -285,7 +285,7 @@ describe('v15 actual commands and feedback', () => {
       loadPolicy: 'auto',
     });
     expect(
-      compileAdmiralIntent(o, { content: '从base运输50光子到mine，走安全路线' }).intent?.action,
+      compileIntent(o, { content: '从base运输50光子到mine，走安全路线' }).intent?.action,
     ).toMatchObject({
       sourceId: 'base',
       targetId: 'mine',
@@ -294,7 +294,7 @@ describe('v15 actual commands and feedback', () => {
       route: 'safe',
       loadPolicy: 'fixed',
     });
-    expect(compileAdmiralIntent(o, { content: '从未知地点运输到基地' }).clarification).toBeTruthy();
+    expect(compileIntent(o, { content: '从未知地点运输到基地' }).clarification).toBeTruthy();
   });
   it('queued cargo cannot copy the current manifest and an immediate smaller order preserves the leftover goods', () => {
     const e = quietEngine(),
@@ -762,7 +762,7 @@ describe('v15 actual commands and feedback', () => {
     const dir = mkdtempSync(join(tmpdir(), 'frontier-v15-migration-'));
     dirs.push(dir);
     const w = quietEngine().state;
-    const old = { ...w, version: 14, agents: w.agents.map(({ stateDynamics: _, ...a }) => a) };
+    const old = v14Fixture(w);
     const bytes = JSON.stringify(old),
       root = join(dir, 'frontiers-v14', 'frontier-000001');
     mkdirSync(root, { recursive: true });
@@ -777,13 +777,13 @@ describe('v15 actual commands and feedback', () => {
       }),
     );
     const store = new SaveStore(dir);
-    expect(store.read().world?.version).toBe(15);
+    expect(store.read().world?.version).toBe(16);
     expect(store.read().world?.history).toEqual(w.history);
     for (const name of ['head.json', 'head.json.bak', 'day-1.json']) {
       expect(readFileSync(join(root, name), 'utf8')).toBe(bytes);
       expect(
         JSON.parse(readFileSync(join(store.root, 'frontier-000001', name), 'utf8')).version,
-      ).toBe(15);
+      ).toBe(16);
     }
   });
   it('a migration with a corrupt day publishes nothing and can be retried after repairing the old file', () => {
@@ -805,15 +805,15 @@ describe('v15 actual commands and feedback', () => {
       }),
     );
     expect(new SaveStore(dir).read().blocked).toBe(true);
-    expect(existsSync(join(dir, 'timeline-v15.json'))).toBe(false);
+    expect(existsSync(join(dir, 'timeline-v16.json'))).toBe(false);
     expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(bytes);
     writeFileSync(join(root, 'day-1.json'), bytes);
     const recovered = new SaveStore(dir);
-    expect(recovered.read().world?.version).toBe(15);
+    expect(recovered.read().world?.version).toBe(16);
     const index = readFileSync(join(dir, 'timeline-v15.json'), 'utf8');
-    writeFileSync(join(recovered.root, '.migration-v15.json'), index);
+    writeFileSync(join(recovered.root, '.migration-v16.json'), index);
     rmSync(join(dir, 'timeline-v15.json'));
-    expect(new SaveStore(dir).read().world?.version).toBe(15);
+    expect(new SaveStore(dir).read().world?.version).toBe(16);
     expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(bytes);
   });
 });

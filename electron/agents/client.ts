@@ -189,7 +189,7 @@ export class ChatCompletionsClient {
     refresh?: () => Observation | null,
     validate?: (decision: AgentDecision) => { ok: boolean; reason: string },
   ): Promise<AgentDecision> {
-    const task = observation.admiralTask;
+    const task = observation.objective;
     if (!task || !observation.self) throw new AgentApiError('任务判断缺少有效任务。');
     const network: RequestContext = {
       startedAt: Date.now(),

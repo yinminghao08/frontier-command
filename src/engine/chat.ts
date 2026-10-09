@@ -18,7 +18,7 @@ export function finishReply(
   const m = e.state.chatMessages.find((m) => m.id === messageId);
   if (!m?.responses || m.responses[agentId] !== 'pending') return;
   m.responses[agentId] = status;
-  for (const task of e.state.admiralTasks.filter(
+  for (const task of e.state.objectives.filter(
     (t) =>
       status !== 'failed' &&
       t.messageId === messageId &&
@@ -194,6 +194,7 @@ export function appendChat(
         );
       (message.responses ??= {})[agent.id] = 'pending';
       wakeAgent(agent, 'chat:' + message.id, w.time, true);
+      e.runtime.receiveMessage(agent.id, message.id);
     }
   }
   return message;

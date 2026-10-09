@@ -34,15 +34,7 @@ export function advanceEconomy(e: SimulationEngine, dt: number) {
           eventFactor *
           (1 + personnelBonus(e, l.id, 'commander'));
       }
-      if (
-        l.kind === 'mine' &&
-        !w.events.some(
-          (v) =>
-            v.kind === 'accident' &&
-            v.subjectId === l.id &&
-            ['reported', 'responding'].includes(v.stage),
-        )
-      ) {
+      if (l.kind==='mine') {
         const site = w.bodies.find((b) => b.id === l.siteId);
         if (site && site.remaining > 0) {
           const n = deposit(l, 'materials', Math.min(site.remaining, 7 * site.richness));

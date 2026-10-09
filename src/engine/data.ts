@@ -16,6 +16,7 @@ import { DEFAULT_STANDING, STORAGE } from './definitions/frontier';
 import { makeAgent, registerAgent } from './agents';
 import { COMMAND_CHANNEL, REPORT_CHANNEL, SYSTEM_ACTOR } from './chat';
 import { createOrionState, seedOrion } from './orion/generation';
+import { freshRuntime } from './agent-runtime/model';
 export { BASE } from './definitions/locations';
 export const emptyStock = (): Stock => ({
   materials: 0,
@@ -166,7 +167,8 @@ export function createWorld(seed = 236807): WorldState {
     makeShip(s.id, s.name, s.classId, 'starfleet', { x: BASE.x + (i - 1.5) * 28, y: BASE.y + 45 }),
   );
   const w: WorldState = {
-    version: 15,
+    version: 16,
+    agentRuntime: freshRuntime(),
     orion: createOrionState(),
     piracyIncidents: [],
     tick: 0,
@@ -203,7 +205,7 @@ export function createWorld(seed = 236807): WorldState {
       },
     ],
     chatMessages: [],
-    admiralTasks: [],
+    objectives: [],
     escortRequests: [],
     commitments: [],
     settledOutcomes: [],

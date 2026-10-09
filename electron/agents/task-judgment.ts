@@ -18,7 +18,7 @@ export const TASK_JUDGMENT_PROMPT = `TASK_JUDGMENT: 判断是否接受 Admiral �
 
 /** Only public facts relevant to this task, never the complete world or decision protocol. */
 export function taskJudgmentContext(o: Observation) {
-  const task = o.admiralTask;
+  const task = o.objective;
   if (!task || !o.self) throw Error('No task to judge');
   const ids = new Set([task.targetId, task.shipId]);
   if (task.action) {

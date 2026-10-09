@@ -62,7 +62,7 @@ test('Electron short LLM judgments accept immediately, reject with a reason and 
     await expect(comm.getByRole('log')).not.toContainText('等待自主判断');
     const first = (await p.evaluate(() => window.frontier.getState())).state;
     expect(first.paused).toBe(true);
-    expect(first.admiralTasks[0].rounds).toBe(0);
+    expect(first.objectives[0].rounds).toBe(0);
     const directive = first.ships.find((s) => s.id === 'meridian')!.current!.id;
     provider.mode = 'refuse';
     await comm.locator('[data-channel-id="frontier-command"]').click();
@@ -71,7 +71,7 @@ test('Electron short LLM judgments accept immediately, reject with a reason and 
     await expect
       .poll(
         async () =>
-          (await p.evaluate(() => window.frontier.getState())).state.admiralTasks.at(-1)?.consent,
+          (await p.evaluate(() => window.frontier.getState())).state.objectives.at(-1)?.consent,
         { timeout: 5000 },
       )
       .toBe('rejected');

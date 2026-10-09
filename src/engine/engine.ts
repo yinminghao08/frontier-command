@@ -3,6 +3,7 @@ import { advanceEvents } from './world-events';
 import { FIXED_DELTA, TICKS_PER_DAY, gameCalendar } from './clock';
 import { createWorld } from './data';
 import * as commands from './command-system';
+import { commandSchema } from './commands';
 import * as projection from './projection';
 import { advanceShip } from './execution';
 import { advanceEnemy, advanceFactions } from './threats';
@@ -13,8 +14,8 @@ import { updateSensors } from './sensors';
 import { applyDamage, fire } from './combat';
 import { advanceAgents, agentOutcome } from './agents';
 import { appendChat, REPORT_CHANNEL, SYSTEM_ACTOR, wakeAgent } from './chat';
-import { advanceContracts, contractDirectiveOutcome } from './contracts';
-import { advanceAdmiralTasks, admiralTaskOutcome } from './admiral-tasks';
+import { contractDirectiveOutcome } from './contracts';
+import { FrontierAgentRuntime } from './agent-runtime/runtime';
 import type {
   Action,
   AgentControllerPort,
@@ -29,13 +30,15 @@ export { FIXED_DELTA } from './clock';
 export { dist } from './navigation';
 export class SimulationEngine {
   state: WorldState;
+  runtime: FrontierAgentRuntime;
   pending: CriticalReason[] = [];
   pendingEvents: SimulationEvent[] = [];
   /** Engine-internal dispatch context. Never exposed through observation or IPC. */
-  executingAdmiralTaskId: string | null = null;
+  executingObjectiveId: string | null = null;
   executingContractId: string | null = null;
   constructor(world = createWorld()) {
     this.state = structuredClone(world);
+    this.runtime = new FrontierAgentRuntime(this);
     for (const a of this.state.agents)
       if (a.status === 'waiting') wakeAgent(a, 'recovery', this.state.time, true);
   }
@@ -112,7 +115,13 @@ export class SimulationEngine {
     return this.state.status === 'commandLost';
   }
   validate = commands.validate.bind(this);
-  dispatchCommand = commands.dispatchCommand.bind(this);
+  dispatchCommand = (command: unknown, actorId = 'commander') => {
+    const parsed=commandSchema.safeParse(command);
+    const result=parsed.success&&parsed.data.type==='issueDirective'&&!this.executingObjectiveId
+      ?this.runtime.startCommand(parsed.data,actorId):commands.dispatchCommand.call(this,command,actorId);
+    if(result.ok&&!this.executingObjectiveId&&(!parsed.success||!['pause','speed','acknowledge','readChat','dismissMapMarker'].includes(parsed.data.type)))this.runtime.drain();
+    return result;
+  };
   submitAction = commands.submitAction.bind(this);
   snapshot = projection.snapshot.bind(this);
   getObservation = projection.getObservation.bind(this);
@@ -135,9 +144,9 @@ export class SimulationEngine {
   }
   complete(s: Ship, text: string, failed = false) {
     const old = s.current;
+    if (old) this.runtime.outcome(s, old, text, failed);
     if (old) agentOutcome(this, s, old, text, failed);
-    if (old) contractDirectiveOutcome(this, old.id, old.contractId, failed);
-    if (old?.taskId) admiralTaskOutcome(this, old, text, failed);
+    if (old && !old.objectiveId) contractDirectiveOutcome(this, old.id, old.contractId, failed);
     s.current = null;
     s.tracking = null;
     s.path = [];
@@ -186,8 +195,7 @@ export class SimulationEngine {
     if (this.pending.some((r) => r.kind === 'newContact'))
       return [...events, ...this.pendingEvents.splice(0), ...this.finishCritical()];
     advanceEconomy(this, fixedDelta);
-    advanceAdmiralTasks(this);
-    advanceContracts(this);
+    this.runtime.drain();
     advancePiracyPolicies(this);
     for (const s of [...w.ships]) {
       if (this.isCommandLost()) break;
@@ -204,6 +212,7 @@ export class SimulationEngine {
     advanceFactions(this, fixedDelta);
     advanceEvents(this, fixedDelta);
     advanceAgents(this, fixedDelta);
+    this.runtime.drain();
     return [...events, ...this.pendingEvents.splice(0), ...this.finishCritical()];
   }
   advanceFrame(afterStep?: (events: SimulationEvent[], state: WorldState) => void) {

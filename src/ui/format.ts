@@ -7,6 +7,7 @@ export const ACTION_LABELS: Record<Action['type'], string> = {
   MOVE: '移动',
   EXPLORE: '探索星区',
   SURVEY: '调查',
+  LOAD: '装载',
   RETURN: '返回基地',
   ASSIST_EVENT: '响应事件',
   TRANSIT: '穿越虫洞',

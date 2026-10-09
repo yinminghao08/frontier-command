@@ -1,3 +1,4 @@
+import { actionSchema } from '../../src/engine/action-schema';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { AgentDecision, Observation } from '../../src/engine/types';
@@ -112,7 +113,7 @@ export class AgentTestProvider {
     const latest = [...obs.recentChat]
       .reverse()
       .find((m) => m.sender === 'commander' && m.channelId === privateChannel(self.id));
-    const task = obs.admiralTask;
+    const task = obs.objective;
     if (
       task &&
       ['proposed', 'negotiating'].includes(task.consent) &&
@@ -200,7 +201,7 @@ export class AgentTestProvider {
           type: 'requestTask',
           kind: 'reinforce',
           agentId: peer.agentId,
-          action: peer.action,
+          action: actionSchema.parse(peer.action),
           followUp: refuge ? { type: 'DOCK', targetId: refuge.id } : null,
           conditions: [],
         };

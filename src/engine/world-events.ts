@@ -1,3 +1,4 @@
+import { recordCargoTransfer } from './agent-runtime/journal';
 import { unlockProductionDiscount } from './production';
 import type { SimulationEngine } from './engine';
 import type { Directive, Ship, WorldEvent, WorldEventKind, MineAccidentResponse } from './types';
@@ -114,13 +115,6 @@ export function advanceEvents(e: SimulationEngine, dt: number) {
     for (const l of w.locations.filter((l) => l.owner === 'starfleet' && l.hull > 0)) {
       if (l.distress && w.time - l.attackedAt < 30)
         createEvent(e, 'distress', l.id, l.name + '遭到实际攻击，请求防卫');
-      if (
-        l.kind === 'mine' &&
-        l.extracted * (w.bodies.find((b) => b.id === l.siteId)?.hazard ?? 0) >= 180
-      ) {
-        l.extracted = 0;
-        createEvent(e, 'accident', l.id, l.name + '累计开采暴露超出安全阈值，设备停工');
-      }
       const c = l.colony;
       if (c && (c.contamination > 20 || c.population > c.housing * 0.95)) {
         c.contamination = Math.max(c.contamination, 30);
@@ -396,6 +390,7 @@ export function assistEvent(
     // Validate the full cost before either inventory is debited; reservations stay intact.
     facility.stock.materials -= materials.atSite;
     s.cargo.materials -= materials.fromShip;
+    recordCargoTransfer(e,s.id,s.id,facility.id,'materials',materials.fromShip,'consumed',d);
     finishEvent(
       e,
       v,
@@ -428,6 +423,7 @@ export function assistEvent(
         return;
       }
       s.cargo.materials -= 5;
+      recordCargoTransfer(e,s.id,s.id,v.subjectId,'materials',5,'consumed',d);
       target.stability = Math.min(1, target.stability + 0.3);
       target.stable = target.stability >= 0.7;
     }

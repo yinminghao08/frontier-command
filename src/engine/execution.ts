@@ -1,3 +1,4 @@
+import { recordCargoTransfer } from './agent-runtime/journal';
 import { unlockProductionDiscount } from './production';
 import { BASE_REFIT } from './definitions/progression';
 import { deposit, haulLoad } from './inventory';
@@ -408,6 +409,24 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
           );
       }
     }
+  } else if (a.type === 'LOAD') {
+    const source=inventory(w,a.sourceId);
+    if(!source){e.complete(s,'装载来源已失效',true);return;}
+    if(!go(e,s,d,source,dt,a.route,8))return;
+    if(d.phase==='starting') {
+      const amount=Math.floor(Math.min(c.cargo-cargoUsed(s),available(w,source.id,a.cargoKind)));
+      if(amount<1){d.note=cargoUsed(s)>=c.cargo?'货舱已满，请卸货或改令':'等待实际生产或库存';return;}
+      d.reserved[a.cargoKind]=amount;d.phase='loading';d.work=0;
+    }
+    d.work+=dt;d.note='装载真实货物';
+    if(d.work+1e-8>=RULES.loadMinutes/(1+personnelBonus(e,s.id,'logistics'))) {
+      const amount=d.reserved[a.cargoKind];
+      if(source.stock[a.cargoKind]+1e-8<amount||c.cargo-cargoUsed(s)+1e-8<amount){e.complete(s,'装载预留已失效',true);return;}
+      source.stock[a.cargoKind]-=amount;s.cargo[a.cargoKind]+=amount;d.reserved[a.cargoKind]=0;d.carried+=amount;
+      recordCargoTransfer(e,s.id,source.id,s.id,a.cargoKind,amount,'loaded',d);
+      e.record('cargo',s.name+' 实际装载 '+amount+' '+a.cargoKind,source.id,false);
+      e.complete(s,'已装载实际库存，货物保留');
+    }
   } else if (a.type === 'HAUL') {
     const src = inventory(w, a.sourceId),
       dest = inventory(w, a.targetId);
@@ -469,6 +488,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         }
         src.stock[a.cargoKind] -= n;
         s.cargo[a.cargoKind] += n;
+        recordCargoTransfer(e,s.id,src.id,s.id,a.cargoKind,n,'loaded',d);
         d.carried += n;
         d.reserved[a.cargoKind] = 0;
         d.phase = 'delivering';
@@ -515,6 +535,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         const remaining = Math.max(0, d.carried - d.delivered);
         const n = deposit(dest, a.cargoKind, Math.min(remaining, s.cargo[a.cargoKind]));
         s.cargo[a.cargoKind] -= n;
+        recordCargoTransfer(e,s.id,s.id,dest.id,a.cargoKind,n,'delivered',d);
         d.delivered += n;
         if (n > 0) {
           appendChat(
@@ -737,6 +758,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         const n = Math.min(wreck.stock[k], Math.floor(free));
         wreck.stock[k] -= n;
         s.cargo[k] += n;
+        recordCargoTransfer(e,s.id,wreck.id,s.id,k,n,'loaded',d);
         free -= n;
       }
       if (s.cargo.specialFinds > 0) unlockProductionDiscount(e);
@@ -749,7 +771,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       return;
     }
     if (go(e, s, d, dest, dt, 'safe', 8)) {
-      for (const kind of GOODS) s.cargo[kind] -= deposit(dest, kind, s.cargo[kind]);
+      for (const kind of GOODS) {const n=deposit(dest,kind,s.cargo[kind]);s.cargo[kind]-=n;recordCargoTransfer(e,s.id,s.id,dest.id,kind,n,'delivered',d);}
       e.complete(s, '真实货物已卸入建设项目');
     }
   } else if (arrivedService(e, s, d, dt)) {
@@ -768,6 +790,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       for (const k of GOODS) {
         const n = deposit(dest, k, s.cargo[k]);
         s.cargo[k] -= n;
+        recordCargoTransfer(e,s.id,s.id,dest.id,k,n,'delivered',d);
       }
       e.record('cargo', s.name + ' 将实物货舱卸至 ' + dest.name, dest.id);
       if (cargoUsed(s) > 0) {

@@ -75,6 +75,8 @@ export function defaultAction(
         targetId: id || w.contacts.find((c) => c.factionId === 'romulan')?.id || '',
         message: 'greeting',
       };
+    case 'LOAD':
+      return { type: 'LOAD', sourceId: 'mine', cargoKind: 'materials', route: 'safe' };
     case 'HAUL':
       return {
         type,

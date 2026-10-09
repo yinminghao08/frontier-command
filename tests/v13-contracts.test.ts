@@ -42,8 +42,8 @@ function propose(e: SimulationEngine, content = '巡逻基地 2 分钟') {
   const messageId = [...e.state.chatMessages]
     .reverse()
     .find((m) => m.sender === e.state.commander.id)!.id;
-  expect(e.dispatchCommand({ type: 'admiralChatTask', agentId: talia, messageId }).ok).toBe(true);
-  return e.state.admiralTasks.at(-1)!;
+  expect(e.dispatchCommand({ type: 'interpretInteraction', agentId: talia, messageId }).ok).toBe(true);
+  return e.state.objectives.at(-1)!;
 }
 function request(e: SimulationEngine, conditions: TaskCondition[] = []) {
   expect(
@@ -131,7 +131,7 @@ describe('v13 engine reports, decisions and personality', () => {
         },
       }).ok,
     ).toBe(true);
-    expect(e.getObservation(talia)!.admiralTask).toBeNull();
+    expect(e.getObservation(talia)!.objective).toBeNull();
     expect(a.decision.pendingReasons).toEqual([]);
     expect(
       choose(e, talia, {
@@ -652,7 +652,7 @@ describe('v13 collaboration, negotiation and real consequences', () => {
       mentions: [],
     });
     e.dispatchCommand({
-      type: 'admiralChatTask',
+      type: 'interpretInteraction',
       agentId: mira,
       messageId: e.state.chatMessages.at(-1)!.id,
     });

@@ -21,7 +21,7 @@ function taskEngine() {
     content: '巡逻基地 5 分钟',
     mentions: [],
   });
-  e.dispatchCommand({ type: 'admiralChatTask', agentId: id, messageId: e.state.nextChat - 1 });
+  e.dispatchCommand({ type: 'interpretInteraction', agentId: id, messageId: e.state.nextChat - 1 });
   return { e, id };
 }
 const reply = (value: unknown) =>
@@ -54,7 +54,7 @@ describe('short LLM task judgments', () => {
     service.pump();
     finish!();
     await flush();
-    expect(e.state.admiralTasks[0].status).toBe('cancelled');
+    expect(e.state.objectives[0].status).toBe('cancelled');
     expect(e.state.ships.find((s) => s.id === 'meridian')!.current?.action.type).toBe('REST');
     service.dispose();
   });
@@ -103,7 +103,7 @@ describe('short LLM task judgments', () => {
       conditions: [],
     });
     expect(d.messages).toMatchObject([
-      { channelId: privateChannel(id), replyTo: e.state.admiralTasks[0].messageId },
+      { channelId: privateChannel(id), replyTo: e.state.objectives[0].messageId },
     ]);
     expect(e.state.chatMessages.some((m) => m.content.includes('等待自主判断'))).toBe(false);
   });
@@ -126,7 +126,7 @@ describe('short LLM task judgments', () => {
     service.pump();
     await flush();
     expect(calls).toBe(1);
-    expect(e.state.admiralTasks[0]).toMatchObject({
+    expect(e.state.objectives[0]).toMatchObject({
       consent: 'rejected',
       status: 'cancelled',
       rounds: 0,

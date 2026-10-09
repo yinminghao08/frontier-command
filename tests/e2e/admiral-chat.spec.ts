@@ -89,7 +89,7 @@ test('Electron v13: explicit direct fire preserves final Admiral authority over 
   });
   expect(armed.ships.find((s) => s.id === ship.id)?.standing.roe).toBe('RETURN FIRE');
   await p.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
-  await wait(p, (w) => w.admiralTasks[0]?.status === 'completed');
+  await wait(p, (w) => w.objectives[0]?.status === 'completed');
   const done = await state(p);
   expect(done.agents.find((a) => a.id === 'ops-horizon')!.experience).toBeGreaterThan(0);
   expect(done.history.some((h) => h.kind === 'factionLoss' && h.entityId === target.id)).toBe(true);
@@ -150,7 +150,7 @@ test('Electron v13: paid graduate receives VIGIL and construction requests volun
     .toBe('vigil');
   const before = (await state(p)).resources.credits;
   await send(p, 'private:' + cadet.id, '你去建设好 ' + body.name, 'voluntary');
-  await expect.poll(async () => (await state(p)).admiralTasks.at(-1)?.consent).toBe('accepted');
+  await expect.poll(async () => (await state(p)).objectives.at(-1)?.consent).toBe('accepted');
   await p.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
   await wait(p, (w) =>
     w.escortRequests.some((r) => r.kind === 'logistics' && r.status === 'accepted'),
@@ -158,7 +158,7 @@ test('Electron v13: paid graduate receives VIGIL and construction requests volun
   const start = await state(p);
   expect(start.resources.credits).toBeGreaterThanOrEqual(before - 165);
   expect(start.projects.filter((project) => project.siteId === body.id)).toHaveLength(1);
-  await wait(p, (w) => w.admiralTasks.at(-1)?.status === 'completed', 90000);
+  await wait(p, (w) => w.objectives.at(-1)?.status === 'completed', 90000);
   const done = await state(p);
   expect(done.locations.some((l) => l.siteId === body.id && l.kind === 'mine')).toBe(true);
   expect(done.history.some((h) => h.kind === 'cargo' && h.text.includes('装载 30'))).toBe(true);
@@ -166,11 +166,11 @@ test('Electron v13: paid graduate receives VIGIL and construction requests volun
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
   await p.evaluate(() => window.frontier.save());
   await p.screenshot({ path: join(output, 'construction-cooperation.png') });
-  const taskId = done.admiralTasks.at(-1)!.id;
+  const taskId = done.objectives.at(-1)!.id;
   await app!.close();
   app = undefined;
   const restarted = await launch(dir);
-  expect((await state(restarted)).admiralTasks.find((t) => t.id === taskId)?.status).toBe(
+  expect((await state(restarted)).objectives.find((t) => t.id === taskId)?.status).toBe(
     'completed',
   );
 });
@@ -180,15 +180,15 @@ test('Electron v13: direct route forbids wormholes, survives restart, and map ta
   new SaveStore(dir).write(quietEngine().state);
   let p = await launch(dir);
   await send(p, 'private:ops-horizon', '沿 0/0 一路测绘到 0/2，不走虫洞');
-  await expect.poll(async () => (await state(p)).admiralTasks[0]?.allowWormholes).toBe(false);
+  await expect.poll(async () => (await state(p)).objectives[0]?.allowWormholes).toBe(false);
   await p.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
-  await wait(p, (w) => w.admiralTasks[0]?.sectorIndex === 1);
+  await wait(p, (w) => w.objectives[0]?.sectorIndex === 1);
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
   await p.evaluate(() => window.frontier.save());
   await app!.close();
   app = undefined;
   p = await launch(dir);
-  expect((await state(p)).admiralTasks[0]).toMatchObject({
+  expect((await state(p)).objectives[0]).toMatchObject({
     status: 'active',
     sectorIndex: 1,
     allowWormholes: false,
@@ -201,7 +201,7 @@ test('Electron v13: direct route forbids wormholes, survives restart, and map ta
       action: { type: 'MOVE', point: { x: -240, y: 0 } },
     }),
   );
-  expect((await state(p)).admiralTasks[0].status).toBe('cancelled');
+  expect((await state(p)).objectives[0].status).toBe('cancelled');
   await send(p, 'private:ops-horizon', '取消当前任务');
   await expect
     .poll(async () => (await state(p)).ships.find((s) => s.id === 'horizon')?.current)

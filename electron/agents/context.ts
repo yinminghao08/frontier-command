@@ -4,8 +4,8 @@ export function compactObservation(o: Observation) {
   const pending = o.recentChat.filter((m) => m.responses?.[o.operatorId] === 'pending');
   const latest = pending.at(-1);
   const text = latest?.content.toLowerCase() ?? '';
-  const task = o.admiralTask
-    ? { ...o.admiralTask, reason: o.admiralTask.reason?.slice(0, 240) ?? null }
+  const task = o.objective
+    ? { ...o.objective, reason: o.objective.reason?.slice(0, 240) ?? null }
     : null;
   const ids = new Set<string>();
   if (task?.targetId) ids.add(task.targetId);
@@ -93,7 +93,7 @@ export function compactObservation(o: Observation) {
           delivered: o.currentTask.delivered,
         }
       : null,
-    admiralTask: task,
+    objective: task,
     taskProposals: o.taskProposals.slice(-2),
     decisionContext: o.decisionContext,
     recentChat: latest

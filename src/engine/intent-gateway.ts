@@ -1,8 +1,9 @@
-import type { AdmiralTask, ChatMessage, Observation, SectorCoord } from './types';
+import type { Objective, ChatMessage, Observation, SectorCoord } from './types';
+import type { ObjectiveGoal } from './agent-runtime/model';
 import { SECTOR_SIZE } from './definitions/locations';
 
 export type TaskIntent = Pick<
-  AdmiralTask,
+  Objective,
   | 'kind'
   | 'action'
   | 'targetId'
@@ -11,7 +12,7 @@ export type TaskIntent = Pick<
   | 'sectors'
   | 'allowWormholes'
   | 'factionId'
->;
+> & { goal?: ObjectiveGoal };
 export interface IntentResult {
   intent: TaskIntent | null;
   clarification: string | null;
@@ -31,7 +32,7 @@ function resolve<T extends { id: string; name?: string | null }>(
 }
 /** Pure intent compiler: only authentic addressed Admiral messages can create authority.
  * Entity resolution uses the public observation, never enemy/world secrets. */
-export function compileAdmiralIntent(
+export function compileIntent(
   observation: Observation,
   message: Pick<ChatMessage, 'content'>,
 ): IntentResult {
@@ -75,7 +76,7 @@ export function compileAdmiralIntent(
   ) {
     if (
       /所有|全部|清剿|剩下|剩余|继续|all|remaining/i.test(text) &&
-      (/orion|猎户座/i.test(text) || observation.admiralTask?.kind === 'factionAssault')
+      (/orion|猎户座/i.test(text) || observation.objective?.kind === 'factionAssault')
     )
       return yes({ ...base, kind: 'factionAssault', factionId: 'orion' });
     const targets = [
@@ -84,7 +85,7 @@ export function compileAdmiralIntent(
     ];
     const target = resolve(text, targets);
     const context =
-      observation.admiralTask?.targetId ??
+      observation.objective?.targetId ??
       (observation.currentTask?.action && 'targetId' in observation.currentTask.action
         ? observation.currentTask.action.targetId
         : null);
@@ -103,7 +104,7 @@ export function compileAdmiralIntent(
           ? 'outpost'
           : 'mine';
     const context =
-      observation.admiralTask?.kind === 'construction' ? observation.admiralTask.targetId : null;
+      observation.objective?.kind === 'construction' ? observation.objective.targetId : null;
     const candidates = observation.bodies.filter(
       (b) => b.kind === (kind === 'mine' ? 'resource' : 'planet'),
     );
@@ -162,8 +163,8 @@ export function compileAdmiralIntent(
     const ongoing =
       observation.currentTask?.action.type === 'HAUL'
         ? observation.currentTask.action
-        : observation.admiralTask?.action?.type === 'HAUL'
-          ? observation.admiralTask.action
+        : observation.objective?.action?.type === 'HAUL'
+          ? observation.objective.action
           : null;
     const requestedKind = /quantum|量子/i.test(text)
       ? 'quantum'

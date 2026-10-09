@@ -39,22 +39,6 @@ export class AgentDecisionService {
       if (agent?.enabled && agent.decision.lastError && retry.attempts < 3)
         this.host.command({ type: 'retryAgent', agentId: id }, snapshot.commander.id);
     }
-    // Consume authentic Admiral input before autonomous decisions. Historical messages
-    // have their cursor sealed by migration; ordinary conversation still reaches the LLM.
-    for (const a of snapshot.agents) {
-      const messages = snapshot.chatMessages.filter(
-        (m) =>
-          m.sender === snapshot.commander.id &&
-          m.id > a.decision.lastAdmiralMessageId &&
-          (m.channelId === 'private:' + a.id ||
-            (m.channelId === 'frontier-command' && m.mentions.includes(a.id))),
-      );
-      for (const message of messages)
-        this.host.command(
-          { type: 'admiralChatTask', agentId: a.id, messageId: message.id },
-          snapshot.commander.id,
-        );
-    }
     const latest = this.host.snapshot();
     // Task compilation may itself revise a flight; replace it in this pump.
     for (const [id, flight] of this.flights) {
@@ -109,7 +93,7 @@ export class AgentDecisionService {
       )
         continue;
       if (
-        latest.admiralTasks.some(
+        latest.objectives.some(
           (t) =>
             (t.agentId === a.id || t.carrierAgentId === a.id) &&
             t.consent === 'accepted' &&
@@ -155,7 +139,7 @@ export class AgentDecisionService {
       );
       if (!started.ok) continue;
       this.flights.set(a.id, { controller, revision });
-      const task = observation.admiralTask;
+      const task = observation.objective;
       const judgeTask =
         task && ['proposed', 'negotiating'].includes(task.consent) && task.turnAgentId === a.id;
       void this.client[judgeTask ? 'judgeTask' : 'decide'](

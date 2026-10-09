@@ -1,20 +1,32 @@
 import { z } from 'zod';
 import { actionSchema } from './commands';
 import { conditionsSchema } from './condition-schema';
+import { objectiveGoalSchema } from './agent-runtime/model';
 const id = z.string().min(1).max(160),
   n = z.number().finite(),
   integer = n.int().min(0);
-export const admiralTaskSchema = z
+export const objectiveSchema = z
   .object({
+    schemaVersion: z.literal(1),
+    originInteractionId: id,
+    issuerId: id,
+    ownerAgentId: id.nullable(),
+    goal: objectiveGoalSchema,
+    constraints: z.object({ allowWormholes: z.boolean() }).strict(),
+    completionCriteria: z.string().min(1).max(2000),
+    revision: integer,
+    createdAt: n.min(0),
+    updatedAt: n.min(0),
+    originalInstruction: z.string().max(2000),
     id,
     agentId: id,
-    messageId: integer.positive(),
+    messageId: integer,
     channelId: id,
-    kind: z.enum(['action', 'assign', 'construction', 'surveyRoute', 'cancel', 'factionAssault']),
+    kind: z.enum(['action', 'assign', 'construction', 'surveyRoute', 'cancel', 'factionAssault', 'loadReturn', 'salvage']),
     factionId: z.literal('orion').optional(),
     searchedTargets: z.record(id, n.min(0)).optional(),
     directiveMode: z.enum(['REPLACE', 'QUEUE', 'INTERRUPT']).optional(),
-    status: z.enum(['active', 'blocked', 'completed', 'cancelled', 'failed']),
+    status: z.enum(['active', 'blocked', 'interrupted', 'completed', 'completed_partial', 'cancelled', 'failed']),
     action: actionSchema.nullable(),
     targetId: id.nullable(),
     shipId: id.nullable(),

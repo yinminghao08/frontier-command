@@ -91,7 +91,7 @@ describe('v9 timeline persistence', () => {
     expect(
       readdirSync(join(store.root, 'frontier-000001')).some((n) => n.includes('corrupt')),
     ).toBe(true);
-    writeFileSync(store.path, JSON.stringify({ ...w, version: 16 }));
+    writeFileSync(store.path, JSON.stringify({ ...w, version: 17 }));
     expect(store.read().blocked).toBe(true);
     expect(() => store.write(w)).toThrow();
   });

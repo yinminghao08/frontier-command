@@ -1,5 +1,6 @@
 import type { SimulationSpeed } from './clock';
 import type { ShipClassId } from './definitions/ships';
+import type { ObjectiveGoal, RuntimeState } from './agent-runtime/model';
 export type Point = { x: number; y: number };
 export type FactionId = 'starfleet' | 'orion' | 'romulan';
 export const GOODS = ['materials', 'photon', 'quantum', 'specialFinds'] as const;
@@ -147,16 +148,27 @@ export interface ChatMessage {
   controlMode?: 'voluntary' | 'direct';
   responses?: Record<string, 'pending' | 'replied' | 'failed' | 'superseded' | 'cancelled'>;
 }
-export interface AdmiralTask {
+export interface Objective {
+  schemaVersion: 1;
+  originInteractionId: string;
+  issuerId: string;
+  ownerAgentId: string | null;
+  goal: ObjectiveGoal;
+  constraints: { allowWormholes: boolean };
+  completionCriteria: string;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+  originalInstruction: string;
   id: string;
   agentId: string;
   messageId: number;
   channelId: string;
-  kind: 'action' | 'assign' | 'construction' | 'surveyRoute' | 'cancel' | 'factionAssault';
+  kind: 'action' | 'assign' | 'construction' | 'surveyRoute' | 'cancel' | 'factionAssault' | 'loadReturn' | 'salvage';
   factionId?: 'orion';
   searchedTargets?: Record<string, number>;
   directiveMode?: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
-  status: 'active' | 'blocked' | 'completed' | 'cancelled' | 'failed';
+  status: 'active' | 'blocked' | 'interrupted' | 'completed' | 'completed_partial' | 'cancelled' | 'failed';
   action: Action | null;
   targetId: string | null;
   shipId: string | null;
@@ -176,7 +188,7 @@ export interface AdmiralTask {
   turnAgentId: string;
   creditsApproved: boolean;
 }
-export type TaskProposal = AdmiralTask;
+export type TaskProposal = Objective;
 export interface EscortRequest {
   id: string;
   requesterId: string;
@@ -488,6 +500,7 @@ export type Action =
   | { type: 'EXPLORE'; sector: SectorCoord; approach: 'remote' | 'close' }
   | { type: 'SURVEY'; targetId: string; approach: 'remote' | 'close'; deep: boolean }
   | { type: 'RETURN' }
+  | { type: 'LOAD'; sourceId: string; cargoKind: CargoKind; route: RouteKind }
   | { type: 'ASSIST_EVENT'; targetId: string }
   | { type: 'TRANSIT'; targetId: string }
   | { type: 'CAPTURE'; targetId: string }
@@ -502,7 +515,7 @@ export type Action =
       repeat: boolean;
       loadPolicy?: 'auto' | 'fixed';
     }
-  | { type: 'ATTACK_SET'; targetIds: readonly string[] }
+  | { type: 'ATTACK_SET'; targetIds: string[] }
   | {
       type: 'ATTACK' | 'DISABLE' | 'DRIVE_OFF' | 'INTERCEPT' | 'SHADOW';
       targetId: string;
@@ -518,6 +531,9 @@ export type Action =
   | { type: 'UNLOAD'; targetId: string }
   | { type: 'RECOVER'; targetId: string };
 export interface Directive {
+  originInteractionId?: string;
+  objectiveId?: string;
+  submissionKey?: string;
   id: string;
   action: Action;
   created: number;
@@ -872,6 +888,8 @@ export type PublicSimulationEvent = {
   tick: number;
 };
 export interface Wreck extends Point {
+  sourceShipId?: string;
+  sourceClassId?: ShipClassId | null;
   id: string;
   name: string;
   stock: Stock;
@@ -885,7 +903,8 @@ export interface SiteIntel extends Point {
   lastSeen: number;
 }
 export interface WorldState {
-  version: 15;
+  version: 16;
+  agentRuntime: RuntimeState;
   orion: OrionState;
   piracyIncidents: PiracyIncident[];
   tick: number;
@@ -902,7 +921,7 @@ export interface WorldState {
   agents: Agent[];
   chatChannels: ChatChannel[];
   chatMessages: ChatMessage[];
-  admiralTasks: AdmiralTask[];
+  objectives: Objective[];
   escortRequests: EscortRequest[];
   commitments: Commitment[];
   settledOutcomes: string[];
@@ -951,7 +970,8 @@ export interface Opportunity {
 }
 /** Public read model: faction assets, intentions, seed and unknown geography are deliberately absent. */
 interface SnapshotData {
-  version: 15;
+  agentRuntime: RuntimeState;
+  version: 16;
   piracyIncidents: PiracyIncident[];
   tick: number;
   time: number;
@@ -965,7 +985,7 @@ interface SnapshotData {
   agents: Agent[];
   chatChannels: ChatChannel[];
   chatMessages: ChatMessage[];
-  admiralTasks: AdmiralTask[];
+  objectives: Objective[];
   escortRequests: EscortRequest[];
   commitments: Commitment[];
   losses: LossRecord[];
@@ -1007,7 +1027,7 @@ interface SnapshotData {
 export type Command =
   | { type: 'respondPiracy'; incidentId: string; shipId: string; response: 'comply' | 'refuse' }
   | { type: 'setPiracyPolicy'; shipId: string; policy: Ship['piracyPolicy'] }
-  | { type: 'admiralChatTask'; agentId: string; messageId: number }
+  | { type: 'interpretInteraction'; agentId: string; messageId: number }
   | { type: 'assignAgent'; agentId: string; shipId: string | null }
   | { type: 'configureAgent'; agentId: string; modelConfig: Agent['modelConfig']; enabled: boolean }
   | { type: 'retryAgent'; agentId: string; messageId?: number }
@@ -1055,6 +1075,9 @@ export type Command =
       mode: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
       action: Action;
     }
+  | {type:'submitObjective';shipId:string;goal:ObjectiveGoal;authorizationMode:'direct'|'voluntary';instruction:string}
+  | {type:'cancelObjective'|'resumeObjective';objectiveId:string;expectedRevision:number}
+  | {type:'reviseObjective';objectiveId:string;expectedRevision:number;goal:ObjectiveGoal;instruction:string}
   | { type: 'cancelDirective'; shipId: string }
   | { type: 'standingOrders'; shipId: string; orders: StandingOrders }
   | { type: 'setCloak'; shipId: string; enabled: boolean }
@@ -1130,8 +1153,8 @@ interface ObservationData {
   }[];
   ownShips: Ship[];
   currentTask: Directive | null;
-  admiralTask: AdmiralTask | null;
-  taskProposals: AdmiralTask[];
+  objective: Objective | null;
+  taskProposals: Objective[];
   actionAvailability: { action: Action; autonomous: boolean; reason: string | null }[];
   constructionOptions: {
     siteId: string;

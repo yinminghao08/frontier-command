@@ -11,7 +11,6 @@ export type TaskIntent = Pick<
   | 'sectors'
   | 'allowWormholes'
   | 'factionId'
-  | 'salvage'
 >;
 export interface IntentResult {
   intent: TaskIntent | null;
@@ -69,35 +68,6 @@ export function compileAdmiralIntent(
     return ship
       ? yes({ ...base, kind: 'assign', shipId: ship.id })
       : ask('请明确要分配的舰船名称；当前无法唯一识别。');
-  }
-  if (
-    /残骸|wreck|打捞|salvage/i.test(text) &&
-    /打捞|回收|收集|装.*船|recover|salvage|collect|load/i.test(text)
-  ) {
-    const visible = observation.wrecks.filter((w) => w.stock.materials >= 1);
-    const named = visible.filter((w) =>
-      [w.id, w.name].some((alias) => normalized(text).includes(normalized(alias))),
-    );
-    const candidates = named.length
-      ? named
-      : /scout|侦察/i.test(text)
-        ? visible.filter((w) => /scout|侦察/i.test(w.name))
-        : visible;
-    if (!candidates.length) return ask('公开星图中没有符合要求且仍有 Materials 的已发现残骸。');
-    if (candidates.length > 1 && !/所有|全部|每个|all|every/i.test(text))
-      return ask('发现了多个可打捞残骸，请指定名称或明确收集所有残骸。');
-    if (candidates.length > 1000) return ask('目标超过单次任务范围，请按星区分批指定残骸。');
-    const deliver = /运回|运送|返回基地|回基地|卸货|deliver|return.*base/i.test(text);
-    const destination = deliver
-      ? resolve(text, observation.locations.filter((l) => l.owner === 'starfleet')) ??
-        (/基地|base|dawn/i.test(text) ? observation.locations.find((l) => l.id === 'base') : null)
-      : null;
-    if (deliver && !destination) return ask('请明确打捞货物的交付设施。');
-    return yes({
-      ...base,
-      kind: 'salvage',
-      salvage: { wreckIds: candidates.map((w) => w.id), destinationId: destination?.id ?? null },
-    });
   }
   if (
     /开火|干掉|消灭|摧毁|歼灭|清剿|打击|攻击|击毁|attack|open fire|destroy|kill/i.test(text) &&
@@ -182,10 +152,7 @@ export function compileAdmiralIntent(
     if (coords.length === 1) return yes({ ...base, kind: 'surveyRoute', sectors: coords });
     return ask('请明确要测绘的地点或星区坐标。');
   }
-  if (
-    /返回基地|回基地|回来.*卸货|return to base|return home/i.test(text) &&
-    !/不要|别|不许|谁让|do not|don't/i.test(text)
-  )
+  if (/返回基地|回基地|回来.*卸货|return to base|return home/i.test(text))
     return yes({
       ...base,
       targetId: 'base',

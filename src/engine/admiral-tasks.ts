@@ -355,38 +355,6 @@ export function advanceAdmiralTask(e: SimulationEngine, task: AdmiralTask) {
     if (task.action) issue(e, task, ship, task.action);
     return;
   }
-  if (task.kind === 'salvage') {
-    const plan = task.salvage!;
-    const remaining = w.wrecks
-      .filter((x) => x.discovered && plan.wreckIds.includes(x.id) && x.stock.materials >= 1)
-      .sort((l, r) => dist(ship!, l) - dist(ship!, r) || l.id.localeCompare(r.id));
-    const free = capabilities(ship).cargo - cargoUsed(ship);
-    if (remaining.length && free >= 1) {
-      task.targetId = remaining[0].id;
-      issue(e, task, ship, { type: 'RECOVER', targetId: remaining[0].id });
-      return;
-    }
-    if (plan.destinationId && cargoUsed(ship) >= 1) {
-      const destination = inventory(w, plan.destinationId);
-      if (!destination || !Object.entries(ship.cargo).some(([key, amount]) =>
-        amount > 0 && destination.capacity[key as keyof typeof ship.cargo] - destination.stock[key as keyof typeof ship.cargo] >= 1,
-      )) {
-        report(e, task, '打捞等待：交付设施不可用或库存已满，货物保留在舰上。', 'blocked');
-        return;
-      }
-      task.targetId = plan.destinationId;
-      issue(e, task, ship, { type: 'UNLOAD', targetId: plan.destinationId });
-      return;
-    }
-    if (remaining.length) {
-      report(e, task, '打捞等待：货舱已满，仍有残骸材料；请指定交付设施或扩展货舱。', 'blocked');
-      return;
-    }
-    report(e, task, plan.destinationId
-      ? '打捞任务完成：指定残骸的 Materials 已收集并实际卸入交付设施。'
-      : '打捞任务完成：指定残骸的 Materials 已收集，真实货物保留在舰上。', 'completed');
-    return;
-  }
   if (task.kind === 'factionAssault') {
     const contacts = w.intel.filter(
       (i) =>

@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { agentDecisionSchema } from './commands';
-import { actionSchema } from './action-schema';
 
 /** Provider schema is derived from the actual validator; local validation remains authoritative. */
 export function protocolSchema(schema: z.ZodTypeAny): Record<string, unknown> {
@@ -50,30 +49,6 @@ export function protocolSchema(schema: z.ZodTypeAny): Record<string, unknown> {
   throw Error('Unsupported decision schema: ' + schema.constructor.name);
 }
 export const decisionJsonSchema = protocolSchema(agentDecisionSchema);
-/** Compact field contracts also reach providers that support only JSON object mode. */
-function fieldContract(schema: z.ZodTypeAny): unknown {
-  if (schema instanceof z.ZodOptional) return { optional: fieldContract(schema.unwrap()) };
-  if (schema instanceof z.ZodDefault) return { optional: fieldContract(schema.removeDefault()) };
-  if (schema instanceof z.ZodNullable) return { nullable: fieldContract(schema.unwrap()) };
-  if (schema instanceof z.ZodEffects) return fieldContract(schema.innerType());
-  if (schema instanceof z.ZodObject)
-    return Object.fromEntries(Object.entries(schema.shape as Record<string, z.ZodTypeAny>)
-      .map(([key, value]) => [key, fieldContract(value)]));
-  if (schema instanceof z.ZodArray) return [fieldContract(schema.element)];
-  if (schema instanceof z.ZodEnum) return schema.options.join('|');
-  if (schema instanceof z.ZodLiteral) return schema.value;
-  if (schema instanceof z.ZodString) return 'string';
-  if (schema instanceof z.ZodNumber) return schema.isInt ? 'integer' : 'number';
-  if (schema instanceof z.ZodBoolean) return 'boolean';
-  throw Error('Unsupported field contract');
-}
-export const actionFieldContracts = Object.fromEntries(actionSchema.options.flatMap((option) => {
-  const type = option.shape.type;
-  const names = type instanceof z.ZodEnum ? type.options : [type.value];
-  const { type: _type, ...fields } = option.shape;
-  const contract = Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, fieldContract(value)]));
-  return names.map((name) => [name, contract]);
-}));
 export function normalizeDecision(value: unknown): unknown {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
   const result = { ...value } as Record<string, unknown>;
@@ -92,9 +67,7 @@ export function decisionIssues(error: z.ZodError) {
     .map((issue) => {
       const path = issue.path.join('.') || 'decision';
       // No provider text or received value enters diagnostics.
-      const expected = issue.code === 'invalid_type'
-        ? issue.expected + (issue.received === 'undefined' ? ' (required field missing)' : ' (received ' + issue.received + ')')
-        : issue.code;
+      const expected = issue.code === 'invalid_type' ? issue.expected : issue.code;
       return path + ': ' + expected;
     })
     .join('; ');

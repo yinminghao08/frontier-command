@@ -3,7 +3,6 @@ import {
   decisionJsonSchema,
   decisionIssues,
   normalizeDecision,
-  actionFieldContracts,
 } from '../../src/engine/decision-protocol';
 import type { AgentDecision, Observation, ReasoningEffort } from '../../src/engine/types';
 import type { ConnectionConfig } from './config';
@@ -29,9 +28,7 @@ const SYSTEM_PROMPT = `你是 Frontier Command 的独立 Agent。依据公开上
 玩家消息必须在原频道回复，messages 每条包含 channelId、content、mentions、replyTo。说明现在要做什么或真实拒绝原因，不反复道歉，不捏造执行结果、库存、舰船ID、ETA或引擎限制。当前任务随时可以修改；补充指令继承已有路线与货物。已接受的任务由引擎执行，不重复下令。
 action 使用 actionExamples 的格式，参数可按真实条件调整；HAUL 未指定数量使用 loadPolicy=auto 尽量满载。INTERCEPT 只负责截获，摧毁需要 ATTACK。自主行为遵守 ROE，明确 Admiral 任务使用 answerTask 接受或拒绝，action=null。普通聊天不擅自变成新任务。
 协作：coordination 可为 requestTask(kind,agentId,action,followUp,conditions)、answerRequest(requestId,version,response,conditions,reason)、answerTask(taskId,version,response,conditions,reason)；response=accept/reject/counter/withdraw，reason=risk/fatigue/damage/conflict/preference/relationship/promise。只回答轮到自己的请求。
-waitMinutes=5..180；memory=null 或简短记忆。无玩家新消息且无新事实时 messages=[]。不得使用隐藏情报或直接修改世界、属性。
-wrecks 是已发现残骸，RECOVER 使用真实残骸 ID，UNLOAD 才卸货；不能把残骸误当矿场。必须提供动作全部必填字段，不知道目标时 action=null 并说明缺少的事实。回复保持简短。
-动作字段契约（仅 optional 字段可省略，值为字段类型或合法枚举，不是实际参数）：${JSON.stringify(actionFieldContracts)}`;
+waitMinutes=5..180；memory=null 或简短记忆。无玩家新消息且无新事实时 messages=[]。不得使用隐藏情报或直接修改世界、属性。`;
 
 export interface CompletionResult {
   content: string;
@@ -93,7 +90,6 @@ export class ChatCompletionsClient {
           model,
           messages,
           stream,
-          max_tokens: schema === taskJudgmentJsonSchema ? 768 : schema ? 2048 : 256,
           ...(reasoning ? { reasoning_effort: effort } : {}),
           ...(format === 'schema' && schema
             ? {
@@ -353,10 +349,6 @@ export class ChatCompletionsClient {
           {
             role: 'system',
             content: SYSTEM_PROMPT + '\n上次决策未执行，请纠正：' + lastIssue.slice(0, 500),
-          },
-          {
-            role: 'assistant',
-            content: result.content.slice(0, 8000),
           },
           {
             role: 'user',

@@ -1,0 +1,24 @@
+name: Last Light battle demo verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/engine/**'
+      - 'electron/**'
+      - 'src/ui/SaveManager.tsx'
+      - 'tests/last-light*.test.ts'
+      - '.github/workflows/last-light-battle.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx vitest run tests/last-light-battle.test.ts tests/last-light-main.test.ts

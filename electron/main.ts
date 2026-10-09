@@ -51,6 +51,7 @@ let store: SaveStore;
 let saveBlocked = false;
 let timer: ReturnType<typeof setInterval> | undefined;
 let lastAutoSave = 0;
+let lastAutoSaveError = '';
 let saveMessage = '';
 let managerOpen = false;
 let agentConfig: AgentConfigStore;
@@ -92,6 +93,9 @@ function save() {
   try {
     store.write(engine.state);
     lastAutoSave = engine.state.tick;
+    if (lastAutoSaveError && saveMessage === lastAutoSaveError)
+      saveMessage = '世界状态已保存至本机';
+    lastAutoSaveError = '';
     return { ok: true, reason: '世界状态已保存至本机' };
   } catch (error) {
     const message = failureReason(error);
@@ -200,6 +204,7 @@ app.whenReady().then(async () => {
         startAgentService();
         saveBlocked = false;
         lastAutoSave = engine.state.tick;
+        lastAutoSaveError = '';
         managerOpen = false;
         send();
         return { ok: true, reason: '已切换至独立时间线，原记录保留' };
@@ -298,6 +303,7 @@ app.whenReady().then(async () => {
         saveBlocked = false;
         saveMessage = '已切换存档，世界保持暂停';
         lastAutoSave = engine.state.tick;
+        lastAutoSaveError = '';
         send();
         managerOpen = false;
       }
@@ -418,14 +424,17 @@ app.whenReady().then(async () => {
     // Critical pauses are world events even when they do not add a log entry.
 
     if (
-      engine.state.tick - lastAutoSave >= 100 ||
-      engine.state.nextLog !== previousLog ||
-      events.some((event) => event.type === 'criticalPause')
+      !saveBlocked &&
+      (engine.state.tick - lastAutoSave >= 100 ||
+        (!lastAutoSaveError &&
+          (engine.state.nextLog !== previousLog ||
+            events.some((event) => event.type === 'criticalPause'))))
     ) {
       const result = save();
       if (!result.ok && !saveBlocked && engine.state.status === 'active') {
-        engine.state.paused = true;
-        engine.log(result.reason, 'danger');
+        saveMessage = result.reason;
+        if (lastAutoSaveError !== result.reason) engine.log(result.reason, 'danger');
+        lastAutoSaveError = result.reason;
         lastAutoSave = engine.state.tick;
       }
     }

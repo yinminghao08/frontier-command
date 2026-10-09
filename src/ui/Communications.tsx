@@ -343,15 +343,17 @@ export function Communications({
                               {String(cal.minute).padStart(2, '0')}
                             </time>
                             <small>{m.kind.toUpperCase()}</small>
-                            <small>
-                              {m.origin === 'engine'
-                                ? 'SYSTEM'
-                                : m.origin === 'agent'
-                                  ? 'AGENT'
-                                  : m.origin === 'admiral'
-                                    ? 'ADMIRAL'
-                                    : 'ARCHIVE'}
-                            </small>
+                            {!m.eventId?.startsWith('lastLight:') && (
+                              <small>
+                                {m.origin === 'engine'
+                                  ? 'SYSTEM'
+                                  : m.origin === 'agent'
+                                    ? 'AGENT'
+                                    : m.origin === 'admiral'
+                                      ? 'ADMIRAL'
+                                      : 'ARCHIVE'}
+                              </small>
+                            )}
                             {m.replyTo && (
                               <small>
                                 RE #{m.replyTo}

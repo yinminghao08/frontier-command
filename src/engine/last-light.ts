@@ -105,7 +105,7 @@ export function advanceLastLight(e: SimulationEngine): void {
       enemy.shield = Math.min(enemy.shield, Math.ceil(capabilities(enemy).shield * 0.72));
     }
     appendChat(e, 'ops-meridian', COMMAND_CHANNEL,
-      '【剧情脚本·非 LLM】@Talia @Rhea 紧急求援！MERIDIAN-1 满载返航途中遭 Orion 集群袭击。请求 HORIZON 与 RESOLUTE 立即驰援！',
+      '@Talia @Rhea 紧急求援！MERIDIAN-1 满载返航途中遭 Orion 集群袭击。请求 HORIZON 与 RESOLUTE 立即驰援！',
       ['ops-horizon', 'ops-resolute-demo'], 'request',
       { origin: 'engine', eventId: 'lastLight:request:Mira', purpose: 'information' });
     updateSensors(e);

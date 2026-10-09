@@ -190,10 +190,10 @@ export function advanceLastLightBattle(e: SimulationEngine, dt: number): void {
       return;
     }
     appendChat(e, 'ops-horizon', COMMAND_CHANNEL,
-      '【剧情脚本·非 LLM】@Mira 收到求援。USS HORIZON 正在赶赴交战区域，对 Orion 袭击舰实施拦截。',
+      '@Mira 收到求援。USS HORIZON 正在赶赴交战区域，对 Orion 袭击舰实施拦截。',
       ['ops-meridian'], 'reply', { origin: 'engine', eventId: 'lastLight:accept:Talia' });
     appendChat(e, 'ops-resolute-demo', COMMAND_CHANNEL,
-      '【剧情脚本·非 LLM】@Mira 收到。USS RESOLUTE 参战，与 HORIZON 联合压制敌方舰队。',
+      '@Mira 收到。USS RESOLUTE 参战，与 HORIZON 联合压制敌方舰队。',
       ['ops-meridian'], 'reply', { origin: 'engine', eventId: 'lastLight:accept:Rhea' });
     e.record(RESPONDED, '演示群聊回复完成，两艘 Galaxy 已收到真实 ATTACK_SET 作战指令。',
       freighter.id, false);

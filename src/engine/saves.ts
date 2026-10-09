@@ -45,19 +45,35 @@ export function parseSave(input: unknown): WorldState {
       return objective;
     });
     const ships=base.ships.map(ship=>{
-      const migrateDirective=(d:typeof ship.current)=>{
-        if(!d?.taskId)return d;
-        const task=agentRuntime.tasks.find(t=>t.objectiveId===d.taskId)!;
-        const objective=objectives.find(o=>o.id===task.objectiveId)!;
-        task.directiveIds.push(d.id);task.steps.push({label:d.action.type,action:d.action,status:'running'});task.activeDirectiveId=d.id;
-        if(d.action.type==='HAUL'&&d.carried>0){task.progress.loaded[d.action.cargoKind]+=d.carried;task.progress.delivered[d.action.cargoKind]+=d.delivered;task.progress.lost[d.action.cargoKind]+=d.lost??0;}
-        return {...d,taskId:task.taskId,objectiveId:objective.id,originInteractionId:objective.originInteractionId,submissionKey:'legacy:'+d.id};
+      const migrateDirective=(d:typeof ship.current,placement:'current'|'queue'|'suspended')=>{
+        if(!d)return null;
+        let task=d.taskId?agentRuntime.tasks.find(t=>t.objectiveId===d.taskId):undefined;
+        let objective=task?objectives.find(o=>o.id===task!.objectiveId):undefined;
+        if(!task||!objective){
+          const owner=d.executorAgentId??(d.source==='agent'?d.actorId:null);
+          const source=old.chatMessages.find(m=>m.id===d.sourceMessageId&&m.sender===old.commander.id&&owner!==null&&(m.channelId==='private:'+owner||m.mentions.includes(owner)));
+          const goal:ObjectiveGoal={kind:'operation',action:structuredClone(d.action)},id='legacy-objective:'+d.id;
+          objective={id,schemaVersion:1,originInteractionId:'legacy-interaction:'+d.id,issuerId:d.actorId,ownerAgentId:owner,goal,constraints:{allowWormholes:d.allowWormholes},completionCriteria:criterionFor(goal),revision:0,createdAt:d.created,updatedAt:old.time,originalInstruction:source?.content??'Legacy directive: '+d.action.type,amendments:[],agentId:owner??old.commander.id,messageId:source?.id??0,channelId:source?.channelId??'system-reports',kind:'action',action:structuredClone(d.action),targetId:null,shipId:ship.id,facilityKind:null,sectors:[],sectorIndex:0,scannedSectorIndices:[],allowWormholes:d.allowWormholes,projectId:null,carrierAgentId:null,reason:null,controlMode:d.controlMode,consent:'accepted',conditions:[],conditionVersion:1,rounds:0,turnAgentId:owner??old.commander.id,creditsApproved:false,directiveMode:placement==='queue'?'QUEUE':'REPLACE',status:'active',searchedTargets:{}};
+          objectives.push(objective);task=createTask(objective,ship.id);agentRuntime.tasks.push(task);
+          agentRuntime.interactions.push({interactionId:objective.originInteractionId,source:source?'chat':'ui',senderId:d.actorId,recipientAgentId:owner,sourceMessageId:source?.id??null,instruction:objective.originalInstruction,authorizationMode:objective.controlMode,objectiveId:id,phase:'committed',createdAt:d.created});
+        }
+        const migrated={...d,taskId:task.taskId,objectiveId:objective.id,originInteractionId:objective.originInteractionId,submissionKey:'legacy:'+d.id};
+        task.coordinationId=d.contractId;
+        task.directiveIds.push(d.id);task.steps.push({label:d.action.type,action:structuredClone(d.action),status:placement==='queue'?'pending':'running'});task.submissionKeys[migrated.submissionKey]=d.id;
+        if(placement==='current'){task.activeDirectiveId=d.id;task.status='running';}
+        if(d.action.type==='HAUL'){task.progress.cycles=d.cycle;task.progress.loaded[d.action.cargoKind]+=d.carried;task.progress.delivered[d.action.cargoKind]+=d.delivered;task.progress.lost[d.action.cargoKind]+=d.lost??0;}
+        // Preserve OpenRA-style direct queues. A displaced Agent commitment needs
+        // explicit restoration under FAR instead of silently restarting on load.
+        if(placement==='suspended'&&d.controlMode!=='direct'){
+          task.checkpoint=migrated;task.status='interrupted';task.activeDirectiveId=null;task.blockReason='旧 Agent 目标已中断，等待显式恢复';objective.status='interrupted';objective.reason=task.blockReason;return null;
+        }
+        return migrated;
       };
-      return {...ship,current:migrateDirective(ship.current),queue:ship.queue.map(d=>migrateDirective(d)!),suspended:ship.suspended.map(d=>migrateDirective(d)!)};
+      return {...ship,current:migrateDirective(ship.current,'current'),queue:ship.queue.map(d=>migrateDirective(d,'queue')!),suspended:ship.suspended.map(d=>migrateDirective(d,'suspended')).filter((d):d is NonNullable<typeof d>=>d!==null)};
     });
     for(const ship of ships)for(const kind of ['materials','photon','quantum','specialFinds'] as const) {
       let left=ship.cargo[kind];
-      for(const d of [ship.current,...ship.suspended])if(d?.taskId&&d.action.type==='HAUL'&&d.action.cargoKind===kind) {
+      for(const d of [ship.current,...ship.suspended,...agentRuntime.tasks.filter(t=>t.assignedShipIds.includes(ship.id)).map(t=>t.checkpoint)])if(d?.taskId&&d.action.type==='HAUL'&&d.action.cargoKind===kind) {
         const amount=Math.min(left,Math.max(0,d.carried-d.delivered-(d.lost??0)));left-=amount;
         if(amount>0)agentRuntime.cargoLots.push({lotId:'lot:'+agentRuntime.nextLot++,shipId:ship.id,taskId:d.taskId,sourceId:d.action.sourceId,cargoKind:kind,amount,acquiredTick:old.tick});
       }

@@ -4,7 +4,8 @@ import type {
   Action,
   Objective,
   Agent,
-  AgentDecision,
+  CoordinationIntent,
+  SocialInteraction,
   CollaborationRequest,
   Command,
   TaskCondition,
@@ -183,7 +184,8 @@ export function makeRequest(
   wakeAgent(peer, 'request:' + r.id + ':1', e.state.time, true);
   return r;
 }
-export function validateNegotiation(e: SimulationEngine, a: Agent, d: AgentDecision) {
+export interface NegotiationDecision {coordination:CoordinationIntent;rationale:string;action?:Action|null;social?:SocialInteraction;goal?:string;}
+export function validateNegotiation(e: SimulationEngine, a: Agent, d: NegotiationDecision) {
   const c = d.coordination;
   if (c?.type === 'requestTask') {
     const peer = e.state.agents.find(
@@ -476,7 +478,7 @@ export function cancelContracts(
     cancelDescendants(e, r.id);
   }
 }
-export function applyNegotiation(e: SimulationEngine, a: Agent, d: AgentDecision) {
+export function applyNegotiation(e: SimulationEngine, a: Agent, d: NegotiationDecision) {
   const response = d.coordination;
   if (response?.type === 'requestTask')
     makeRequest(
@@ -517,7 +519,7 @@ export function applyNegotiation(e: SimulationEngine, a: Agent, d: AgentDecision
         if (other) wakeAgent(other, `request:${c.id}:${c.conditionVersion}`, e.state.time, true);
       }
     } else if (response.response === 'accept')
-      acceptContract(e, c, isTask(c) && d.messages.some((m) => m.replyTo === c.messageId));
+      acceptContract(e, c, isTask(c) && e.state.agentRuntime.replies.some(r=>r.sourceMessageId===c.messageId&&r.recipientAgentId===a.id&&r.phase==='committed'));
     else {
       const promised = isTask(c)
         ? c.consent === 'accepted'
@@ -573,7 +575,7 @@ export function applyNegotiation(e: SimulationEngine, a: Agent, d: AgentDecision
         delta,
         '交流改变了合作意愿：' + social.type,
       );
-    if (fresh && social.activity) a.longTermGoal = { activity: social.activity, summary: d.goal };
+    if (fresh && social.activity) a.longTermGoal = { activity: social.activity, summary: d.goal??d.rationale };
   }
 }
 function issue(e: SimulationEngine, agentId: string, c: Contract, action: Action) {
@@ -685,22 +687,12 @@ export function contractDirectiveOutcome(
   if (!isTask(c)) {
     const directive = e.state.ships.find((s) => s.current?.id === directiveId)?.current;
     if ((executorId??directive?.actorId) !== c.responderId) {
-      if (failed) settleContract(e, c, false, '协作后续行动失败');
-      else if (
-        c.reason === 'physicalComplete' &&
-        !c.followUp &&
-        !hasContractWork(e, c.id, directiveId) &&
-        readyConditions(e, c, 'after')
-      )
-        settleContract(e, c, true, '双方协作行动与条件完成');
+      if(failed)settleContract(e,c,false,'协作后续行动失败');
       return;
     }
-    if (failed) settleContract(e, c, false, '协作行动失败');
-    else {
-      c.reason = 'physicalComplete';
-      if (!c.followUp && !hasContractWork(e, c.id, directiveId) && readyConditions(e, c, 'after'))
-        settleContract(e, c, true, '真实协作行动完成');
-    }
+    if(failed)settleContract(e,c,false,'协作行动失败');
+    else c.reason='physicalComplete';
+
   }
 }
 export function advanceCoordination(e: SimulationEngine) {

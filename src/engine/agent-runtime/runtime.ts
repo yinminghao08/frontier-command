@@ -11,7 +11,7 @@ import { planTask } from './handlers';
 import { advanceCoordination, contractDirectiveOutcome, readyConditions, settleContract } from '../contracts';
 import { commitPrimaryReply, notifyTask, replyRecord } from './replies';
 import { emitDomainEvent, seedCargoLots, transitionEvent } from './journal';
-import { criterionFor, createTask, terminalTask, type DomainEvent, type ObjectiveGoal, type TaskState, type TaskStatus } from './model';
+import { criterionFor, createTask, terminalTask, type DomainEvent, type ObjectiveGoal, type TaskState, type TaskStatus, type TaskDependency } from './model';
 
 export function goalFromProposal(p: Pick<Objective,'kind'|'action'|'targetId'|'shipId'|'facilityKind'|'sectors'|'factionId'>): ObjectiveGoal {
   if(p.kind==='assign'&&p.shipId)return {kind:'assignment',shipId:p.shipId};
@@ -61,7 +61,7 @@ export class FrontierAgentRuntime {
         objectiveId:null,phase:'interpreting',createdAt:this.e.state.time});
     }
   }
-  validateGoal(goal: ObjectiveGoal,shipId: string,mode:'direct'|'voluntary'): CommandResult {
+  validateGoal(goal: ObjectiveGoal,shipId: string,mode:Objective['controlMode']): CommandResult {
     const w=this.e.state,ship=w.ships.find(s=>s.id===shipId);
     if(!ship)return {ok:false,reason:'需要真实可用的己方舰船'};
     if(mode==='voluntary'&&!w.assignments.some(a=>a.shipId===shipId&&w.agents.some(agent=>agent.id===a.operatorId)))return {ok:false,reason:'自愿任务需要已分配 Agent'};
@@ -130,7 +130,7 @@ export class FrontierAgentRuntime {
       constraints:{allowWormholes:true},completionCriteria:criterionFor(goal),revision:0,createdAt:w.time,updatedAt:w.time,originalInstruction:instruction,amendments:[],
       agentId:ownerAgentId??w.commander.id,messageId:0,channelId:'system-reports',kind:goal.kind==='loadReturn'?'loadReturn':goal.kind==='recovery'?'salvage':goal.kind==='operation'?'action':goal.kind==='assignment'?'assign':goal.kind,
       action:goal.kind==='operation'?goal.action:null,targetId:goal.kind==='construction'?goal.siteId:null,shipId,facilityKind:goal.kind==='construction'?goal.facilityKind:null,sectors:goal.kind==='surveyRoute'?goal.sectors:[],
-      sectorIndex:0,scannedSectorIndices:[],allowWormholes:true,projectId:null,carrierAgentId:null,reason:null,controlMode:issuerId===w.commander.id?'direct':'voluntary',consent:'accepted',conditions:[],conditionVersion:1,rounds:0,turnAgentId:ownerAgentId??w.commander.id,creditsApproved:false,directiveMode:mode,status:'active',searchedTargets:{},...(goal.kind==='factionAssault'?{factionId:'orion' as const}:{})};
+      sectorIndex:0,scannedSectorIndices:[],allowWormholes:true,projectId:null,carrierAgentId:null,reason:null,controlMode:issuerId===w.commander.id?'direct':this.e.executingContractId?'voluntary':'autonomous',consent:'accepted',conditions:[],conditionVersion:1,rounds:0,turnAgentId:ownerAgentId??w.commander.id,creditsApproved:false,directiveMode:mode,status:'active',searchedTargets:{},...(goal.kind==='factionAssault'?{factionId:'orion' as const}:{})};
     w.objectives.push(objective);this.register(objective);return objective;
   }
   startCommand(command: Extract<Command,{type:'issueDirective'}>, actorId: string): CommandResult {
@@ -140,10 +140,11 @@ export class FrontierAgentRuntime {
     const objectives=command.shipIds.map(id=>this.start({kind:'operation',action:command.action},id,actorId,this.e.state.assignments.find(a=>a.shipId===id&&this.e.state.agents.some(agent=>agent.id===a.operatorId))?.operatorId??null,command.action.type,command.mode));
     const first=objectives[0];for(const o of objectives)this.submittingObjectives.add(o.id);
     const previous=this.e.executingObjectiveId;this.e.executingObjectiveId=first.id;
-    const result=this.e.dispatchCommand(command,actorId);this.e.executingObjectiveId=previous;this.submittingObjectives.clear();
+    let result:CommandResult;
+    try {result=this.e.dispatchCommand(command,actorId);} finally {this.e.executingObjectiveId=previous;this.submittingObjectives.clear();}
     if(!result.ok){for(const objective of objectives)this.transition(this.register(objective),'failed',result.reason);return result;}
     for(const objective of objectives) {
-      const task=this.register(objective);task.coordinationId=this.e.executingContractId;const ship=this.e.state.ships.find(s=>s.id===objective.shipId)!;
+      const task=this.register(objective);task.coordinationId=this.e.executingContractId;this.attachCoordination(task,actorId);const ship=this.e.state.ships.find(s=>s.id===objective.shipId)!;
       const d=[ship.current,...ship.queue,...ship.suspended].find(d=>d?.taskId===first.id);
       if(!d)throw Error('Accepted command did not produce its Directive');
       d.taskId=task.taskId;d.objectiveId=objective.id;d.originInteractionId=objective.originInteractionId;d.submissionKey='step:0';
@@ -152,10 +153,46 @@ export class FrontierAgentRuntime {
     return result;
   }
   private priority(objective: Objective|undefined) {return !objective?0:objective.controlMode==='direct'?100:objective.issuerId===this.e.state.commander.id?80:objective.issuerId.startsWith('standing:')?10:40;}
-  adoptDirective(ship: Ship,d: Directive) {
-    const objective=this.start({kind:'operation',action:d.action},ship.id,d.actorId,d.executorAgentId,d.action.type);
-    const task=this.register(objective);d.taskId=task.taskId;d.objectiveId=objective.id;d.originInteractionId=objective.originInteractionId;d.submissionKey='step:0';
-    task.activeDirectiveId=d.id;task.directiveIds.push(d.id);task.steps.push({label:this.stepLabel(d.action),action:structuredClone(d.action),status:'running'});task.submissionKeys['step:0']=d.id;this.transition(task,'running');
+  startStanding(ship:Ship,action:Action):CommandResult {
+    if(ship.current||ship.queue.length||ship.suspended.length||this.e.state.agents.some(a=>a.assignedShipId===ship.id&&a.enabled))return {ok:false,reason:'已有执行所有者'};
+    const valid=validateAction(this.e,ship,action);if(!valid.ok)return valid;
+    const objective=this.start({kind:'operation',action},ship.id,'standing:'+ship.id,null,'Standing Order: '+action.type);
+    const task=this.register(objective),result=this.submitDirective(task.taskId,objective.issuerId,{type:'issueDirective',shipIds:[ship.id],mode:'REPLACE',action},task.revision);
+    if(!result.ok)this.transition(task,'failed',result.reason);
+    return result;
+  }
+  interruptForSafety(ship:Ship) {
+    const directive=ship.current;if(!directive)return;
+    const task=directive.taskId?this.tasksById.get(directive.taskId):undefined;
+    if(task&&!terminalTask(task.status)){task.checkpoint=directiveSchema.parse(directive);this.transition(task,'interrupted','重大危险触发紧急脱离，等待显式恢复');}
+    this.outcome(ship,directive,'紧急脱离中断当前操作',false,true);
+  }
+  linkDependency(parent:TaskState,child:TaskState,criterion:TaskDependency['criterion'],targetShipId:string|null=null):CommandResult {
+    const reaches=(id:string,visited=new Set<string>()):boolean=>{if(id===parent.taskId)return true;if(visited.has(id))return false;visited.add(id);return this.tasksById.get(id)?.dependencyTaskIds.some(next=>reaches(next,visited))??false;};
+    if(terminalTask(parent.status)||reaches(child.taskId))return {ok:false,reason:'任务依赖已结束或会形成循环'};
+    if(!parent.dependencies.some(d=>d.taskId===child.taskId&&d.criterion===criterion&&d.targetShipId===targetShipId))parent.dependencies.push({taskId:child.taskId,criterion,targetShipId,status:'pending',evidenceEventId:null});
+    if(!parent.dependencyTaskIds.includes(child.taskId))parent.dependencyTaskIds.push(child.taskId);
+    return {ok:true,reason:'真实任务依赖已关联'};
+  }
+  private dependenciesReady(task:TaskState):boolean {
+    for(const dependency of task.dependencies.filter(d=>d.status==='pending')){
+      const child=this.tasksById.get(dependency.taskId);
+      if(!child||['cancelled','failed','completed_partial'].includes(child.status)){this.transition(task,'blocked','依赖任务失效；需要明确修订或重新协调');return false;}
+      const escort=this.e.state.ships.find(s=>child.assignedShipIds.includes(s.id)&&s.current?.taskId===child.taskId),target=this.e.state.ships.find(s=>s.id===dependency.targetShipId);
+      const fulfilled=dependency.criterion==='completed'?child.status==='completed':!!(escort&&target&&escort.current?.action.type==='ESCORT'&&escort.current.action.targetId===target.id&&dist(escort,target)<60);
+      if(!fulfilled){this.transition(task,'blocked',dependency.criterion==='rendezvous'?'等待已承诺的实际护航会合':'等待准备或物流子任务完成');return false;}
+      const event=emitDomainEvent(this.e,{type:'taskDependency',sourceId:child.taskId,objectiveId:task.objectiveId,taskId:task.taskId,directiveId:child.activeDirectiveId,payload:{childTaskId:child.taskId,criterion:dependency.criterion,targetShipId:dependency.targetShipId}});
+      dependency.status='fulfilled';dependency.evidenceEventId=event.eventId;
+      task.completionEvidence.push({eventId:event.eventId,tick:event.simulationTick,kind:'directive',sourceId:child.taskId,targetId:dependency.targetShipId,cargoKind:null,amount:0,description:dependency.criterion==='rendezvous'?'已核验真实护航会合':'已核验依赖任务完成'});
+    }
+    return true;
+  }
+  private attachCoordination(task:TaskState,actorId:string) {
+    const id=task.coordinationId;if(!id)return;
+    const parent=this.tasksByObjective.get(id),request=this.e.state.escortRequests.find(r=>r.id===id);
+    if(parent&&parent.taskId!==task.taskId)this.linkDependency(parent,task,'completed');
+    if(request?.parentTaskId){const root=this.tasksByObjective.get(request.parentTaskId);if(root&&actorId===request.responderId)this.linkDependency(root,task,request.kind==='escort'?'rendezvous':'completed',request.kind==='escort'?request.targetShipId:null);}
+    if(request?.kind==='escort'&&actorId===request.requesterId){const escort=this.e.state.agentRuntime.tasks.find(t=>t.taskId!==task.taskId&&t.coordinationId===id&&t.ownerAgentId===request.responderId&&this.e.state.objectives.find(o=>o.id===t.objectiveId)?.goal.kind==='operation');if(escort)this.linkDependency(task,escort,'rendezvous',request.targetShipId);}
   }
   taskForObjective(id: string) {return this.tasksByObjective.get(id);}
   transition(task: TaskState, status: TaskStatus, reason: string|null=null) {
@@ -165,7 +202,7 @@ export class FrontierAgentRuntime {
     task.status=status;task.blockReason=blockReason;task.revision++;task.updatedAt=this.e.state.time;
     const objective=this.e.state.objectives.find(o=>o.id===task.objectiveId);
     if(objective){objective.status=status==='accepted'||status==='running'||status==='proposed'?'active':status;objective.reason=reason;objective.updatedAt=this.e.state.time;}
-    if(status==='completed'&&objective?.controlMode==='voluntary'&&!readyConditions(this.e,objective,'after')) {
+    if(status==='completed'&&objective?.controlMode==='voluntary'&&this.e.state.commitments.some(p=>p.contractId===objective.id&&p.condition.when==='after'&&p.condition.type!=='reward'&&p.status==='pending')) {
       task.progress.verified=true;task.status='blocked';task.blockReason='等待已承诺的后置条件';objective.status='blocked';
       return;
     }
@@ -257,7 +294,9 @@ export class FrontierAgentRuntime {
     if(!objective||!task||objective.revision!==revision||terminalTask(task.status))return {ok:false,reason:'目标版本已改变或已经结束'};
     task.checkpoint=null;
     this.transition(task,'cancelled','Admiral 取消目标；实际货物保留');objective.revision++;
-    for(const ship of this.e.state.ships)if(ship.current?.taskId===task.taskId)this.e.complete(ship,'目标已取消',true);
+    const agent=this.e.state.agents.find(a=>a.id===task.ownerAgentId);if(agent){agent.decision.revision++;this.e.cognition.cancel(agent.id);}
+    for(const ship of this.e.state.ships){ship.queue=ship.queue.filter(d=>d.taskId!==task.taskId);ship.suspended=ship.suspended.filter(d=>d.taskId!==task.taskId);if(ship.current?.taskId===task.taskId)this.e.complete(ship,'目标已取消',true);}
+    task.activeDirectiveId=null;
     return {ok:true,reason:'目标已取消'};
   }
   drain() {
@@ -265,9 +304,9 @@ export class FrontierAgentRuntime {
     this.draining=true;
     try {
       for(const ship of this.e.state.ships)seedCargoLots(this.e,ship.id,ship.cargo);
-      advanceCoordination(this.e);
       const journal=this.e.state.agentRuntime;
-      while(journal.consumedSequence<journal.events.length){const event=journal.events[journal.consumedSequence++];this.consume(event);}
+      const consume=()=>{while(journal.consumedSequence<journal.events.length)this.consume(journal.events[journal.consumedSequence++]);};
+      consume();advanceCoordination(this.e);consume();
       for(const objective of this.activeObjectives.values()) {
         const task=this.register(objective);
         if(terminalTask(task.status)||task.status==='interrupted')continue;
@@ -277,6 +316,7 @@ export class FrontierAgentRuntime {
         if(task.status==='proposed')this.transition(task,'accepted');
         if(task.progress.verified&&task.status==='blocked'){if(readyConditions(this.e,objective,'after'))this.transition(task,'completed',objective.completionCriteria);continue;}
         if(objective.controlMode==='voluntary'&&(objective.conditions.some(c=>c.type==='reward')&&!objective.creditsApproved||!readyConditions(this.e,objective,'before'))){this.transition(task,'blocked','等待已承诺的准备条件或预算批准');continue;}
+        if(!this.dependenciesReady(task))continue;
         const agent=this.e.state.agents.find(a=>a.id===objective.ownerAgentId);
         const ship=this.e.state.ships.find(s=>s.id===(agent?.assignedShipId??task.assignedShipIds[0]));
         if(ship&&!task.assignedShipIds.includes(ship.id))task.assignedShipIds.push(ship.id);
@@ -319,6 +359,11 @@ export class FrontierAgentRuntime {
       } else task.progress.lost[p.cargoKind]+=p.amount;
       task.completionEvidence.push({eventId:event.eventId,tick:event.simulationTick,kind:p.disposition==='loaded'?'loaded':p.disposition==='delivered'?'delivered':'lost',
         sourceId:p.sourceId,targetId:p.targetId,cargoKind:p.cargoKind,amount:p.amount,description:p.disposition});
+      task.updatedAt=this.e.state.time;
+    }
+    if(event.type==='directiveCycle') {
+      task.progress.cycles++;
+      task.completionEvidence.push({eventId:event.eventId,tick:event.simulationTick,kind:'directive',sourceId:event.payload.shipId,targetId:null,cargoKind:null,amount:event.payload.delivered,description:'真实运输循环 '+(event.payload.cycle+1)+'：交付 '+event.payload.delivered+'，损失 '+event.payload.lost});
       task.updatedAt=this.e.state.time;
     }
     if(event.type==='directiveOutcome') {

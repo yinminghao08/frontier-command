@@ -183,7 +183,7 @@ export interface Objective {
   projectId: string | null;
   carrierAgentId: string | null;
   reason: string | null;
-  controlMode: 'voluntary' | 'direct';
+  controlMode: 'voluntary' | 'direct' | 'autonomous';
   consent: 'proposed' | 'accepted' | 'rejected' | 'negotiating' | 'withdrawn';
   conditions: TaskCondition[];
   conditionVersion: number;
@@ -224,21 +224,7 @@ export interface EscortRequest {
   reason: string | null;
 }
 export type CollaborationRequest = EscortRequest;
-export interface AgentDecision {
-  mode?: 'act' | 'continue' | 'wait' | 'clarify';
-  goal: string;
-  rationale: string;
-  action: Action | null;
-  messages: {
-    channelId: string;
-    content: string;
-    mentions: string[];
-    purpose?: ChatMessage['purpose'];
-    replyTo?: number | null;
-  }[];
-  memory: string | null;
-  waitMinutes: number;
-  coordination:
+export type CoordinationIntent =
     | { type: 'requestEscort'; agentId: string; targetShipId: string }
     | { type: 'answerEscort'; requestId: string; accept: boolean }
     | {
@@ -280,12 +266,29 @@ export interface AgentDecision {
           | 'promise';
       }
     | null;
-  social?: {
+
+export type SocialInteraction = {
     type: 'support' | 'disagree' | 'mediate' | 'compete' | 'preference';
     messageId: number;
     agentId: string | null;
     activity: Activity | null;
   } | null;
+export interface AgentDecision {
+  mode?: 'act' | 'continue' | 'wait' | 'clarify';
+  goal: string;
+  rationale: string;
+  action: Action | null;
+  messages: {
+    channelId: string;
+    content: string;
+    mentions: string[];
+    purpose?: ChatMessage['purpose'];
+    replyTo?: number | null;
+  }[];
+  memory: string | null;
+  waitMinutes: number;
+  coordination:CoordinationIntent;
+  social?:SocialInteraction;
 }
 export type JourneyLeg =
   | { type: 'warp'; destination: Point; route: RouteKind; path: Point[] }

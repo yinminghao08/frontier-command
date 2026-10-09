@@ -1,4 +1,4 @@
-import { recordCargoTransfer } from './agent-runtime/journal';
+import { recordCargoTransfer,emitDomainEvent } from './agent-runtime/journal';
 import { unlockProductionDiscount } from './production';
 import { BASE_REFIT } from './definitions/progression';
 import { deposit, haulLoad } from './inventory';
@@ -560,6 +560,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
           return;
         }
         if (a.repeat) {
+          emitDomainEvent(e,{type:'directiveCycle',sourceId:s.id,objectiveId:d.objectiveId??null,taskId:d.taskId,directiveId:d.id,payload:{shipId:s.id,cycle:d.cycle,carried:d.carried,delivered:d.delivered,lost:d.lost??0}});
           agentOutcome(
             e,
             s,

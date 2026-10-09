@@ -1,5 +1,5 @@
 import type { SimulationEngine } from './engine';
-import type { AgentDecision, CommandResult, Observation } from './types';
+import type { CoordinationIntent, CommandResult, Observation } from './types';
 import type { CognitionRequest, CognitionResponse } from './cognition-protocol';
 import { cognitionJsonSchema } from './cognition-protocol';
 import { resolveProposal } from './intent-gateway';
@@ -7,10 +7,12 @@ import { receiveObjective } from './objectives';
 import { commitPrimaryReply } from './agent-runtime/replies';
 import { wakeAgent,remember } from './chat';
 import { capabilities,cargoUsed } from './capabilities';
+import { validateNegotiation,applyNegotiation } from './contracts';
+import { decisionWorldKey } from './personality';
 import { goalFromProposal } from './agent-runtime/runtime';
 
 let nextSession = 0;
-interface Ticket {request:CognitionRequest;messageId:number|null;objectiveId:string|null;objectiveRevision:number|null;contractId:string|null;contractVersion:number|null;shipId:string|null;}
+interface Ticket {request:CognitionRequest;messageId:number|null;objectiveId:string|null;objectiveRevision:number|null;objectiveConditionVersion:number|null;contractId:string|null;contractVersion:number|null;shipId:string|null;}
 const rejected=(reason:string):CommandResult=>({ok:false,reason});
 const accepted=():CommandResult=>({ok:true,reason:'认知结果已校验并提交'});
 /** Ephemeral request authority belongs to this engine instance. Reloading creates
@@ -55,7 +57,7 @@ export class CognitionGateway {
     }
     if(JSON.stringify(context).length>100000)throw Error('必要目标上下文超出认知预算，未发出模型请求');
     const request:CognitionRequest={requestId:'cognition:'+this.session+':'+(++this.nextRequest),agentId,revision:a.decision.revision,purpose,schema:cognitionJsonSchema(purpose),context,prompt,outputBudget:purpose==='intent'?1800:900};
-    this.tickets.set(agentId,{request,messageId:message?.id??null,objectiveId:objective?.id??null,objectiveRevision:objective?.revision??null,contractId:contract?.id??null,contractVersion:contract?.conditionVersion??null,shipId:o.ship?.id??null});
+    this.tickets.set(agentId,{request,messageId:message?.id??null,objectiveId:objective?.id??null,objectiveRevision:objective?.revision??null,objectiveConditionVersion:objective?.conditionVersion??null,contractId:contract?.id??null,contractVersion:contract?.conditionVersion??null,shipId:o.ship?.id??null});
     return structuredClone(request);
   }
   private current(agentId:string,requestId:string,response:CognitionResponse):Ticket|CommandResult {
@@ -64,7 +66,7 @@ export class CognitionGateway {
     const shipId=e.state.assignments.find(s=>s.operatorId===agentId)?.shipId??null;
     if(shipId!==t.shipId)return rejected('请求期间舰船分配已经改变');
     if(t.messageId&&!e.state.chatMessages.some(m=>m.id===t.messageId&&m.responses?.[agentId]==='pending'))return rejected('原交互已经处理或取消');
-    if(t.objectiveId&&!e.state.objectives.some(o=>o.id===t.objectiveId&&o.revision===t.objectiveRevision&&['proposed','negotiating'].includes(o.consent)&&['active','blocked'].includes(o.status)))return rejected('目标或授权已经改变');
+    if(t.objectiveId&&!e.state.objectives.some(o=>o.id===t.objectiveId&&o.revision===t.objectiveRevision&&o.conditionVersion===t.objectiveConditionVersion&&['proposed','negotiating'].includes(o.consent)&&['active','blocked'].includes(o.status)))return rejected('目标或授权已经改变');
     return t;
   }
   validate(agentId:string,requestId:string,response:CognitionResponse):CommandResult {
@@ -81,7 +83,7 @@ export class CognitionGateway {
       }else if(response.purpose==='judgment'||response.purpose==='collaboration'){
         if(response.decision.response!=='counter'&&response.decision.conditions.length)return rejected('接受或拒绝不能偷偷修改约定条件');
         if(response.purpose==='collaboration'&&(response.decision.requestId!==t.contractId||response.decision.version!==t.contractVersion))return rejected('协作请求或版本不匹配');
-        return this.engine.validate(this.negotiationCommand(t,response),agentId);
+        return validateNegotiation(this.engine,this.engine.state.agents.find(a=>a.id===agentId)!,{coordination:this.negotiation(t,response),rationale:response.decision.reply});
       }else if(response.purpose==='strategy'&&response.decision.opportunityId!==null){
         const goal=this.opportunityGoal(o,response.decision.opportunityId);
         if(!goal)return rejected('机会已失效或没有合法本地策略');
@@ -90,12 +92,9 @@ export class CognitionGateway {
       return accepted();
     }catch(error){return rejected(error instanceof Error?error.message:'语义校验失败');}
   }
-  // Temporary engine-local bridge to the existing negotiation ledger. It is never
-  // an output schema or an execution port granted to the provider.
-  private negotiationCommand(t:Ticket,response:Extract<CognitionResponse,{purpose:'judgment'|'collaboration'}>) {
+  private negotiation(t:Ticket,response:Extract<CognitionResponse,{purpose:'judgment'|'collaboration'}>):CoordinationIntent {
     const d=response.decision;
-    const decision:AgentDecision={goal:(this.engine.state.objectives.find(o=>o.id===t.objectiveId)?.originalInstruction??'判断协作承诺').slice(0,240),rationale:d.reply,action:null,messages:[],memory:null,waitMinutes:30,coordination:response.purpose==='judgment'?{type:'answerTask',taskId:t.objectiveId!,version:this.engine.state.objectives.find(o=>o.id===t.objectiveId)!.conditionVersion,response:d.response,conditions:d.conditions,reason:d.reason}:{type:'answerRequest',requestId:t.contractId!,version:t.contractVersion!,response:d.response,conditions:d.conditions,reason:d.reason}};
-    return {type:'agentDecision' as const,agentId:t.request.agentId,revision:t.request.revision,decision};
+    return response.purpose==='judgment'?{type:'answerTask',taskId:t.objectiveId!,version:t.objectiveConditionVersion!,response:d.response,conditions:d.conditions,reason:d.reason}:{type:'answerRequest',requestId:t.contractId!,version:t.contractVersion!,response:d.response,conditions:d.conditions,reason:d.reason};
   }
   commit(agentId:string,requestId:string,response:CognitionResponse):CommandResult {
     const valid=this.validate(agentId,requestId,response);if(!valid.ok){const ticket=this.current(agentId,requestId,response);if(response.purpose==='intent'&&!('ok'in ticket)&&ticket.messageId){commitPrimaryReply(this.engine,agentId,ticket.messageId,valid.reason,'request');this.tickets.delete(agentId);}return valid;}
@@ -103,7 +102,13 @@ export class CognitionGateway {
     this.tickets.delete(agentId);
     if(response.purpose==='judgment'||response.purpose==='collaboration'){
       if(t.messageId)commitPrimaryReply(e,agentId,t.messageId,response.decision.reply,response.decision.response==='counter'?'request':'reply');
-      return e.dispatchCommand(this.negotiationCommand(t,response),agentId);
+      a.currentGoal=(e.state.objectives.find(o=>o.id===t.objectiveId)?.originalInstruction??'判断协作承诺').slice(0,240);
+      applyNegotiation(e,a,{coordination:this.negotiation(t,response),rationale:response.decision.reply});
+      a.decision.revision++;a.decision.pendingReasons=[];a.decision.events=[];a.decision.failures=0;a.decision.lastError=null;a.decision.nextAt=e.state.time+30;a.decision.lastChatId=e.state.nextChat-1;a.decision.contextKey=decisionWorldKey(a,e.state);
+      remember(e.state,a,'decision',response.decision.reply,null,5);
+      const next=e.state.objectives.find(o=>o.ownerAgentId===agentId&&['proposed','negotiating'].includes(o.consent)&&['active','blocked'].includes(o.status)&&o.turnAgentId===agentId)??e.state.escortRequests.find(r=>['pending','negotiating'].includes(r.status)&&r.turnAgentId===agentId);
+      if(next)wakeAgent(a,'request:'+next.id,e.state.time,true);
+      return accepted();
     }
     a.decision.pendingReasons=[];a.decision.events=[];a.decision.failures=0;a.decision.lastError=null;a.decision.nextAt=e.state.time+30;
     const assignedShip=e.state.ships.find(s=>s.id===a.assignedShipId);
@@ -144,7 +149,7 @@ export class CognitionGateway {
     if(!task)return null;
     return {taskId:task.taskId,status:task.status,revision:task.revision,currentStep:task.currentStep,
       assignedShipIds:task.assignedShipIds,dependencyTaskIds:task.dependencyTaskIds,blockReason:task.blockReason,
-      progress:task.progress,steps:task.steps,completionEvidence:task.completionEvidence,
+      dependencies:task.dependencies,progress:task.progress,steps:task.steps,completionEvidence:task.completionEvidence,
       retainedAction:task.checkpoint?.action??null};
   }
   private opportunityGoal(o:Observation,id:string) {

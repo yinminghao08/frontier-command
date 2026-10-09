@@ -39,7 +39,7 @@ export const objectiveSchema = z
     projectId: id.nullable(),
     carrierAgentId: id.nullable(),
     reason: z.string().max(2000).nullable(),
-    controlMode: z.enum(['voluntary', 'direct']),
+    controlMode: z.enum(['voluntary', 'direct', 'autonomous']),
     consent: z.enum(['proposed', 'accepted', 'rejected', 'negotiating', 'withdrawn']),
     conditions: conditionsSchema,
     conditionVersion: integer.positive(),

@@ -958,7 +958,9 @@ export const worldSchema = z
       )
         bad('Invalid real escort plan');
     }
+    const ownDirectives=new Set(w.ships.flatMap(s=>[s.current,...s.queue,...s.suspended]).filter(d=>d!==null).map(d=>d.id));
     for (const d of directives) {
+      if(ownDirectives.has(d.id)&&!d.taskId)bad('Own directive lacks an authorized Task');
       if (d.created > w.time) bad('Future directive');
       if (d.contractId && !contractIds.has(d.contractId)) bad('Invalid directive contract');
       if (d.executorAgentId && !agentIds.has(d.executorAgentId)) bad('Invalid executor Agent');
@@ -1147,8 +1149,13 @@ export const worldSchema = z
     }
     const runtime=w.agentRuntime;
     if(new Set(runtime.tasks.map(t=>t.objectiveId)).size!==w.objectives.length||runtime.tasks.length!==w.objectives.length)bad('Objective must own exactly one Task');
+    if(new Set(runtime.tasks.map(t=>t.taskId)).size!==runtime.tasks.length)bad('Duplicate root Task identity');
+    const visited=new Set<string>(),visiting=new Set<string>();
+    const checkDependencyCycle=(id:string):boolean=>{if(visiting.has(id))return true;if(visited.has(id))return false;visiting.add(id);const task=runtime.tasks.find(t=>t.taskId===id);if(task?.dependencyTaskIds.some(checkDependencyCycle))return true;visiting.delete(id);visited.add(id);return false;};
+    if(runtime.tasks.some(t=>checkDependencyCycle(t.taskId)))bad('Cyclic Task dependency');
     for(const task of runtime.tasks) {
       if(!taskIds.has(task.objectiveId)||task.currentStep>task.steps.length||task.updatedAt>w.time||new Set(task.processedEventIds).size!==task.processedEventIds.length)bad('Invalid FAR Task');
+      if(new Set(task.dependencyTaskIds).size!==task.dependencyTaskIds.length||task.dependencies.some(d=>!task.dependencyTaskIds.includes(d.taskId)||!runtime.tasks.some(t=>t.taskId===d.taskId)||d.taskId===task.taskId||d.status==='fulfilled'&&!runtime.events.some(event=>event.eventId===d.evidenceEventId&&event.type==='taskDependency'&&event.taskId===task.taskId&&event.payload.childTaskId===d.taskId)))bad('Invalid Task dependency evidence');
       if(task.status==='completed'&&(!task.progress.verified||!task.completionEvidence.some(v=>v.kind==='verified')))bad('Task success lacks evidence');
     }
     if(runtime.consumedSequence>runtime.events.length||runtime.nextEvent!==runtime.events.length+1||runtime.events.some((event,index)=>event.sequence!==index+1||event.eventId!=='domain:'+event.sequence))bad('Invalid event consumption cursor');

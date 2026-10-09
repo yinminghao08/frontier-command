@@ -168,7 +168,7 @@ export function OrderComposer({
     [mode, setMode] = useState<'REPLACE' | 'QUEUE' | 'INTERRUPT'>('REPLACE');
   const [formError, setFormError] = useState('');
   const [controlMode, setControlMode] = useState<'direct' | 'voluntary'>(() => {
-    if(request.objectiveId)return world.objectives.find(o=>o.id===request.objectiveId)?.controlMode??'direct';
+    if(request.objectiveId){const mode=world.objectives.find(o=>o.id===request.objectiveId)?.controlMode;return mode==='voluntary'?'voluntary':'direct';}
     try {
       return localStorage.getItem('frontier.order-control-mode.v1') === 'voluntary'
         ? 'voluntary'

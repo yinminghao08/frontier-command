@@ -208,7 +208,7 @@ export function validate(
     !(
       (c.type === 'issueDirective' &&
         c.shipIds.length === 1 &&
-        w.assignments.some((a) => a.operatorId === actorId && a.shipId === c.shipIds[0])) ||
+        (w.assignments.some((a) => a.operatorId === actorId && a.shipId === c.shipIds[0]) || actorId==='standing:'+c.shipIds[0]&&w.objectives.some(o=>o.id===this.executingObjectiveId&&o.issuerId===actorId&&o.shipId===c.shipIds[0]&&o.consent==='accepted'))) ||
       (['agentDecision', 'agentDecisionState', 'cognitionDecision'].includes(c.type) &&
         'agentId' in c &&
         c.agentId === actorId) ||
@@ -558,7 +558,7 @@ export function dispatchCommand(
             incident.response = 'refuse';
             incident.responseSource = 'admiral';
           }
-        if(c.mode==='REPLACE'||c.mode==='INTERRUPT'&&s.current?.objectiveId&&w.objectives.some(o=>o.id===s.current?.objectiveId&&(o.messageId>0||o.controlMode==='voluntary')))cancelObjectives(this,s.id);
+        if(c.mode==='REPLACE'||c.mode==='INTERRUPT'&&s.current?.objectiveId&&w.objectives.some(o=>o.id===s.current?.objectiveId&&(o.messageId>0||o.controlMode!=='direct')))cancelObjectives(this,s.id);
 
       } else if (
         c.mode === 'REPLACE' &&

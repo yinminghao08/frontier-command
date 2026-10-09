@@ -27,7 +27,7 @@ export function TaskCards({world,command,agentId}:{world:Snapshot;command:Comman
       return <article key={task.taskId} className="task-card" data-task-id={task.taskId} data-objective-id={objective.id}>
         <LcarsTextBar literal>{statuses[task.status].toUpperCase()+' / '+(agent?.name??'Admiral')}</LcarsTextBar>
         <p><strong>{objective.originalInstruction||objective.completionCriteria}</strong></p>
-        <p>{ships.map(s=>s.name).join(' / ')||'未分配舰船'} · 授权 {objective.controlMode==='direct'?'Admiral 直接指挥':'自愿任务'} · 修订 {objective.revision}</p>
+        <p>{ships.map(s=>s.name).join(' / ')||'未分配舰船'} · 授权 {objective.controlMode==='direct'?'Admiral 直接指挥':objective.controlMode==='autonomous'?'自主任务':'自愿任务'} · 修订 {objective.revision}</p>
         <p data-testid="task-step">当前步骤 {current?ACTION_LABELS[current.action.type]:task.checkpoint?'保留执行进度，等待恢复':statuses[task.status]} · 已完成 {task.steps.filter(s=>s.status==='completed').length} 步 / 历史 {task.steps.length} 条</p>
         <p data-testid="task-cargo">Materials：装载 {task.progress.loaded.materials.toFixed(1)} / 交付 {task.progress.delivered.materials.toFixed(1)} / 损失 {task.progress.lost.materials.toFixed(1)} · 来源 {new Set(task.completionEvidence.filter(p=>p.kind==='loaded'&&p.sourceId).map(p=>p.sourceId)).size}</p>
         {!active&&objective.reason&&<p>{objective.reason}</p>}

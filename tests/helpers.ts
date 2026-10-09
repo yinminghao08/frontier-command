@@ -163,7 +163,7 @@ export function v15Fixture(world: WorldState) {
   const {agentRuntime:_runtime,objectives,...base}=structuredClone(world);
   const clean=(d: NonNullable<WorldState['ships'][number]['current']>)=>{
     const {objectiveId:_o,originInteractionId:_i,submissionKey:_s,...old}=d;
-    return {...old,taskId:d.objectiveId??d.taskId};
+    return {...old,taskId:world.objectives.some(o=>o.id===(d.objectiveId??d.taskId)&&o.messageId>0)?d.objectiveId??d.taskId:null};
   };
   const oldTasks=objectives.filter(o=>o.messageId>0).map(o=>{
     const {schemaVersion:_schema,originInteractionId:_i,issuerId:_issuer,ownerAgentId:_owner,goal:_goal,constraints:_constraints,completionCriteria:_c,revision:_r,createdAt:_created,updatedAt:_updated,originalInstruction:_instruction,amendments:_amendments,...old}=o;

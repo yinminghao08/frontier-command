@@ -3,7 +3,7 @@ import type { Directive, Ship } from './types';
 import { capabilities, cargoUsed } from './capabilities';
 import { available, inventory } from './inventory';
 import { groupMovementFactor, dist } from './navigation';
-import { makeDirective, validateAction } from './command-system';
+
 import { regionAt } from './definitions/locations';
 export function groupPeers(e: SimulationEngine, d: Directive) {
   return d.groupOrderId
@@ -70,18 +70,7 @@ export function advanceStanding(e: SimulationEngine, s: Ship) {
     (s.hull / c.hull) * 100 < o.retreatHull ||
     (s.shield / c.shield) * 100 < o.retreatShield ||
     (s.core / c.core) * 100 < o.retreatCore;
-  const start = (action: Directive['action']) => {
-    if (!validateAction(e, s, action).ok) return;
-    const d = makeDirective(e, action);
-    d.source = 'standing';
-    d.controlMode = 'autonomous';
-    d.actorId = 'standing:' + s.id;
-    d.origin = { x: s.x, y: s.y };
-    s.current = d;
-    e.runtime.adoptDirective(s,d);
-    s.path = [];
-    s.status = 'active';
-  };
+  const start = (action: Directive['action']) => e.runtime.startStanding(s,action);
   if (ammo && !s.ammoAlertActive) {
     e.report(
       s.name + ' 弹药不足，原地或继续既有指令；请由 Admiral 安排装弹',
@@ -94,6 +83,7 @@ export function advanceStanding(e: SimulationEngine, s: Ship) {
   if (low && e.state.time - s.attackedAt < 12 && !s.emergencyRetreat) {
     const threat = e.state.intel.find((i) => i.id === s.lastAttackerId && i.live);
     const heading = threat ? Math.atan2(s.y - threat.y, s.x - threat.x) : s.heading + Math.PI;
+    e.runtime.interruptForSafety(s);
     s.current = null;
     s.path = [];
     s.emergencyRetreat = {

@@ -27,7 +27,7 @@ const fields = {
   baseUrl: urlSchema,
   defaultModel: z.string().trim().min(1).max(120),
   reasoningEffort: reasoningSchema,
-  thinking: z.enum(['provider-default','on','off']).default('provider-default'),
+  thinking: z.enum(['provider-default', 'on', 'off']).default('provider-default'),
   connectionTimeoutMs: z.number().int().min(1000).max(120000).default(30000),
   idleTimeoutMs: z.number().int().min(1000).max(600000).default(120000),
 };
@@ -56,7 +56,9 @@ export class AgentConfigStore {
     baseUrl: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o-mini',
     reasoningEffort: 'provider-default',
-    thinking:'provider-default',connectionTimeoutMs:30000,idleTimeoutMs:120000,
+    thinking: 'provider-default',
+    connectionTimeoutMs: 30000,
+    idleTimeoutMs: 120000,
     encryptedKey: null,
   };
   private key = '';
@@ -70,7 +72,11 @@ export class AgentConfigStore {
     if (existsSync(this.path))
       try {
         const saved = storedSchema.parse(JSON.parse(readFileSync(this.path, 'utf8')));
-        this.config = {...saved,reasoningEffort:saved.reasoningEffort==='none'?'provider-default':saved.reasoningEffort};
+        this.config = {
+          ...saved,
+          reasoningEffort:
+            saved.reasoningEffort === 'none' ? 'provider-default' : saved.reasoningEffort,
+        };
         if (saved.encryptedKey && vault.isEncryptionAvailable())
           this.key = vault.decryptString(Buffer.from(saved.encryptedKey, 'base64'));
       } catch {
@@ -82,7 +88,9 @@ export class AgentConfigStore {
       baseUrl: this.config.baseUrl,
       defaultModel: this.config.defaultModel,
       reasoningEffort: this.config.reasoningEffort,
-      thinking:this.config.thinking,connectionTimeoutMs:this.config.connectionTimeoutMs,idleTimeoutMs:this.config.idleTimeoutMs,
+      thinking: this.config.thinking,
+      connectionTimeoutMs: this.config.connectionTimeoutMs,
+      idleTimeoutMs: this.config.idleTimeoutMs,
       hasKey: !!this.key,
       encryptionAvailable: this.vault.isEncryptionAvailable(),
     };
@@ -92,8 +100,11 @@ export class AgentConfigStore {
     return {
       baseUrl: draft.baseUrl.replace(/\/+$/, ''),
       defaultModel: draft.defaultModel,
-      reasoningEffort: draft.reasoningEffort==='none'?'provider-default':draft.reasoningEffort,
-      thinking:draft.thinking,connectionTimeoutMs:draft.connectionTimeoutMs,idleTimeoutMs:draft.idleTimeoutMs,
+      reasoningEffort:
+        draft.reasoningEffort === 'none' ? 'provider-default' : draft.reasoningEffort,
+      thinking: draft.thinking,
+      connectionTimeoutMs: draft.connectionTimeoutMs,
+      idleTimeoutMs: draft.idleTimeoutMs,
       apiKey:
         'clearKey' in draft && draft.clearKey
           ? ''
@@ -111,8 +122,11 @@ export class AgentConfigStore {
       version: 1 as const,
       baseUrl: draft.baseUrl.replace(/\/+$/, ''),
       defaultModel: draft.defaultModel,
-      reasoningEffort: draft.reasoningEffort==='none'?'provider-default':draft.reasoningEffort,
-      thinking:draft.thinking,connectionTimeoutMs:draft.connectionTimeoutMs,idleTimeoutMs:draft.idleTimeoutMs,
+      reasoningEffort:
+        draft.reasoningEffort === 'none' ? 'provider-default' : draft.reasoningEffort,
+      thinking: draft.thinking,
+      connectionTimeoutMs: draft.connectionTimeoutMs,
+      idleTimeoutMs: draft.idleTimeoutMs,
       encryptedKey: key ? this.vault.encryptString(key).toString('base64') : null,
     };
     writeFileSync(this.path + '.tmp', JSON.stringify(next), { encoding: 'utf8', mode: 0o600 });

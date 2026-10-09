@@ -1,4 +1,4 @@
-import {runScenario} from './domain-fixtures';
+import { runScenario } from './domain-fixtures';
 import { piracyScenario } from './orion-scenarios';
 import { describe, it, expect } from 'vitest';
 import { createWorld, makeEnemy, emptyStock } from '../src/engine/data';
@@ -21,8 +21,8 @@ import { updateSiteIntel } from '../src/engine/tracking';
 import { makeDirective } from '../src/engine/command-system';
 import { advanceAgents } from '../src/engine/agents';
 
-const decide=runScenario;
-describe('seeded persistent Orion ecology',()=>{
+const decide = runScenario;
+describe('seeded persistent Orion ecology', () => {
   it.each([0, 1, 42, 1701, 236807, 4294967295])(
     'seed %s creates ten dispersed ships and remote hidden real facilities',
     (seed) => {
@@ -355,8 +355,22 @@ describe('extortion, boarding and actual cargo', () => {
   });
   it('cargo loss updates the loaded directive and finite civilian delivery, including integral ammunition', () => {
     const { e, ship, a } = piracyScenario('manual');
-    expect(issue(e,{type:'HAUL',sourceId:'mine',targetId:'base',cargoKind:'materials',amount:200,route:'direct',repeat:false},ship.id).ok).toBe(true);
-    const d=ship.current!;
+    expect(
+      issue(
+        e,
+        {
+          type: 'HAUL',
+          sourceId: 'mine',
+          targetId: 'base',
+          cargoKind: 'materials',
+          amount: 200,
+          route: 'direct',
+          repeat: false,
+        },
+        ship.id,
+      ).ok,
+    ).toBe(true);
+    const d = ship.current!;
     d.carried = 200;
     d.phase = 'delivering';
     ship.current = d;

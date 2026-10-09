@@ -1,4 +1,4 @@
-import {askIntent,conversation} from './provider-harness';
+import { askIntent, conversation } from './provider-harness';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,8 +13,17 @@ import { appendChat, COMMAND_CHANNEL, privateChannel } from '../src/engine/chat'
 import { parseSave } from '../src/engine/saves';
 import { SaveStore } from '../electron/persistence';
 import { ChatCompletionsClient } from '../electron/agents/client';
-import type {ObjectiveProposal,CognitionResponse} from '../src/engine/cognition-protocol';
-const semantic=(proposal:ObjectiveProposal,allowWormholes=true):Extract<CognitionResponse,{purpose:'intent'}>['decision']=>({disposition:'propose',proposal,objectiveId:null,allowWormholes,reply:'按完整目标规划。'});
+import type { ObjectiveProposal, CognitionResponse } from '../src/engine/cognition-protocol';
+const semantic = (
+  proposal: ObjectiveProposal,
+  allowWormholes = true,
+): Extract<CognitionResponse, { purpose: 'intent' }>['decision'] => ({
+  disposition: 'propose',
+  proposal,
+  objectiveId: null,
+  allowWormholes,
+  reply: '按完整目标规划。',
+});
 import type { ConnectionConfig } from '../electron/agents/config';
 
 const battle = 'ops-horizon',
@@ -29,7 +38,7 @@ function order(
   agentId: string,
   content: string,
   channel = privateChannel(agentId),
-  decision?:Extract<CognitionResponse,{purpose:'intent'}>['decision'],
+  decision?: Extract<CognitionResponse, { purpose: 'intent' }>['decision'],
 ) {
   expect(
     e.dispatchCommand({
@@ -43,7 +52,21 @@ function order(
   const messageId = [...e.state.chatMessages]
     .reverse()
     .find((m) => m.sender === e.state.commander.id)!.id;
-  if(decision&&!e.state.objectives.some(o=>o.messageId===messageId)){const request=e.cognition.prepare(agentId)!;expect(request.purpose).toBe('intent');expect(e.dispatchCommand({type:'cognitionDecision',agentId,requestId:request.requestId,response:{purpose:'intent',decision}},agentId).ok).toBe(true);}
+  if (decision && !e.state.objectives.some((o) => o.messageId === messageId)) {
+    const request = e.cognition.prepare(agentId)!;
+    expect(request.purpose).toBe('intent');
+    expect(
+      e.dispatchCommand(
+        {
+          type: 'cognitionDecision',
+          agentId,
+          requestId: request.requestId,
+          response: { purpose: 'intent', decision },
+        },
+        agentId,
+      ).ok,
+    ).toBe(true);
+  }
   return e.state.objectives.at(-1)!;
 }
 function resource(e: SimulationEngine) {
@@ -95,7 +118,13 @@ describe('Admiral chat becomes scoped real engine commands', () => {
     updateSensors(e);
     expect(e.state.intel.find((i) => i.id === target.id)!.hostile).toBe(false);
     expect(e.submitAction(battle, { type: 'ATTACK', targetId: target.id }).ok).toBe(false);
-    const task = order(e,battle,'去把 orion scout 干掉，立即开火！',privateChannel(battle),semantic({kind:'engage',targetIds:[target.id]}));
+    const task = order(
+      e,
+      battle,
+      '去把 orion scout 干掉，立即开火！',
+      privateChannel(battle),
+      semantic({ kind: 'engage', targetIds: [target.id] }),
+    );
     expect(ship.current).toMatchObject({
       source: 'admiral',
       actorId: 'commander',
@@ -117,11 +146,20 @@ describe('Admiral chat becomes scoped real engine commands', () => {
     e.state.enemies.push(target);
     updateSensors(e);
     order(e, battle, '攻击 orion-scout');
-    const task = order(e,battle,'直接开火。实时跟踪其位置！',privateChannel(battle),{disposition:'continue',proposal:null,objectiveId:e.state.objectives.at(-1)!.id,allowWormholes:true,reply:'继续已授权的完整交战目标。'});
+    const task = order(e, battle, '直接开火。实时跟踪其位置！', privateChannel(battle), {
+      disposition: 'continue',
+      proposal: null,
+      objectiveId: e.state.objectives.at(-1)!.id,
+      allowWormholes: true,
+      reply: '继续已授权的完整交战目标。',
+    });
     expect(ship.current?.action).toEqual({ type: 'ATTACK', targetId: target.id });
     expect(
-      e.dispatchCommand({ type: 'interpretInteraction', agentId: freight, messageId: task.messageId })
-        .ok,
+      e.dispatchCommand({
+        type: 'interpretInteraction',
+        agentId: freight,
+        messageId: task.messageId,
+      }).ok,
     ).toBe(false);
     expect(
       e.dispatchCommand(
@@ -156,12 +194,38 @@ describe('Admiral chat becomes scoped real engine commands', () => {
     const beforeCredits = e.state.resources.credits;
     const beforeStock = e.state.locations.reduce((sum, l) => sum + l.stock.materials, 0);
     const extracted = e.state.locations.reduce((sum, l) => sum + l.extracted, 0);
-    const task = order(e,cadet.id,'你去建设好'+body.name,privateChannel(cadet.id),semantic({kind:'construction',siteId:body.id,facilityKind:'mine'}));
+    const task = order(
+      e,
+      cadet.id,
+      '你去建设好' + body.name,
+      privateChannel(cadet.id),
+      semantic({ kind: 'construction', siteId: body.id, facilityKind: 'mine' }),
+    );
     expect(e.state.resources.credits).toBe(beforeCredits - 165);
     const request = e.state.escortRequests.find((r) => r.parentTaskId === task.id)!;
     expect(request.status).toBe('pending');
-    const ticket=e.cognition.prepare(freight)!;
-    expect(e.dispatchCommand({type:'cognitionDecision',agentId:freight,requestId:ticket.requestId,response:{purpose:'collaboration',decision:{requestId:request.id,version:1,response:'accept',conditions:[],reason:'preference',reply:'愿意支援建设物资运输。'}}},freight).ok).toBe(true);
+    const ticket = e.cognition.prepare(freight)!;
+    expect(
+      e.dispatchCommand(
+        {
+          type: 'cognitionDecision',
+          agentId: freight,
+          requestId: ticket.requestId,
+          response: {
+            purpose: 'collaboration',
+            decision: {
+              requestId: request.id,
+              version: 1,
+              response: 'accept',
+              conditions: [],
+              reason: 'preference',
+              reply: '愿意支援建设物资运输。',
+            },
+          },
+        },
+        freight,
+      ).ok,
+    ).toBe(true);
     run(e, 1);
     expect(e.state.ships.find((s) => s.id === 'meridian')?.current?.action.type).toBe('HAUL');
     run(e, 25);
@@ -199,7 +263,23 @@ describe('Admiral chat becomes scoped real engine commands', () => {
     sector.discovered = true;
     ship.x = 0;
     ship.y = 800;
-    const task = order(e,battle,'沿 0/2、0/1 一路测绘回来直到 0/0，不走虫洞',privateChannel(battle),semantic({kind:'surveyRoute',sectors:[{q:0,r:2},{q:0,r:1},{q:0,r:0}]},false));
+    const task = order(
+      e,
+      battle,
+      '沿 0/2、0/1 一路测绘回来直到 0/0，不走虫洞',
+      privateChannel(battle),
+      semantic(
+        {
+          kind: 'surveyRoute',
+          sectors: [
+            { q: 0, r: 2 },
+            { q: 0, r: 1 },
+            { q: 0, r: 0 },
+          ],
+        },
+        false,
+      ),
+    );
     expect(task.sectors).toEqual([
       { q: 0, r: 2 },
       { q: 0, r: 1 },
@@ -219,7 +299,23 @@ describe('Admiral chat becomes scoped real engine commands', () => {
         e.state.systems.filter((s) => s.sectorId === sec.id).every((s) => s.survey === 2),
       ).toBe(true);
     }
-    const next = order(e,battle,'沿 0/0 一路测绘回来直到 0/2，不走虫洞',privateChannel(battle),semantic({kind:'surveyRoute',sectors:[{q:0,r:0},{q:0,r:1},{q:0,r:2}]},false));
+    const next = order(
+      e,
+      battle,
+      '沿 0/0 一路测绘回来直到 0/2，不走虫洞',
+      privateChannel(battle),
+      semantic(
+        {
+          kind: 'surveyRoute',
+          sectors: [
+            { q: 0, r: 0 },
+            { q: 0, r: 1 },
+            { q: 0, r: 2 },
+          ],
+        },
+        false,
+      ),
+    );
     issue(e, { type: 'MOVE', point: { x: -240, y: 0 } }, ship.id);
     expect(next.status).toBe('interrupted');
     expect(ship.current?.objectiveId).not.toBe(next.id);
@@ -264,7 +360,23 @@ describe('Admiral chat becomes scoped real engine commands', () => {
       ).ok,
     ).toBe(false);
     expect(e.state).toEqual(before);
-    const task = order(e,battle,'沿 0/0 一路测绘到 0/2，不走虫洞',privateChannel(battle),semantic({kind:'surveyRoute',sectors:[{q:0,r:0},{q:0,r:1},{q:0,r:2}]},false));
+    const task = order(
+      e,
+      battle,
+      '沿 0/0 一路测绘到 0/2，不走虫洞',
+      privateChannel(battle),
+      semantic(
+        {
+          kind: 'surveyRoute',
+          sectors: [
+            { q: 0, r: 0 },
+            { q: 0, r: 1 },
+            { q: 0, r: 2 },
+          ],
+        },
+        false,
+      ),
+    );
     const ship = e.state.ships.find((s) => s.id === 'horizon')!;
     const tampered = structuredClone(e.state);
     tampered.ships.find((s) => s.id === ship.id)!.current!.allowWormholes = true;
@@ -293,7 +405,21 @@ describe('Admiral chat becomes scoped real engine commands', () => {
   });
   it('QUEUE preserves the current complete objective before the next direct operation', () => {
     const e = quietEngine();
-    const task = order(e,freight,'从 mine 运送 10 Materials 到 base',privateChannel(freight),semantic({kind:'transport',sourceId:'mine',destinationId:'base',cargoKind:'materials',amount:10,repeat:false,route:'safe'}));
+    const task = order(
+      e,
+      freight,
+      '从 mine 运送 10 Materials 到 base',
+      privateChannel(freight),
+      semantic({
+        kind: 'transport',
+        sourceId: 'mine',
+        destinationId: 'base',
+        cargoKind: 'materials',
+        amount: 10,
+        repeat: false,
+        route: 'safe',
+      }),
+    );
     const ship = e.state.ships.find((s) => s.id === 'meridian')!;
     const currentId = ship.current!.id;
     issue(e, { type: 'RETURN' }, ship.id, 'QUEUE');
@@ -324,7 +450,12 @@ describe('Schema constraints and bounded repairs', () => {
       requests.push(request);
       return response(
         requests.length === 1
-          ? JSON.stringify({disposition:'propose',proposal:{kind:'survey',targetId:'fake'},allowWormholes:true,reply:'需测绘'})
+          ? JSON.stringify({
+              disposition: 'propose',
+              proposal: { kind: 'survey', targetId: 'fake' },
+              allowWormholes: true,
+              reply: '需测绘',
+            })
           : JSON.stringify(conversation('没有明确任务')),
       );
     });
@@ -352,14 +483,58 @@ describe('Schema constraints and bounded repairs', () => {
     expect(bodies[2]).not.toHaveProperty('response_format');
     expect(bodies.every((b) => !('reasoning_effort' in b))).toBe(true);
   });
-  it('does not send semantic or authorization rejection back to the model for repair',async()=>{
-    const e=quietEngine();e.dispatchCommand({type:'sendChat',channelId:privateChannel(battle),content:'按完整目标执行这个地点的巡逻。',mentions:[]});
-    const request=e.cognition.prepare(battle)!,before=structuredClone(e.state.ships);let calls=0;
-    const client=new ChatCompletionsClient(async()=>{calls++;return response(JSON.stringify({disposition:'propose',proposal:{kind:'patrol',targetId:'invented',duration:10},objectiveId:null,allowWormholes:true,reply:'计划巡逻'}));});
-    const result=await client.cognize(config,request,e.state.agents.find(a=>a.id===battle)!.modelConfig,new AbortController().signal);
-    expect(e.dispatchCommand({type:'cognitionDecision',agentId:battle,requestId:request.requestId,response:result},battle).ok).toBe(false);expect(calls).toBe(1);expect(e.state.ships).toEqual(before);expect(e.state.objectives).toHaveLength(0);
-    const invalid=new ChatCompletionsClient(async()=>response('{"disposition":"propose","proposal":{"kind":"CHEAT"},"allowWormholes":true,"reply":"x"}'));
-    await expect(askIntent(invalid,config,e.getObservation(battle)!)).rejects.toThrow(/格式|JSON/);expect(e.state.ships).toEqual(before);
+  it('does not send semantic or authorization rejection back to the model for repair', async () => {
+    const e = quietEngine();
+    e.dispatchCommand({
+      type: 'sendChat',
+      channelId: privateChannel(battle),
+      content: '按完整目标执行这个地点的巡逻。',
+      mentions: [],
+    });
+    const request = e.cognition.prepare(battle)!,
+      before = structuredClone(e.state.ships);
+    let calls = 0;
+    const client = new ChatCompletionsClient(async () => {
+      calls++;
+      return response(
+        JSON.stringify({
+          disposition: 'propose',
+          proposal: { kind: 'patrol', targetId: 'invented', duration: 10 },
+          objectiveId: null,
+          allowWormholes: true,
+          reply: '计划巡逻',
+        }),
+      );
+    });
+    const result = await client.cognize(
+      config,
+      request,
+      e.state.agents.find((a) => a.id === battle)!.modelConfig,
+      new AbortController().signal,
+    );
+    expect(
+      e.dispatchCommand(
+        {
+          type: 'cognitionDecision',
+          agentId: battle,
+          requestId: request.requestId,
+          response: result,
+        },
+        battle,
+      ).ok,
+    ).toBe(false);
+    expect(calls).toBe(1);
+    expect(e.state.ships).toEqual(before);
+    expect(e.state.objectives).toHaveLength(0);
+    const invalid = new ChatCompletionsClient(async () =>
+      response(
+        '{"disposition":"propose","proposal":{"kind":"CHEAT"},"allowWormholes":true,"reply":"x"}',
+      ),
+    );
+    await expect(askIntent(invalid, config, e.getObservation(battle)!)).rejects.toThrow(
+      /格式|JSON/,
+    );
+    expect(e.state.ships).toEqual(before);
   });
 });
 describe('v14 starts an independent world and preserves historical chat files', () => {

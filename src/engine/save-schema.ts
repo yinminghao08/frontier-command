@@ -1,7 +1,7 @@
 import { directiveSchema as directive } from './directive-schema';
 import { objectiveSchema } from './objective-schema';
 import { runtimeSchema } from './agent-runtime/model';
-import { commitmentSchema,conditionGenerationFloor } from './condition-schema';
+import { commitmentSchema, conditionGenerationFloor } from './condition-schema';
 import {
   colonySchema,
   personnelSchema,
@@ -330,7 +330,16 @@ export const worldSchema = z
         .strict(),
     ),
     wrecks: z.array(
-      pointSchema.extend({ id, name, stock: stockSchema, discovered: z.boolean(), sourceShipId: id.optional(), sourceClassId: classId.nullable().optional() }).strict(),
+      pointSchema
+        .extend({
+          id,
+          name,
+          stock: stockSchema,
+          discovered: z.boolean(),
+          sourceShipId: id.optional(),
+          sourceClassId: classId.nullable().optional(),
+        })
+        .strict(),
     ),
     intel: z.array(
       pointSchema
@@ -581,7 +590,7 @@ export const worldSchema = z
       const assignment = w.assignments.find((x) => x.operatorId === a.id);
       if (
         !w.operators.some((o) => o.id === a.id && o.kind === 'agent' && o.name === a.name) ||
-        (assignment!==undefined&&!w.ships.some(s=>s.id===assignment.shipId))
+        (assignment !== undefined && !w.ships.some((s) => s.id === assignment.shipId))
       )
         bad('Invalid Agent/Operator/Assignment link');
       if (
@@ -698,8 +707,14 @@ export const worldSchema = z
     for (const task of w.objectives) {
       const message = w.chatMessages.find((m) => m.id === task.messageId);
       if (
-        (task.ownerAgentId!==null && !agentIds.has(task.ownerAgentId)) ||
-        (task.messageId>0 && (message?.sender !== w.commander.id || message.channelId !== task.channelId || !(message.channelId === 'private:' + task.agentId || (message.channelId === 'frontier-command' && message.mentions.includes(task.agentId))))) ||
+        (task.ownerAgentId !== null && !agentIds.has(task.ownerAgentId)) ||
+        (task.messageId > 0 &&
+          (message?.sender !== w.commander.id ||
+            message.channelId !== task.channelId ||
+            !(
+              message.channelId === 'private:' + task.agentId ||
+              (message.channelId === 'frontier-command' && message.mentions.includes(task.agentId))
+            ))) ||
         (task.kind === 'action' && !task.action) ||
         (task.kind === 'assign' && !task.shipId) ||
         (task.kind === 'construction' && (!task.targetId || !task.facilityKind)) ||
@@ -724,10 +739,31 @@ export const worldSchema = z
         ![...w.ships.map((s) => s.id), ...w.losses.map((l) => l.shipId)].includes(r.targetShipId)
       )
         bad('Invalid escort contract');
-    for(const contract of [...w.objectives,...w.escortRequests]){
-      const history=contract.conditionHistory;
-      if(history.some((entry,index)=>entry.version>=contract.conditionVersion||index>0&&entry.version<=history[index-1].version||index>0&&JSON.stringify(entry.previousConditions)!==JSON.stringify(history[index-1].conditions))||history.length&&JSON.stringify(history[history.length-1].conditions)!==JSON.stringify(contract.conditions))bad('Invalid condition revision history');
+    for (const contract of [...w.objectives, ...w.escortRequests]) {
+      const history = contract.conditionHistory;
+      if (
+        history.some(
+          (entry, index) =>
+            entry.version >= contract.conditionVersion ||
+            (index > 0 && entry.version <= history[index - 1].version) ||
+            (index > 0 &&
+              JSON.stringify(entry.previousConditions) !==
+                JSON.stringify(history[index - 1].conditions)),
+        ) ||
+        (history.length &&
+          JSON.stringify(history[history.length - 1].conditions) !==
+            JSON.stringify(contract.conditions))
+      )
+        bad('Invalid condition revision history');
     }
+    for (const request of w.escortRequests)
+      if (request.parentConditionVersion !== null) {
+        const parent = [...w.objectives, ...w.escortRequests].find(
+          (parent) => parent.id === request.parentTaskId,
+        );
+        if (!parent || request.parentConditionVersion > parent.conditionVersion)
+          bad('Invalid parent condition generation');
+      }
     const contractIds = new Set([...taskIds, ...w.escortRequests.map((r) => r.id)]);
     if (contractIds.size !== w.objectives.length + w.escortRequests.length)
       bad('Duplicate contract identity');
@@ -750,7 +786,21 @@ export const worldSchema = z
       if (
         contract &&
         (c.agentId !== ('consent' in contract ? contract.agentId : contract.responderId) ||
-          !(contract.conditions.some(condition=>JSON.stringify(condition)===JSON.stringify(c.condition))&&(c.conditionVersion??1)>conditionGenerationFloor(contract.conditionHistory,c.condition)||c.status!=='pending'&&contract.conditionHistory.some(h=>(c.conditionVersion??1)<=h.version&&h.previousConditions.some(condition=>JSON.stringify(condition)===JSON.stringify(c.condition)))) ||
+          !(
+            (contract.conditions.some(
+              (condition) => JSON.stringify(condition) === JSON.stringify(c.condition),
+            ) &&
+              (c.conditionVersion ?? 1) >
+                conditionGenerationFloor(contract.conditionHistory, c.condition)) ||
+            (c.status !== 'pending' &&
+              contract.conditionHistory.some(
+                (h) =>
+                  (c.conditionVersion ?? 1) <= h.version &&
+                  h.previousConditions.some(
+                    (condition) => JSON.stringify(condition) === JSON.stringify(c.condition),
+                  ),
+              ))
+          ) ||
           (c.condition.type === 'reward' &&
             c.status === 'pending' &&
             (contract.creditsApproved ? c.escrow !== c.condition.credits : c.escrow !== 0)) ||
@@ -955,16 +1005,29 @@ export const worldSchema = z
       )
         bad('Invalid real escort plan');
     }
-    const ownDirectives=new Set(w.ships.flatMap(s=>[s.current,...s.queue,...s.suspended]).filter(d=>d!==null).map(d=>d.id));
+    const ownDirectives = new Set(
+      w.ships
+        .flatMap((s) => [s.current, ...s.queue, ...s.suspended])
+        .filter((d) => d !== null)
+        .map((d) => d.id),
+    );
     for (const d of directives) {
-      if(ownDirectives.has(d.id)&&!d.taskId)bad('Own directive lacks an authorized Task');
+      if (ownDirectives.has(d.id) && !d.taskId) bad('Own directive lacks an authorized Task');
       if (d.created > w.time) bad('Future directive');
       if (d.contractId && !contractIds.has(d.contractId)) bad('Invalid directive contract');
       if (d.executorAgentId && !agentIds.has(d.executorAgentId)) bad('Invalid executor Agent');
-      if(d.taskId) {
-        const task=w.agentRuntime.tasks.find(t=>t.taskId===d.taskId);
-        const objective=w.objectives.find(o=>o.id===task?.objectiveId);
-        if(!task||!objective||d.objectiveId!==objective.id||d.originInteractionId!==objective.originInteractionId||!task.directiveIds.includes(d.id)||objective.allowWormholes!==d.allowWormholes)bad('Invalid FAR directive authority');
+      if (d.taskId) {
+        const task = w.agentRuntime.tasks.find((t) => t.taskId === d.taskId);
+        const objective = w.objectives.find((o) => o.id === task?.objectiveId);
+        if (
+          !task ||
+          !objective ||
+          d.objectiveId !== objective.id ||
+          d.originInteractionId !== objective.originInteractionId ||
+          !task.directiveIds.includes(d.id) ||
+          objective.allowWormholes !== d.allowWormholes
+        )
+          bad('Invalid FAR directive authority');
       }
       if (
         d.source === 'admiral'
@@ -1144,27 +1207,137 @@ export const worldSchema = z
       )
         bad('Invalid historical sequence');
     }
-    const runtime=w.agentRuntime;
-    if(new Set(runtime.tasks.map(t=>t.objectiveId)).size!==w.objectives.length||runtime.tasks.length!==w.objectives.length)bad('Objective must own exactly one Task');
-    if(new Set(runtime.tasks.map(t=>t.taskId)).size!==runtime.tasks.length)bad('Duplicate root Task identity');
-    const visited=new Set<string>(),visiting=new Set<string>();
-    const checkDependencyCycle=(id:string):boolean=>{if(visiting.has(id))return true;if(visited.has(id))return false;visiting.add(id);const task=runtime.tasks.find(t=>t.taskId===id);if(task?.dependencyTaskIds.some(checkDependencyCycle))return true;visiting.delete(id);visited.add(id);return false;};
-    if(runtime.tasks.some(t=>checkDependencyCycle(t.taskId)))bad('Cyclic Task dependency');
-    for(const task of runtime.tasks) {
-      if(!taskIds.has(task.objectiveId)||task.currentStep>task.steps.length||task.updatedAt>w.time||new Set(task.processedEventIds).size!==task.processedEventIds.length)bad('Invalid FAR Task');
-      if(new Set(task.dependencyTaskIds).size!==task.dependencyTaskIds.length||task.dependencies.some(d=>!task.dependencyTaskIds.includes(d.taskId)||!runtime.tasks.some(t=>t.taskId===d.taskId)||d.taskId===task.taskId||d.status==='fulfilled'&&!runtime.events.some(event=>event.eventId===d.evidenceEventId&&event.type==='taskDependency'&&event.taskId===task.taskId&&event.payload.childTaskId===d.taskId)))bad('Invalid Task dependency evidence');
-      const objective=w.objectives.find(o=>o.id===task.objectiveId);
-      const state=task.execution;
-      if(state.carrierAgentId&&!agentIds.has(state.carrierAgentId)||state.sectorIndex>(objective?.sectors.length??0)||new Set(state.scannedSectorIndices).size!==state.scannedSectorIndices.length||state.scannedSectorIndices.some(i=>i>=(objective?.sectors.length??0))||Object.values(state.searchedTargets).some(time=>time>w.time))bad('Invalid Task execution state');
-      if(task.scope.revision>(objective?.revision??0)||GOODS.some(kind=>task.scope.loadedBaseline[kind]>task.progress.loaded[kind]+1e-7||task.scope.deliveredBaseline[kind]>task.progress.delivered[kind]+1e-7||task.scope.lostBaseline[kind]>task.progress.lost[kind]+1e-7||task.scope.divertedBaseline[kind]>task.progress.diverted[kind]+1e-7||task.scope.carryIn[kind]>task.scope.loadedBaseline[kind]-task.scope.deliveredBaseline[kind]-task.scope.lostBaseline[kind]-task.scope.divertedBaseline[kind]+1e-7))bad('Invalid Task revision scope');
-      if(task.status==='completed'&&(!task.progress.verified||!task.completionEvidence.some(v=>v.kind==='verified')))bad('Task success lacks evidence');
+    const runtime = w.agentRuntime;
+    if (
+      new Set(runtime.tasks.map((t) => t.objectiveId)).size !== w.objectives.length ||
+      runtime.tasks.length !== w.objectives.length
+    )
+      bad('Objective must own exactly one Task');
+    if (new Set(runtime.tasks.map((t) => t.taskId)).size !== runtime.tasks.length)
+      bad('Duplicate root Task identity');
+    const visited = new Set<string>(),
+      visiting = new Set<string>();
+    const checkDependencyCycle = (id: string): boolean => {
+      if (visiting.has(id)) return true;
+      if (visited.has(id)) return false;
+      visiting.add(id);
+      const task = runtime.tasks.find((t) => t.taskId === id);
+      if (task?.dependencyTaskIds.some(checkDependencyCycle)) return true;
+      visiting.delete(id);
+      visited.add(id);
+      return false;
+    };
+    if (runtime.tasks.some((t) => checkDependencyCycle(t.taskId))) bad('Cyclic Task dependency');
+    for (const task of runtime.tasks) {
+      if (
+        !taskIds.has(task.objectiveId) ||
+        task.currentStep > task.steps.length ||
+        task.updatedAt > w.time ||
+        new Set(task.processedEventIds).size !== task.processedEventIds.length
+      )
+        bad('Invalid FAR Task');
+      if (
+        new Set(task.dependencyTaskIds).size !== task.dependencyTaskIds.length ||
+        task.dependencies.some(
+          (d) =>
+            !task.dependencyTaskIds.includes(d.taskId) ||
+            !runtime.tasks.some((t) => t.taskId === d.taskId) ||
+            d.taskId === task.taskId ||
+            (d.status === 'fulfilled' &&
+              !runtime.events.some(
+                (event) =>
+                  event.eventId === d.evidenceEventId &&
+                  event.type === 'taskDependency' &&
+                  event.taskId === task.taskId &&
+                  event.payload.childTaskId === d.taskId,
+              )),
+        )
+      )
+        bad('Invalid Task dependency evidence');
+      if (task.group) {
+        const group = task.group;
+        if (
+          !group.taskIds.includes(task.taskId) ||
+          new Set(group.taskIds).size !== group.taskIds.length ||
+          group.taskIds.some(
+            (id) =>
+              !runtime.tasks.some(
+                (peer) =>
+                  peer.taskId === id &&
+                  peer.group?.orderId === group.orderId &&
+                  peer.group.total === group.total &&
+                  peer.group.spacing === group.spacing &&
+                  JSON.stringify(peer.group.taskIds) === JSON.stringify(group.taskIds),
+              ),
+          )
+        )
+          bad('Invalid Task group scope');
+      }
+      const objective = w.objectives.find((o) => o.id === task.objectiveId);
+      const state = task.execution;
+      if (
+        (state.carrierAgentId && !agentIds.has(state.carrierAgentId)) ||
+        state.sectorIndex > (objective?.sectors.length ?? 0) ||
+        new Set(state.scannedSectorIndices).size !== state.scannedSectorIndices.length ||
+        state.scannedSectorIndices.some((i) => i >= (objective?.sectors.length ?? 0)) ||
+        Object.values(state.searchedTargets).some((time) => time > w.time)
+      )
+        bad('Invalid Task execution state');
+      if (
+        task.scope.revision > (objective?.revision ?? 0) ||
+        GOODS.some(
+          (kind) =>
+            task.scope.loadedBaseline[kind] > task.progress.loaded[kind] + 1e-7 ||
+            task.scope.deliveredBaseline[kind] > task.progress.delivered[kind] + 1e-7 ||
+            task.scope.lostBaseline[kind] > task.progress.lost[kind] + 1e-7 ||
+            task.scope.divertedBaseline[kind] > task.progress.diverted[kind] + 1e-7 ||
+            task.scope.carryIn[kind] >
+              task.scope.loadedBaseline[kind] -
+                task.scope.deliveredBaseline[kind] -
+                task.scope.lostBaseline[kind] -
+                task.scope.divertedBaseline[kind] +
+                1e-7,
+        )
+      )
+        bad('Invalid Task revision scope');
+      if (
+        task.status === 'completed' &&
+        (!task.progress.verified || !task.completionEvidence.some((v) => v.kind === 'verified'))
+      )
+        bad('Task success lacks evidence');
     }
-    if(runtime.consumedSequence>runtime.events.length||runtime.nextEvent!==runtime.events.length+1||runtime.events.some((event,index)=>event.sequence!==index+1||event.eventId!=='domain:'+event.sequence))bad('Invalid event consumption cursor');
-    if(new Set(runtime.events.map(e=>e.eventId)).size!==runtime.events.length||runtime.events.some(e=>e.sequence>=runtime.nextEvent||e.simulationTick>w.tick))bad('Invalid domain journal');
-    if(new Set(runtime.replies.map(r=>r.key)).size!==runtime.replies.length)bad('Duplicate primary reply identity');
-    if(new Set(runtime.interactions.map(i=>i.interactionId)).size!==runtime.interactions.length)bad('Duplicate interaction identity');
-    for(const lot of runtime.cargoLots)if(lot.taskId&&!runtime.tasks.some(t=>t.taskId===lot.taskId))bad('Invalid cargo ownership');
-    for(const ship of w.ships)for(const kind of GOODS)if(runtime.cargoLots.filter(l=>l.shipId===ship.id&&l.cargoKind===kind).reduce((n,l)=>n+l.amount,0)>ship.cargo[kind]+1e-7)bad('Cargo provenance exceeds physical stock');
+    if (
+      runtime.consumedSequence > runtime.events.length ||
+      runtime.nextEvent !== runtime.events.length + 1 ||
+      runtime.events.some(
+        (event, index) =>
+          event.sequence !== index + 1 || event.eventId !== 'domain:' + event.sequence,
+      )
+    )
+      bad('Invalid event consumption cursor');
+    if (
+      new Set(runtime.events.map((e) => e.eventId)).size !== runtime.events.length ||
+      runtime.events.some((e) => e.sequence >= runtime.nextEvent || e.simulationTick > w.tick)
+    )
+      bad('Invalid domain journal');
+    if (new Set(runtime.replies.map((r) => r.key)).size !== runtime.replies.length)
+      bad('Duplicate primary reply identity');
+    if (
+      new Set(runtime.interactions.map((i) => i.interactionId)).size !== runtime.interactions.length
+    )
+      bad('Duplicate interaction identity');
+    for (const lot of runtime.cargoLots)
+      if (lot.taskId && !runtime.tasks.some((t) => t.taskId === lot.taskId))
+        bad('Invalid cargo ownership');
+    for (const ship of w.ships)
+      for (const kind of GOODS)
+        if (
+          runtime.cargoLots
+            .filter((l) => l.shipId === ship.id && l.cargoKind === kind)
+            .reduce((n, l) => n + l.amount, 0) >
+          ship.cargo[kind] + 1e-7
+        )
+          bad('Cargo provenance exceeds physical stock');
     const numbered = [...globalIds, ...taskIds, ...directives.map((d) => d.id)].map((id) =>
       Number(
         id.match(

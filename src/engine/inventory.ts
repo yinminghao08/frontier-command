@@ -1,10 +1,21 @@
-import type { CargoKind, Directive, Stock, WorldState,ReadonlyDeep,Location,Construction } from './types';
+import type {
+  CargoKind,
+  Directive,
+  Stock,
+  WorldState,
+  ReadonlyDeep,
+  Location,
+  Construction,
+} from './types';
 import type { SimulationEngine } from './engine';
 import { capabilities, cargoUsed } from './capabilities';
 import type { Ship, Action } from './types';
-export function inventory(w:WorldState,id:string):Location|Construction|undefined;
-export function inventory(w:ReadonlyDeep<WorldState>,id:string):ReadonlyDeep<Location|Construction>|undefined;
-export function inventory(w:ReadonlyDeep<WorldState>,id:string) {
+export function inventory(w: WorldState, id: string): Location | Construction | undefined;
+export function inventory(
+  w: ReadonlyDeep<WorldState>,
+  id: string,
+): ReadonlyDeep<Location | Construction> | undefined;
+export function inventory(w: ReadonlyDeep<WorldState>, id: string) {
   const location = w.locations.find((l) => l.id === id && l.owner === 'starfleet' && l.hull > 0);
   if (location) return location;
   const project = w.projects.find((p) => p.id === id);
@@ -20,12 +31,19 @@ export function inventory(w:ReadonlyDeep<WorldState>,id:string) {
       )
     : project;
 }
-export function heldDirectives(w:WorldState):Directive[];
-export function heldDirectives(w:ReadonlyDeep<WorldState>):ReadonlyDeep<Directive>[];
-export function heldDirectives(w:ReadonlyDeep<WorldState>) {return w.ships.flatMap(s=>[s.current,...s.suspended].filter((d):d is NonNullable<typeof d>=>d!==null));}
-export function reservationHolder(w:WorldState,d:Directive):Location|Construction|undefined;
-export function reservationHolder(w:ReadonlyDeep<WorldState>,d:ReadonlyDeep<Directive>):ReadonlyDeep<Location|Construction>|undefined;
-export function reservationHolder(w:ReadonlyDeep<WorldState>,d:ReadonlyDeep<Directive>) {
+export function heldDirectives(w: WorldState): Directive[];
+export function heldDirectives(w: ReadonlyDeep<WorldState>): ReadonlyDeep<Directive>[];
+export function heldDirectives(w: ReadonlyDeep<WorldState>) {
+  return w.ships.flatMap((s) =>
+    [s.current, ...s.suspended].filter((d): d is NonNullable<typeof d> => d !== null),
+  );
+}
+export function reservationHolder(w: WorldState, d: Directive): Location | Construction | undefined;
+export function reservationHolder(
+  w: ReadonlyDeep<WorldState>,
+  d: ReadonlyDeep<Directive>,
+): ReadonlyDeep<Location | Construction> | undefined;
+export function reservationHolder(w: ReadonlyDeep<WorldState>, d: ReadonlyDeep<Directive>) {
   const a = d.action;
   const id = 'sourceId' in a ? a.sourceId : 'targetId' in a ? a.targetId : '';
   const project = w.projects.find((p) => p.id === id);
@@ -38,7 +56,7 @@ export function reservationHolder(w:ReadonlyDeep<WorldState>,d:ReadonlyDeep<Dire
       )
     : (w.locations.find((l) => l.id === id) ?? project);
 }
-export function available(w:ReadonlyDeep<WorldState>, id: string, key: CargoKind) {
+export function available(w: ReadonlyDeep<WorldState>, id: string, key: CargoKind) {
   const holder = inventory(w, id);
   if (!holder) return 0;
   return Math.max(

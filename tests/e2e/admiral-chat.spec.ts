@@ -32,7 +32,25 @@ async function launch(directory: string) {
   await p.evaluate(() => document.fonts.ready);
   return p;
 }
-async function configure(p:Page){provider=new AgentTestProvider();const baseUrl=await provider.start();expect((await p.evaluate(baseUrl=>window.frontier.configureAgentApi({baseUrl,defaultModel:'isolated-semantic-goals',reasoningEffort:'provider-default',apiKey:'local-semantic-only'}),baseUrl)).ok).toBe(true);}
+async function configure(p: Page) {
+  provider = new AgentTestProvider();
+  provider.mode = 'semantic';
+  const baseUrl = await provider.start();
+  expect(
+    (
+      await p.evaluate(
+        (baseUrl) =>
+          window.frontier.configureAgentApi({
+            baseUrl,
+            defaultModel: 'isolated-semantic-goals',
+            reasoningEffort: 'provider-default',
+            apiKey: 'local-semantic-only',
+          }),
+        baseUrl,
+      )
+    ).ok,
+  ).toBe(true);
+}
 async function send(p: Page, id: string, content: string, mode: 'voluntary' | 'direct' = 'direct') {
   const chat = p.getByRole('dialog', { name: '舰队通讯' });
   if (!(await chat.isVisible())) await p.getByTestId('chat-launcher').click();
@@ -99,7 +117,9 @@ test('Electron v13: explicit direct fire preserves final Admiral authority over 
     .getByRole('dialog', { name: '舰队通讯' })
     .locator('[data-channel-id="private:ops-horizon"]')
     .click();
-  expect(done.agentRuntime.tasks.find(t=>t.objectiveId===done.objectives[0].id)?.progress.verified).toBe(true);
+  expect(
+    done.agentRuntime.tasks.find((t) => t.objectiveId === done.objectives[0].id)?.progress.verified,
+  ).toBe(true);
   await expect(p.getByRole('log')).toContainText('已接受直接授权');
   await p.screenshot({ path: join(output, 'admiral-fire.png') });
   expect(errors).toEqual([]);
@@ -153,7 +173,12 @@ test('Electron v13: paid graduate receives VIGIL and construction requests volun
     .toBe('vigil');
   const before = (await state(p)).resources.credits;
   await send(p, 'private:' + cadet.id, '你去建设好 ' + body.name, 'voluntary');
-  await expect.poll(async()=>{const objective=(await state(p)).objectives.find(o=>o.goal.kind==='construction');return objective?.consent;}).toBe('accepted');
+  await expect
+    .poll(async () => {
+      const objective = (await state(p)).objectives.find((o) => o.goal.kind === 'construction');
+      return objective?.consent;
+    })
+    .toBe('accepted');
   await p.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
   await wait(p, (w) =>
     w.escortRequests.some((r) => r.kind === 'logistics' && r.status === 'accepted'),
@@ -161,7 +186,13 @@ test('Electron v13: paid graduate receives VIGIL and construction requests volun
   const start = await state(p);
   expect(start.resources.credits).toBeGreaterThanOrEqual(before - 165);
   expect(start.projects.filter((project) => project.siteId === body.id)).toHaveLength(1);
-  await wait(p, (w) => w.objectives.find(o=>o.goal.kind==='construction'&&o.goal.siteId===body.id)?.status === 'completed', 90000);
+  await wait(
+    p,
+    (w) =>
+      w.objectives.find((o) => o.goal.kind === 'construction' && o.goal.siteId === body.id)
+        ?.status === 'completed',
+    90000,
+  );
   const done = await state(p);
   expect(done.locations.some((l) => l.siteId === body.id && l.kind === 'mine')).toBe(true);
   expect(done.history.some((h) => h.kind === 'cargo' && h.text.includes('装载 30'))).toBe(true);
@@ -169,7 +200,9 @@ test('Electron v13: paid graduate receives VIGIL and construction requests volun
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
   await p.evaluate(() => window.frontier.save());
   await p.screenshot({ path: join(output, 'construction-cooperation.png') });
-  const taskId = done.objectives.find(o=>o.goal.kind==='construction'&&o.goal.siteId===body.id)!.id;
+  const taskId = done.objectives.find(
+    (o) => o.goal.kind === 'construction' && o.goal.siteId === body.id,
+  )!.id;
   await app!.close();
   app = undefined;
   const restarted = await launch(dir);
@@ -186,7 +219,12 @@ test('Electron v13: direct route forbids wormholes, survives restart, and map ta
   await send(p, 'private:ops-horizon', '沿 0/0 一路测绘到 0/2，不走虫洞');
   await expect.poll(async () => (await state(p)).objectives[0]?.allowWormholes).toBe(false);
   await p.evaluate(() => window.frontier.command({ type: 'speed', speed: 16 }));
-  await wait(p, (w) => w.agentRuntime.tasks.find(t=>t.objectiveId===w.objectives[0]?.id)?.execution.sectorIndex === 1);
+  await wait(
+    p,
+    (w) =>
+      w.agentRuntime.tasks.find((t) => t.objectiveId === w.objectives[0]?.id)?.execution
+        .sectorIndex === 1,
+  );
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
   await p.evaluate(() => window.frontier.save());
   await app!.close();

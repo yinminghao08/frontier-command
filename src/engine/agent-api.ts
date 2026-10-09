@@ -82,7 +82,24 @@ export interface AgentRequestTiming {
   reason: string | null;
 }
 
-export type CapabilityStatus='supported'|'unsupported'|'unknown';
-export interface ModelCapabilities {thinkingOn:CapabilityStatus;thinkingOff:CapabilityStatus;reasoningEffort:CapabilityStatus;strictSchema:CapabilityStatus;jsonObject:CapabilityStatus;toolCalling:CapabilityStatus;streaming:CapabilityStatus;evidence:'official-documentation'|'unknown';}
-export interface ModelInfo {id:string;capabilities:ModelCapabilities;}
-export interface ModelsResult {ok:boolean;models:ModelInfo[];reason:string;directory:CapabilityStatus;}
+export type CapabilityStatus = 'supported' | 'unsupported' | 'unknown';
+export interface ModelCapabilities {
+  thinkingOn: CapabilityStatus;
+  thinkingOff: CapabilityStatus;
+  reasoningEffort: CapabilityStatus;
+  strictSchema: CapabilityStatus;
+  jsonObject: CapabilityStatus;
+  toolCalling: CapabilityStatus;
+  streaming: CapabilityStatus;
+  evidence: 'official-documentation' | 'unknown';
+}
+export interface ModelInfo {
+  id: string;
+  capabilities: ModelCapabilities;
+}
+export interface ModelsResult {
+  ok: boolean;
+  models: ModelInfo[];
+  reason: string;
+  directory: CapabilityStatus;
+}

@@ -1,10 +1,18 @@
 import type { SimulationEngine } from './engine';
-import type { Directive, Ship } from './types';
+import type { Directive, Ship, Point } from './types';
 import { capabilities, cargoUsed } from './capabilities';
 import { available, inventory } from './inventory';
 import { groupMovementFactor, dist } from './navigation';
 
 import { regionAt } from './definitions/locations';
+export function formationPoint(point: Readonly<Point>, slot: number, spacing: number): Point {
+  return slot
+    ? {
+        x: point.x + (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * spacing,
+        y: point.y + Math.ceil(slot / 2) * spacing,
+      }
+    : { ...point };
+}
 export function groupPeers(e: SimulationEngine, d: Directive) {
   return d.groupOrderId
     ? e.state.ships
@@ -70,7 +78,7 @@ export function advanceStanding(e: SimulationEngine, s: Ship) {
     (s.hull / c.hull) * 100 < o.retreatHull ||
     (s.shield / c.shield) * 100 < o.retreatShield ||
     (s.core / c.core) * 100 < o.retreatCore;
-  const start = (action: Directive['action']) => e.runtime.startStanding(s,action);
+  const start = (action: Directive['action']) => e.runtime.startStanding(s, action);
   if (ammo && !s.ammoAlertActive) {
     e.report(
       s.name + ' 弹药不足，原地或继续既有指令；请由 Admiral 安排装弹',

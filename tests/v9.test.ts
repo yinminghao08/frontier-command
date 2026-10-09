@@ -382,12 +382,16 @@ describe('personnel and persistent consequences', () => {
     expect(l.stock.materials).toBe(stock);
     expect(() => parseSave(e.state)).not.toThrow();
   });
-  it('mine production survives former accident thresholds while warehouse limits still apply',()=>{
-    const e=quietEngine(),mine=e.state.locations.find(l=>l.id==='mine')!;
-    mine.stock.materials=0;mine.extracted=1000;const ore=e.state.bodies.find(b=>b.id===mine.siteId)!.remaining;
-    const accidents=e.state.events.filter(v=>v.kind==='accident').length;run(e,5);
-    expect(e.state.bodies.find(b=>b.id===mine.siteId)!.remaining).toBeLessThan(ore);
-    expect(e.state.events.filter(v=>v.kind==='accident')).toHaveLength(accidents);
+  it('mine production survives former accident thresholds while warehouse limits still apply', () => {
+    const e = quietEngine(),
+      mine = e.state.locations.find((l) => l.id === 'mine')!;
+    mine.stock.materials = 0;
+    mine.extracted = 1000;
+    const ore = e.state.bodies.find((b) => b.id === mine.siteId)!.remaining;
+    const accidents = e.state.events.filter((v) => v.kind === 'accident').length;
+    run(e, 5);
+    expect(e.state.bodies.find((b) => b.id === mine.siteId)!.remaining).toBeLessThan(ore);
+    expect(e.state.events.filter((v) => v.kind === 'accident')).toHaveLength(accidents);
   });
   it('real distress consumes responder cargo instead of distant base Materials', () => {
     const e = quietEngine(),

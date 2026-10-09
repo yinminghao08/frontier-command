@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { SaveStore } from '../../electron/persistence';
-import { quietEngine, issue,v14Fixture, run, until } from '../helpers';
+import { quietEngine, issue, v14Fixture, run, until } from '../helpers';
 import { makeEnemy } from '../../src/engine/data';
 import { updateSensors } from '../../src/engine/sensors';
 import type { Snapshot, WorldState } from '../../src/engine/types';
@@ -248,9 +248,26 @@ test('v15 a voluntary full-hold amendment inherits the underway route, reports i
   await expect
     .poll(async () => (await state(p)).ships.find((s) => s.id === 'meridian')?.current?.action.type)
     .toBe('HAUL');
-  await expect.poll(async()=>{const w=await state(p),objective=w.objectives.find(o=>o.ownerAgentId==='ops-meridian'&&o.goal.kind==='operation'&&o.goal.action.type==='HAUL'&&o.amendments.length>0);return objective?.consent;}).toBe('accepted');
-  const amended=await state(p),objective=amended.objectives.find(o=>o.ownerAgentId==='ops-meridian'&&o.amendments.length>0)!;
-  expect(amended.agentRuntime.tasks.find(t=>t.objectiveId===objective.id)?.scope.carryIn.materials).toBe(50);
+  await expect
+    .poll(async () => {
+      const w = await state(p),
+        objective = w.objectives.find(
+          (o) =>
+            o.ownerAgentId === 'ops-meridian' &&
+            o.goal.kind === 'operation' &&
+            o.goal.action.type === 'HAUL' &&
+            o.amendments.length > 0,
+        );
+      return objective?.consent;
+    })
+    .toBe('accepted');
+  const amended = await state(p),
+    objective = amended.objectives.find(
+      (o) => o.ownerAgentId === 'ops-meridian' && o.amendments.length > 0,
+    )!;
+  expect(
+    amended.agentRuntime.tasks.find((t) => t.objectiveId === objective.id)?.scope.carryIn.materials,
+  ).toBe(50);
   await expect(comm.getByRole('log')).not.toContainText('请明确货物运输');
   await expect(comm.getByRole('log')).toContainText('已回复');
   expect((await state(p)).ships.find((s) => s.id === 'meridian')?.current?.carried).toBe(50);
@@ -271,7 +288,7 @@ test('v15 a voluntary full-hold amendment inherits the underway route, reports i
   await p.getByLabel('状态变化速率').scrollIntoViewIfNeeded();
   await expect(p.getByLabel('状态变化速率')).toBeVisible();
   await p.screenshot({ path: join(output, 'agent-rates.png') });
-  await wait(p, (w) => w.objectives.find(o=>o.id===objective.id)?.status === 'completed');
+  await wait(p, (w) => w.objectives.find((o) => o.id === objective.id)?.status === 'completed');
   expect((await state(p)).ships.find((s) => s.id === 'meridian')?.cargo.materials).toBe(0);
 });
 test('v15 slow streaming replies exceed 25 seconds, remain cancellable and support real-error retry', async () => {

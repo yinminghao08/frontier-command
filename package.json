@@ -1,9 +1,9 @@
 {
   "name": "frontier-command",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Frontier Command — v15 responsive Agents, persistent combat and physical logistics",
+  "description": "Frontier Command — v16 authoritative Agent Runtime, objectives and recoverable logistics",
   "author": "Frontier Command Project",
   "main": "dist-electron/electron/main.js",
   "scripts": {

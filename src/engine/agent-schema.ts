@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { activitySchema, conditionsSchema ,conditionHistorySchema} from './condition-schema';
+import { activitySchema, conditionsSchema, conditionHistorySchema } from './condition-schema';
 import { actionSchema } from './action-schema';
 import { freshAgentDynamics } from './definitions/agents';
 export const agentDynamicsSchema = z
@@ -36,7 +36,16 @@ export const agentDynamicsSchema = z
   })
   .strict();
 export const agentCareerSchema = z.enum(['battle', 'logistics']);
-export const reasoningSchema = z.enum(['provider-default','none','minimal','low','medium','high','xhigh','max']);
+export const reasoningSchema = z.enum([
+  'provider-default',
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
 const id = z.string().min(1).max(160),
   n = z.number().finite().min(0),
   percent = n.max(100);
@@ -44,7 +53,7 @@ export const modelConfigSchema = z
   .object({
     model: z.string().trim().min(1).max(120).nullable(),
     reasoningEffort: reasoningSchema.nullable(),
-    thinking: z.enum(['provider-default','on','off']).nullable().default(null),
+    thinking: z.enum(['provider-default', 'on', 'off']).nullable().default(null),
   })
   .strict();
 export const agentSchema = z
@@ -205,8 +214,9 @@ export const escortRequestSchema = z
     action: z.lazy(() => actionSchema).nullable(),
     followUp: z.lazy(() => actionSchema).nullable(),
     parentTaskId: id.nullable(),
+    parentConditionVersion: n.int().positive().nullable().default(null),
     conditions: conditionsSchema,
-    conditionHistory:conditionHistorySchema,
+    conditionHistory: conditionHistorySchema,
     conditionVersion: n.int().positive(),
     rounds: n.int().max(2),
     turnAgentId: id,

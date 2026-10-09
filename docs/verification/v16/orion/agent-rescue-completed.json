@@ -1,0 +1,53 @@
+{
+  "incident": {
+    "id": "piracy-16",
+    "shipId": "meridian",
+    "created": 0.2,
+    "deadline": 8.2,
+    "demand": 50,
+    "response": "pending",
+    "responseSource": null,
+    "stage": "resolved",
+    "boardingWork": 0,
+    "lost": {
+      "materials": 0,
+      "photon": 0,
+      "quantum": 0,
+      "specialFinds": 0
+    },
+    "attackerIds": [
+      "raid-a"
+    ],
+    "outcome": "近距威胁解除，未发生货物转移",
+    "notifiedAgentIds": []
+  },
+  "request": {
+    "id": "escort-17",
+    "requesterId": "ops-meridian",
+    "responderId": "ops-horizon",
+    "targetShipId": "meridian",
+    "created": 0.2,
+    "deadline": 0.2,
+    "explicitDeadline": false,
+    "started": true,
+    "executionStarted": true,
+    "status": "completed",
+    "kind": "reinforce",
+    "action": {
+      "type": "ESCORT",
+      "targetId": "meridian"
+    },
+    "followUp": null,
+    "conditions": [],
+    "conditionHistory": [],
+    "parentTaskId": null,
+    "parentConditionVersion": null,
+    "conditionVersion": 1,
+    "rounds": 0,
+    "turnAgentId": "ops-horizon",
+    "creditsApproved": false,
+    "reason": "physicalComplete",
+    "rescueArrivedAt": 19.3
+  },
+  "providerRequests": 3
+}

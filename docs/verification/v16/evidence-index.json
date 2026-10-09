@@ -1,0 +1,25 @@
+{
+  "branch": "feature/agent-core-v2",
+  "baselineCommit": "c83889a2044616ec5791385ff01337c632b162fc",
+  "preservedEditsCommit": "93bebd7",
+  "originalSourceEditsPreserved": 8,
+  "sourceComparison": "Compared all eight original files against their isolated baseline commit with Windows line endings normalized.",
+  "liveSchemaVersion": 16,
+  "productionMixedDecisionRemoved": true,
+  "ordinaryLogisticsRequests": 0,
+  "unassignedAutomaticRequests": 0,
+  "providerValidation": "Local Mock only; live providers not tested",
+  "unit": {
+    "files": 33,
+    "passed": 472
+  },
+  "electron": {
+    "passed": 68,
+    "failed": 0,
+    "minutes": 14.7,
+    "isolatedWorkers": 2
+  },
+  "build": "passed",
+  "diffCheck": "passed",
+  "completedOn": "2026-10-09"
+}

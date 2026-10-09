@@ -17,12 +17,13 @@ import { dist } from './navigation';
 import { AGENT_RULES } from './definitions/agents';
 import { advanceAgentState } from './agent-state';
 import { cancelObjectives } from './objectives';
-import { personalState, personalFeedback, decisionWorldKey } from './personality';
 import {
-  liveRequest,
-  cancelContracts,
-  settleContract,
-} from './contracts';
+  personalState,
+  personalFeedback,
+  cognitionOpportunityKey,
+  decodeCognitionOpportunityKey,
+} from './personality';
+import { liveRequest, cancelContracts, settleContract } from './contracts';
 import { available } from './inventory';
 import {
   addAgentChannels,
@@ -65,9 +66,11 @@ export function makeAgent(
     currentGoal: career === 'battle' ? '保护边疆航线与舰队' : '将矿场库存运往有需求的设施',
     memory: [],
     relationships: {},
-    get assignedShipId(){return shipId;},
+    get assignedShipId() {
+      return shipId;
+    },
     originPersonnelId,
-    modelConfig: { model: null, reasoningEffort: null,thinking:null },
+    modelConfig: { model: null, reasoningEffort: null, thinking: null },
     enabled: true,
     status: shipId ? 'online' : 'unassigned',
     decision: {
@@ -86,7 +89,7 @@ export function makeAgent(
   };
 }
 export function registerAgent(w: WorldState, agent: Agent) {
-  bindAssignment(w,agent);
+  bindAssignment(w, agent);
   w.agents.push(agent);
   const existing = w.operators.find((o) => o.id === agent.id);
   if (existing) {
@@ -143,7 +146,10 @@ export function validateAgentCommand(
   actorId: string,
 ): CommandResult | null {
   const w = e.state;
-  if(c.type==='cognitionDecision')return actorId===c.agentId?e.cognition.validate(c.agentId,c.requestId,c.response):no('不能提交其他Agent的认知');
+  if (c.type === 'cognitionDecision')
+    return actorId === c.agentId
+      ? e.cognition.validate(c.agentId, c.requestId, c.response)
+      : no('不能提交其他Agent的认知');
   if (c.type === 'interpretInteraction') return null;
   if (c.type === 'sendChat') {
     const reason = chatReason(w, actorId, c.channelId, c.content, c.mentions);
@@ -200,7 +206,10 @@ export function applyAgentCommand(
   actorId: string,
 ): CommandResult | null {
   const w = e.state;
-  if(c.type==='cognitionDecision')return actorId===c.agentId?e.cognition.commit(c.agentId,c.requestId,c.response):no('不能提交其他Agent的认知');
+  if (c.type === 'cognitionDecision')
+    return actorId === c.agentId
+      ? e.cognition.commit(c.agentId, c.requestId, c.response)
+      : no('不能提交其他Agent的认知');
   if (c.type === 'interpretInteraction') return null;
   if (c.type === 'sendChat') {
     appendChat(e, actorId, c.channelId, c.content, c.mentions, 'message', {
@@ -226,8 +235,9 @@ export function applyAgentCommand(
     return null;
   const a = w.agents.find((a) => a.id === c.agentId)!;
   if (c.type === 'assignAgent') {
-    if(a.assignedShipId===c.shipId)return ok('分配关系保持不变');
+    if (a.assignedShipId === c.shipId) return ok('分配关系保持不变');
     cancelObjectives(e, null, a.id);
+    e.runtime.detachInterruptedDirectives(a.id);
     const old = w.ships.find((s) => s.id === a.assignedShipId);
     if (old) cancelContracts(e, old.id, 'Admiral 重新分舰', 'cancel');
     if (old?.current?.source === 'agent' && old.current.actorId === a.id)
@@ -279,35 +289,71 @@ export function applyAgentCommand(
     if (c.messageId) {
       const message = w.chatMessages.find((m) => m.id === c.messageId)!;
       message.responses![a.id] = 'pending';
-      const record=replyRecord(e,c.messageId,a.id);if(record.primaryMessageId===null){record.phase='pending';record.revision++;}
+      const record = replyRecord(e, c.messageId, a.id);
+      if (record.primaryMessageId === null) {
+        record.phase = 'pending';
+        record.error = null;
+        record.revision++;
+      }
     }
     wakeAgent(a, 'manual', w.time, true);
     a.decision.lastError = null;
     return ok('已请求再次决策');
   }
   if (c.type === 'agentDecisionState') {
-    if (['waiting','receiving','validating'].includes(c.state)) {
-      const pending=pendingReply(w,a.id);
-      if(pending){const record=replyRecord(e,pending.id,a.id);if(record.primaryMessageId===null){record.phase=c.state==='validating'?'validating':c.state==='receiving'?'receiving':'pending';record.revision++;}}
+    if (['waiting', 'receiving', 'validating'].includes(c.state)) {
+      const pending = pendingReply(w, a.id);
+      if (pending) {
+        const record = replyRecord(e, pending.id, a.id);
+        if (record.primaryMessageId === null) {
+          record.phase =
+            c.state === 'validating'
+              ? 'validating'
+              : c.state === 'receiving'
+                ? 'receiving'
+                : 'pending';
+          record.revision++;
+        }
+      }
       a.status = 'waiting';
-      if(c.state==='waiting')e.cognition.claim(a.id);
+      if (c.state === 'waiting') e.cognition.claim(a.id);
       // New events remain queued while this request owns its original triggers.
       a.decision.lastAt = w.time;
-    } else if (c.state === 'ready'){const ship=w.ships.find(s=>s.id===a.assignedShipId);a.status=ship?.current?.source==='admiral'&&ship.current.controlMode==='direct'?'admiral':ship?.current?'executing':ship?'online':'unassigned';if(!pendingReply(w,a.id)){a.decision.pendingReasons=[];a.decision.events=[];a.decision.contextKey=decisionWorldKey(a,w);}}
-    else {
+    } else if (c.state === 'ready') {
+      const ship = w.ships.find((s) => s.id === a.assignedShipId);
+      a.status =
+        ship?.current?.source === 'admiral' && ship.current.controlMode === 'direct'
+          ? 'admiral'
+          : ship?.current
+            ? 'executing'
+            : ship
+              ? 'online'
+              : 'unassigned';
+      if (!pendingReply(w, a.id)) {
+        a.decision.pendingReasons = [];
+        a.decision.events = [];
+        a.decision.contextKey = cognitionOpportunityKey(w);
+      }
+    } else {
       const alreadyOffline = c.state === 'offline' && a.decision.lastError === c.error;
-      const wasInFlight=a.status==='waiting';
-      a.status = c.state==='error'?'error':'offline';
+      const wasInFlight = a.status === 'waiting';
+      a.status = c.state === 'error' ? 'error' : 'offline';
       a.decision.failures++;
       a.decision.lastError = c.error;
       a.decision.nextAt = w.time;
-      if(c.state==='offline'&&a.enabled){a.decision.events=a.decision.events.filter(event=>event.kind==='danger'||event.kind==='request');a.decision.pendingReasons=a.decision.events.map(event=>event.id);}
-      else if(c.state==='offline'||!wasInFlight){a.decision.pendingReasons=[];a.decision.events=[];}
+      if (c.state === 'offline' && a.enabled) {
+        a.decision.events = a.decision.events.filter(
+          (event) => event.kind === 'danger' || event.kind === 'request',
+        );
+        a.decision.pendingReasons = a.decision.events.map((event) => event.id);
+      } else if (c.state === 'offline' || !wasInFlight) {
+        a.decision.pendingReasons = [];
+        a.decision.events = [];
+      }
       const message = pendingReply(w, a.id);
       if (message) finishReply(e, a.id, message.id, 'failed', c.error ?? '通讯不可用，请重试。');
       if (!alreadyOffline) {
         remember(w, a, 'decision', c.error ?? '通讯不可用');
-
       }
     }
     return ok();
@@ -380,9 +426,7 @@ export function agentOutcome(
     );
   }
   remember(w, a, 'outcome', action.type + ': ' + text, ship.id, 8);
-  if (
-    !directive.objectiveId
-  )
+  if (!directive.objectiveId)
     appendChat(
       e,
       a.id,
@@ -402,7 +446,13 @@ export function agentOutcome(
     a.status = a.enabled ? 'online' : 'offline';
   }
 }
-export function agentVesselLost(e: SimulationEngine, ship: Ship, operatorIds:readonly string[]=e.state.assignments.filter(a=>a.shipId===ship.id).map(a=>a.operatorId)) {
+export function agentVesselLost(
+  e: SimulationEngine,
+  ship: Ship,
+  operatorIds: readonly string[] = e.state.assignments
+    .filter((a) => a.shipId === ship.id)
+    .map((a) => a.operatorId),
+) {
   const w = e.state;
   cancelContracts(e, ship.id, '协作舰船永久损失', 'failure');
   for (const a of w.agents.filter((a) => operatorIds.includes(a.id))) {
@@ -419,13 +469,13 @@ export function agentVesselLost(e: SimulationEngine, ship: Ship, operatorIds:rea
       task.status = 'cancelled';
       appendChat(e, a.id, task.channelId, '舰船已永久损失，本任务终止。', [], 'danger', {
         origin: 'engine',
-        replyTo: task.messageId||null,
+        replyTo: task.messageId || null,
         eventId: task.id + ':ship-lost',
       });
       settleContract(e, task, false, '执行舰船永久损失');
     }
     if (ship.current?.source === 'agent') agentOutcome(e, ship, ship.current, '舰船永久损失', true);
-    w.assignments=w.assignments.filter(link=>link.operatorId!==a.id);
+    w.assignments = w.assignments.filter((link) => link.operatorId !== a.id);
     a.decision.revision++;
     a.status = 'unassigned';
     a.decision.pendingReasons = [];
@@ -470,7 +520,7 @@ export function advanceAgents(e: SimulationEngine, dt: number) {
   for (const a of w.agents) {
     const ship = w.ships.find((s) => s.id === a.assignedShipId);
     if (a.assignedShipId && !ship) {
-      w.assignments=w.assignments.filter(link=>link.operatorId!==a.id);
+      w.assignments = w.assignments.filter((link) => link.operatorId !== a.id);
       a.decision.revision++;
       a.status = 'unassigned';
       remember(w, a, 'outcome', '分配舰船永久损失，等待 Admiral 分配新舰', null, 10);
@@ -480,7 +530,7 @@ export function advanceAgents(e: SimulationEngine, dt: number) {
       !(ship?.current?.action.type === 'REST' && ship.status === 'docked') &&
       (ship?.current?.source === 'agent' || ship?.current?.executorAgentId === a.id);
     advanceAgentState(e, a, ship, dt);
-    if(!ship)continue;
+    if (!ship) continue;
     if (w.tick % 10 !== 0 || !a.enabled) continue;
     if (ship && hasAdmiralWork(ship)) {
       a.status = 'admiral';
@@ -519,12 +569,16 @@ export function advanceAgents(e: SimulationEngine, dt: number) {
         wakeAgent(a, 'danger', w.time, !pendingReply(w, a.id));
       }
     } else a.decision.dangerKey = '';
-    const contextKey = decisionWorldKey(a, w);
-    if (!a.decision.contextKey) a.decision.contextKey = contextKey;
+    const contextKey = cognitionOpportunityKey(w);
+    const previousOpportunities = decodeCognitionOpportunityKey(a.decision.contextKey);
+    const hasNewOpportunity =
+      previousOpportunities !== null &&
+      [...decodeCognitionOpportunityKey(contextKey)!].some((id) => !previousOpportunities.has(id));
+    if (!hasNewOpportunity) a.decision.contextKey = contextKey;
     if (
       !active &&
       a.status !== 'waiting' &&
-      contextKey !== a.decision.contextKey &&
+      hasNewOpportunity &&
       !a.decision.pendingReasons.length &&
       w.time >= a.decision.nextAt
     ) {

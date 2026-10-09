@@ -127,7 +127,8 @@ describe('v10 production, capture and persistent world', () => {
       materials: 50,
       specialFinds: 0,
     });
-    ship.cargo.specialFinds = 0;recordCargoTransfer(e,ship.id,ship.id,null,'specialFinds',1,'consumed');
+    ship.cargo.specialFinds = 0;
+    recordCargoTransfer(e, ship.id, ship.id, null, 'specialFinds', 1, 'consumed');
     const restored = new SimulationEngine(parseSave(e.state));
     const b = restored.base.stock.materials;
     expect(

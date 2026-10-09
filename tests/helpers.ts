@@ -16,7 +16,15 @@ export function v12Fixture(world: WorldState) {
     ...base
   } = structuredClone(world);
   const cleanDirective = (d: NonNullable<WorldState['ships'][number]['current']>) => {
-    const { contractId: _contract, cycle: _cycle, controlMode: _mode, objectiveId:_objective, originInteractionId:_interaction, submissionKey:_key, ...old } = d;
+    const {
+      contractId: _contract,
+      cycle: _cycle,
+      controlMode: _mode,
+      objectiveId: _objective,
+      originInteractionId: _interaction,
+      submissionKey: _key,
+      ...old
+    } = d;
     return old;
   };
   const cleanShips = <T extends WorldState['ships'][number]>(ships: T[]) =>
@@ -62,7 +70,17 @@ export function v12Fixture(world: WorldState) {
       }),
     admiralTasks: world.objectives.map((t) => {
       const {
-        schemaVersion:_schema, originInteractionId:_origin, issuerId:_issuer, ownerAgentId:_owner, goal:_typedGoal, constraints:_constraints, completionCriteria:_criteria, revision:_revision, createdAt:_created, updatedAt:_updated, originalInstruction:_instruction,
+        schemaVersion: _schema,
+        originInteractionId: _origin,
+        issuerId: _issuer,
+        ownerAgentId: _owner,
+        goal: _typedGoal,
+        constraints: _constraints,
+        completionCriteria: _criteria,
+        revision: _revision,
+        createdAt: _created,
+        updatedAt: _updated,
+        originalInstruction: _instruction,
         controlMode: _mode,
         consent: _consent,
         conditions: _conditions,
@@ -160,19 +178,78 @@ export function until(e: SimulationEngine, predicate: () => boolean, maxMinutes 
 
 /** Authentic published protocol for migration tests, not a relabelled current save. */
 export function v15Fixture(world: WorldState) {
-  const {agentRuntime:_runtime,objectives,...base}=structuredClone(world);
-  const clean=(d: NonNullable<WorldState['ships'][number]['current']>)=>{
-    const {objectiveId:_o,originInteractionId:_i,submissionKey:_s,...old}=d;
-    return {...old,taskId:world.objectives.some(o=>o.id===(d.objectiveId??d.taskId)&&o.messageId>0)?d.objectiveId??d.taskId:null};
+  const { agentRuntime: _runtime, objectives, ...base } = structuredClone(world);
+  const clean = (d: NonNullable<WorldState['ships'][number]['current']>) => {
+    const { objectiveId: _o, originInteractionId: _i, submissionKey: _s, ...old } = d;
+    return {
+      ...old,
+      taskId: world.objectives.some((o) => o.id === (d.objectiveId ?? d.taskId) && o.messageId > 0)
+        ? (d.objectiveId ?? d.taskId)
+        : null,
+    };
   };
-  const oldTasks=objectives.filter(o=>o.messageId>0).map(o=>{
-    const {schemaVersion:_schema,originInteractionId:_i,issuerId:_issuer,ownerAgentId:_owner,goal:_goal,constraints:_constraints,completionCriteria:_c,revision:_r,createdAt:_created,updatedAt:_updated,originalInstruction:_instruction,amendments:_amendments,conditionHistory:_conditionHistory,...old}=o;
-    const {selectedTargetId:_selected,...execution}=world.agentRuntime.tasks.find(t=>t.objectiveId===o.id)!.execution;
-    return {...old,...execution,status:['interrupted','completed_partial'].includes(old.status)?'blocked':old.status,...(o.goal.kind==='recovery'?{salvage:{wreckIds:o.goal.wreckIds,destinationId:o.goal.destinationId}}:{})};
+  const oldTasks = objectives
+    .filter((o) => o.messageId > 0)
+    .map((o) => {
+      const {
+        schemaVersion: _schema,
+        originInteractionId: _i,
+        issuerId: _issuer,
+        ownerAgentId: _owner,
+        goal: _goal,
+        constraints: _constraints,
+        completionCriteria: _c,
+        revision: _r,
+        createdAt: _created,
+        updatedAt: _updated,
+        originalInstruction: _instruction,
+        amendments: _amendments,
+        conditionHistory: _conditionHistory,
+        ...old
+      } = o;
+      const { selectedTargetId: _selected, ...execution } = world.agentRuntime.tasks.find(
+        (t) => t.objectiveId === o.id,
+      )!.execution;
+      return {
+        ...old,
+        ...execution,
+        status: ['interrupted', 'completed_partial'].includes(old.status) ? 'blocked' : old.status,
+        ...(o.goal.kind === 'recovery'
+          ? { salvage: { wreckIds: o.goal.wreckIds, destinationId: o.goal.destinationId } }
+          : {}),
+      };
+    });
+  return v15Schema.parse({
+    ...base,
+    version: 15,
+    agents: base.agents.map((a) => ({
+      ...a,
+      assignedShipId: world.assignments.find((link) => link.operatorId === a.id)?.shipId ?? null,
+      modelConfig: {
+        model: a.modelConfig.model,
+        reasoningEffort:
+          a.modelConfig.reasoningEffort === null
+            ? null
+            : ['low', 'medium', 'high'].includes(a.modelConfig.reasoningEffort)
+              ? a.modelConfig.reasoningEffort
+              : 'none',
+      },
+    })),
+    admiralTasks: oldTasks,
+    commitments: base.commitments.map(({ conditionVersion: _version, ...p }) => p),
+    escortRequests: base.escortRequests.map(
+      ({ conditionHistory: _history, parentConditionVersion: _parentVersion, ...r }) => r,
+    ),
+    ships: base.ships.map((s) => ({
+      ...s,
+      current: s.current ? clean(s.current) : null,
+      queue: s.queue.map(clean),
+      suspended: s.suspended.map(clean),
+    })),
+    wrecks: base.wrecks.map(({ sourceShipId: _ship, sourceClassId: _class, ...w }) => w),
   });
-  return v15Schema.parse({...base,version:15,agents:base.agents.map(a=>({...a,assignedShipId:world.assignments.find(link=>link.operatorId===a.id)?.shipId??null,modelConfig:{model:a.modelConfig.model,reasoningEffort:a.modelConfig.reasoningEffort===null?null:['low','medium','high'].includes(a.modelConfig.reasoningEffort)?a.modelConfig.reasoningEffort:'none'}})),admiralTasks:oldTasks,commitments:base.commitments.map(({conditionVersion:_version,...p})=>p),escortRequests:base.escortRequests.map(({conditionHistory:_history,...r})=>r),ships:base.ships.map(s=>({...s,current:s.current?clean(s.current):null,queue:s.queue.map(clean),suspended:s.suspended.map(clean)})),wrecks:base.wrecks.map(({sourceShipId:_ship,sourceClassId:_class,...w})=>w)});
 }
 export function v14Fixture(world: WorldState) {
-  const v15=v15Fixture(world);
-  return {...v15,version:14,agents:v15.agents.map(({stateDynamics:_d,...a})=>a)};
+  const v15 = v15Fixture(world);
+  return { ...v15, version: 14, agents: v15.agents.map(({ stateDynamics: _d, ...a }) => a) };
 }

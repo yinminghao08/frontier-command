@@ -41,7 +41,7 @@ export class SimulationEngine {
   executingContractId: string | null = null;
   constructor(world = createWorld()) {
     this.state = structuredClone(world);
-    for(const agent of this.state.agents)bindAssignment(this.state,agent);
+    for (const agent of this.state.agents) bindAssignment(this.state, agent);
     this.runtime = new FrontierAgentRuntime(this);
     for (const a of this.state.agents)
       if (a.status === 'waiting') wakeAgent(a, 'recovery', this.state.time, true);
@@ -120,17 +120,32 @@ export class SimulationEngine {
   }
   validate = commands.validate.bind(this);
   dispatchCommand = (command: unknown, actorId = 'commander') => {
-    const parsed=commandSchema.safeParse(command);
-    const result=parsed.success&&(parsed.data.type==='issueDirective'||parsed.data.type==='issueGroupDirective')&&!this.executingObjectiveId
-      ?this.runtime.startCommand(parsed.data,actorId):commands.dispatchCommand.call(this,command,actorId);
-    if(result.ok&&!this.executingObjectiveId&&(!parsed.success||!['pause','speed','acknowledge','readChat','dismissMapMarker'].includes(parsed.data.type)))this.runtime.drain();
+    const parsed = commandSchema.safeParse(command);
+    const result =
+      parsed.success &&
+      (parsed.data.type === 'issueDirective' || parsed.data.type === 'issueGroupDirective') &&
+      !this.executingObjectiveId
+        ? this.runtime.startCommand(parsed.data, actorId)
+        : commands.dispatchCommand.call(this, command, actorId);
+    if (
+      result.ok &&
+      !this.executingObjectiveId &&
+      (!parsed.success ||
+        !['pause', 'speed', 'acknowledge', 'readChat', 'dismissMapMarker'].includes(
+          parsed.data.type,
+        ))
+    )
+      this.runtime.drain();
     return result;
   };
   submitAction = commands.submitAction.bind(this);
   snapshot = projection.snapshot.bind(this);
   getObservation = projection.getObservation.bind(this);
   cognitionPort(agentId: string) {
-    return Object.freeze({prepare: () => this.cognition.prepare(agentId),cancel: () => this.cognition.cancel(agentId)});
+    return Object.freeze({
+      prepare: () => this.cognition.prepare(agentId),
+      cancel: () => this.cognition.cancel(agentId),
+    });
   }
   controllerPort(operatorId: string): AgentControllerPort {
     return Object.freeze({

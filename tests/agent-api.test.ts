@@ -1,4 +1,4 @@
-import {askIntent,conversation} from './provider-harness';
+import { askIntent, conversation } from './provider-harness';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
@@ -35,23 +35,51 @@ async function flush() {
   for (let i = 0; i < 12; i++) await new Promise<void>((resolve) => setImmediate(resolve));
 }
 describe('Chat Completions compatible transport and protected credentials', () => {
-  it('per-Agent model/thinking/effort are independent; unsupported explicit reasoning never silently changes',async()=>{
-    const bodies:Record<string,unknown>[]=[];const client=new ChatCompletionsClient(async(_url,init)=>{bodies.push(JSON.parse(String(init?.body)));return response(JSON.stringify(conversation()));});
-    const e=quietEngine(),known={...config,baseUrl:'https://api.openai.com/v1',defaultModel:'gpt-5.1'};
-    e.dispatchCommand({type:'configureAgent',agentId:'ops-meridian',enabled:true,modelConfig:{model:'gpt-5.1',reasoningEffort:'provider-default',thinking:'off'}});
-    e.dispatchCommand({type:'configureAgent',agentId:'ops-horizon',enabled:true,modelConfig:{model:'gpt-5.2',reasoningEffort:'high',thinking:'on'}});
-    await askIntent(client,known,e.getObservation('ops-meridian')!);await askIntent(client,known,e.getObservation('ops-horizon')!);
-    expect(bodies[0]).toMatchObject({model:'gpt-5.1',reasoning_effort:'none'});expect(bodies[1]).toMatchObject({model:'gpt-5.2',reasoning_effort:'high'});
-    let requests=0;const rejected=new ChatCompletionsClient(async()=>{requests++;return new Response('unsupported reasoning_effort',{status:400});});
-    await expect(askIntent(rejected,known,e.getObservation('ops-horizon')!)).rejects.toThrow('未改动');expect(requests).toBe(1);
-    await expect(askIntent(rejected,config,e.getObservation('ops-horizon')!)).rejects.toThrow(/未确认|未知|不支持/);expect(requests).toBe(1);
-    expect(JSON.stringify(bodies)).not.toContain(config.apiKey);expect(JSON.stringify(bodies)).not.toContain('initialSeed');
+  it('per-Agent model/thinking/effort are independent; unsupported explicit reasoning never silently changes', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const client = new ChatCompletionsClient(async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return response(JSON.stringify(conversation()));
+    });
+    const e = quietEngine(),
+      known = { ...config, baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5.1' };
+    e.dispatchCommand({
+      type: 'configureAgent',
+      agentId: 'ops-meridian',
+      enabled: true,
+      modelConfig: { model: 'gpt-5.1', reasoningEffort: 'provider-default', thinking: 'off' },
+    });
+    e.dispatchCommand({
+      type: 'configureAgent',
+      agentId: 'ops-horizon',
+      enabled: true,
+      modelConfig: { model: 'gpt-5.2', reasoningEffort: 'high', thinking: 'on' },
+    });
+    await askIntent(client, known, e.getObservation('ops-meridian')!);
+    await askIntent(client, known, e.getObservation('ops-horizon')!);
+    expect(bodies[0]).toMatchObject({ model: 'gpt-5.1', reasoning_effort: 'none' });
+    expect(bodies[1]).toMatchObject({ model: 'gpt-5.2', reasoning_effort: 'high' });
+    let requests = 0;
+    const rejected = new ChatCompletionsClient(async () => {
+      requests++;
+      return new Response('unsupported reasoning_effort', { status: 400 });
+    });
+    await expect(askIntent(rejected, known, e.getObservation('ops-horizon')!)).rejects.toThrow(
+      '未改动',
+    );
+    expect(requests).toBe(1);
+    await expect(askIntent(rejected, config, e.getObservation('ops-horizon')!)).rejects.toThrow(
+      /未确认|未知|不支持/,
+    );
+    expect(requests).toBe(1);
+    expect(JSON.stringify(bodies)).not.toContain(config.apiKey);
+    expect(JSON.stringify(bodies)).not.toContain('initialSeed');
   });
   it('connectivity only negotiates output format and protects credentials', async () => {
     let count = 0;
     const client = new ChatCompletionsClient(async () => {
       count++;
-      if(count===1)return new Response('response_format unsupported',{status:400});
+      if (count === 1) return new Response('response_format unsupported', { status: 400 });
       return response('{"ok":true}');
     });
     const result = await client.test(config);
@@ -166,8 +194,10 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     const fetcher: typeof fetch = async (_url, init) => {
       calls++;
       const body = JSON.parse(String(init?.body));
-      const observation=JSON.parse(body.messages[1].content);expect(observation.input).toContain('休息');
-      await new Promise<void>(r=>release=r);return response(JSON.stringify(conversation('我会结合舰况考虑休息安排。')));
+      const observation = JSON.parse(body.messages[1].content);
+      expect(observation.input).toContain('休息');
+      await new Promise<void>((r) => (release = r));
+      return response(JSON.stringify(conversation('我会结合舰况考虑休息安排。')));
     };
     const service = new AgentDecisionService(
       {
@@ -228,7 +258,12 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
       () => config,
       client,
     );
-    e.dispatchCommand({type:'sendChat',channelId:privateChannel('ops-meridian'),content:'计划从矿场运输到基地，请完整评估。',mentions:[]});
+    e.dispatchCommand({
+      type: 'sendChat',
+      channelId: privateChannel('ops-meridian'),
+      content: '计划从矿场运输到基地，请完整评估。',
+      mentions: [],
+    });
     service.pump();
     expect(e.state.agents[1].status).toBe('waiting');
     issue(e, { type: 'MOVE', point: { x: 0, y: 0 } }, 'meridian');
@@ -249,7 +284,11 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
       return response(
         calls <= 3
           ? 'broken JSON'
-          : JSON.stringify({opportunityId:null,riskPreference:'cautious',reason:'没有新目标，等待。'}),
+          : JSON.stringify({
+              opportunityId: null,
+              riskPreference: 'cautious',
+              reason: '没有新目标，等待。',
+            }),
       );
     });
     const service = new AgentDecisionService(
@@ -261,11 +300,11 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
       () => config,
       client,
     );
-    e.dispatchCommand({type:'retryAgent',agentId:'ops-meridian'});
+    e.dispatchCommand({ type: 'retryAgent', agentId: 'ops-meridian' });
     service.pump();
     await flush();
     expect(e.state.agents[1].status).toBe('error');
-    expect(e.state.chatMessages.filter(m=>m.kind==='error')).toHaveLength(0);
+    expect(e.state.chatMessages.filter((m) => m.kind === 'error')).toHaveLength(0);
     expect(e.state.agents[1].decision.lastError).toBeTruthy();
     run(e, 1);
     for (let i = 0; i < 30; i++) service.pump();

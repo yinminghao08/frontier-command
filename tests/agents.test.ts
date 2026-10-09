@@ -1,4 +1,4 @@
-import {runScenario} from './domain-fixtures';
+import { runScenario } from './domain-fixtures';
 import { describe, expect, it } from 'vitest';
 import { quietEngine, issue, run, until } from './helpers';
 import { makeEnemy, makeLocation } from '../src/engine/data';
@@ -11,7 +11,7 @@ import { appendChat, COMMAND_CHANNEL, privateChannel } from '../src/engine/chat'
 import type { Action } from '../src/engine/types';
 const logisticsId = 'ops-meridian',
   battleId = 'ops-horizon';
-const decide=runScenario;
+const decide = runScenario;
 export function knownPassageFixture() {
   const e = quietEngine();
   const h = e.state.wormholes.find((h) => h.id === 'wormhole:0:0')!;
@@ -60,7 +60,12 @@ describe('v11 independent Agents, chat and real commands', () => {
       true,
     );
     expect(
-      e.state.agentRuntime.events.some(event=>event.type==='directiveOutcome'&&event.payload.action.type==='ATTACK'&&!event.payload.failed),
+      e.state.agentRuntime.events.some(
+        (event) =>
+          event.type === 'directiveOutcome' &&
+          event.payload.action.type === 'ATTACK' &&
+          !event.payload.failed,
+      ),
     ).toBe(true);
     expect(() => parseSave(e.state)).not.toThrow();
   });
@@ -336,7 +341,9 @@ describe('Journey Planner and complete cooperative logistics loop', () => {
     expect(request.status).toBe('completed');
     expect(e.state.agents[0].relationships[logisticsId].trust).toBeGreaterThan(50);
     expect(
-      e.state.agentRuntime.tasks.some(task=>task.progress.delivered.materials===50&&task.status==='completed'),
+      e.state.agentRuntime.tasks.some(
+        (task) => task.progress.delivered.materials === 50 && task.status === 'completed',
+      ),
     ).toBe(true);
     expect(() => parseSave(e.state)).not.toThrow();
   });
@@ -359,9 +366,9 @@ describe('Journey Planner and complete cooperative logistics loop', () => {
     ).toBe(true);
     expect(e.state.escortRequests[0].status).toBe('rejected');
     expect(e.state.agents[0].relationships[logisticsId].trust).toBe(50);
-    expect(
-      e.state.chatMessages.some((m) => m.kind === 'reply' && m.content.includes('拒绝')),
-    ).toBe(true);
+    expect(e.state.chatMessages.some((m) => m.kind === 'reply' && m.content.includes('拒绝'))).toBe(
+      true,
+    );
     expect(e.state.agents[1].decision.pendingReasons.some((r) => r.startsWith('request:'))).toBe(
       true,
     );
@@ -393,7 +400,7 @@ describe('Journey Planner and complete cooperative logistics loop', () => {
     until(e, () => e.state.agents.find((a) => a.id === logisticsId)!.experience >= 8, 800);
     expect(freighter.current?.action.type).toBe('HAUL');
     expect(
-      e.state.agentRuntime.events.filter(event=>event.type==='directiveCycle').length,
+      e.state.agentRuntime.events.filter((event) => event.type === 'directiveCycle').length,
     ).toBeGreaterThanOrEqual(2);
     expect(() => parseSave(e.state)).not.toThrow();
   });

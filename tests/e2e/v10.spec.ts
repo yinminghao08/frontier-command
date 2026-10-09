@@ -71,6 +71,7 @@ async function directive(
   const d = p.getByRole('dialog', { name: 'Admiral 指令' });
   await d.getByLabel('指令类型', { exact: true }).selectOption(type);
   for (const [label, value] of Object.entries(fields)) {
+    if (label === '货物数量') await d.getByLabel('自动装满可用货舱', { exact: true }).uncheck();
     const field = d.getByLabel(label, { exact: true });
     if (await field.evaluate((el) => el.tagName === 'SELECT')) await field.selectOption(value);
     else await field.fill(value);

@@ -330,10 +330,14 @@ app.whenReady().then(async () => {
     trusted(event);
     return agentTracker.stats();
   });
-  ipcMain.handle('agent:fetch-models', async(event,input:unknown)=>{
-    trusted(event);const parsed=input===undefined?undefined:apiInputSchema.safeParse(input);
-    if(parsed&&!parsed.success)return {ok:false,models:[],directory:'unknown',reason:'模型目录参数无效。'};
-    return new ModelRegistry().fetchModels(agentConfig.connection(parsed?.success?parsed.data:undefined));
+  ipcMain.handle('agent:fetch-models', async (event, input: unknown) => {
+    trusted(event);
+    const parsed = input === undefined ? undefined : apiInputSchema.safeParse(input);
+    if (parsed && !parsed.success)
+      return { ok: false, models: [], directory: 'unknown', reason: '模型目录参数无效。' };
+    return new ModelRegistry().fetchModels(
+      agentConfig.connection(parsed?.success ? parsed.data : undefined),
+    );
   });
   ipcMain.handle('agent:configure-api', (event, input: unknown) => {
     trusted(event);
@@ -343,7 +347,7 @@ app.whenReady().then(async () => {
     try {
       agentConfig.update(parsed.data);
       startAgentService();
-      if(!saveBlocked)engine.cognition.configurationChanged();
+      if (!saveBlocked) engine.cognition.configurationChanged();
       save();
       send();
       return { ok: true, reason: 'Agent API 设置已保存，Key 使用系统加密。' };

@@ -24,7 +24,10 @@ export function AgentRequests({
   agentId?: string;
 }) {
   const tasks = world.objectives.filter(
-    (t) => ['active', 'blocked'].includes(t.status) && (!agentId || t.agentId === agentId) && (t.consent!=='accepted'||t.conditions.length>0),
+    (t) =>
+      ['active', 'blocked'].includes(t.status) &&
+      (!agentId || t.agentId === agentId) &&
+      (t.consent !== 'accepted' || t.conditions.length > 0),
   );
   const requests = world.escortRequests.filter(
     (r) =>
@@ -33,7 +36,7 @@ export function AgentRequests({
   );
   return (
     <section className="agent-requests" aria-label="待处理请求">
-      <TaskCards world={world} command={command} agentId={agentId}/>
+      <TaskCards world={world} command={command} agentId={agentId} />
       <LcarsTextBar literal>REQUESTS / 任务与协作</LcarsTextBar>
       {!tasks.length && !requests.length && <p className="muted">没有待处理的任务或协作请求。</p>}
       {[...tasks, ...requests].map((c) => {

@@ -30,9 +30,27 @@ export function addressedAdmiralMessage(e: SimulationEngine, agentId: string, me
         (m.channelId === COMMAND_CHANNEL && m.mentions.includes(agentId))),
   );
 }
-export function cancelObjectives(e: SimulationEngine, shipId: string | null, agentId?: string, _stopExecution=true) { e.runtime.interrupt(shipId,agentId); }
+export function cancelObjectives(
+  e: SimulationEngine,
+  shipId: string | null,
+  agentId?: string,
+  _stopExecution = true,
+) {
+  e.runtime.interrupt(shipId, agentId);
+}
 
-function report(e: SimulationEngine, objective: Objective, reason: string, status: Objective['status']) { e.runtime.transition(e.runtime.register(objective), status === 'active' ? 'running' : status, reason); }
+function report(
+  e: SimulationEngine,
+  objective: Objective,
+  reason: string,
+  status: Objective['status'],
+) {
+  e.runtime.transition(
+    e.runtime.register(objective),
+    status === 'active' ? 'running' : status,
+    reason,
+  );
+}
 
 export function receiveObjective(
   e: SimulationEngine,
@@ -61,9 +79,18 @@ export function receiveObjective(
   if (!result.intent) return;
   const goal = result.intent.goal ?? goalFromProposal(result.intent);
   const task: Objective = {
-    schemaVersion: 1, originInteractionId: 'interaction:' + message.id + ':' + agent.id, issuerId: w.commander.id,
-    ownerAgentId: agent.id, goal, constraints: { allowWormholes: result.intent.allowWormholes },
-    completionCriteria: criterionFor(goal), revision: 0, createdAt: w.time, updatedAt: w.time, originalInstruction: message.content,amendments:[],
+    schemaVersion: 1,
+    originInteractionId: 'interaction:' + message.id + ':' + agent.id,
+    issuerId: w.commander.id,
+    ownerAgentId: agent.id,
+    goal,
+    constraints: { allowWormholes: result.intent.allowWormholes },
+    completionCriteria: criterionFor(goal),
+    revision: 0,
+    createdAt: w.time,
+    updatedAt: w.time,
+    originalInstruction: message.content,
+    amendments: [],
     ...result.intent,
     id: 'admiral-task-' + w.nextId,
     agentId,
@@ -74,8 +101,8 @@ export function receiveObjective(
     controlMode:
       direct || ['assign', 'cancel'].includes(result.intent.kind) ? 'direct' : 'voluntary',
     consent: direct || ['assign', 'cancel'].includes(result.intent.kind) ? 'accepted' : 'proposed',
-    conditions: result.intent.conditions??[],
-    conditionHistory:[],
+    conditions: result.intent.conditions ?? [],
+    conditionHistory: [],
     conditionVersion: 1,
     rounds: 0,
     turnAgentId: agentId,
@@ -101,8 +128,12 @@ export function receiveObjective(
   w.objectives.push(task);
   agent.currentGoal = message.content.slice(0, 240);
   wakeAgent(agent, 'interpretInteraction', w.time, true);
-  agent.decision.pendingReasons=agent.decision.pendingReasons.filter(reason=>reason!=='interpretInteraction');
-  agent.decision.events=agent.decision.events.filter(event=>event.id!=='interpretInteraction');
+  agent.decision.pendingReasons = agent.decision.pendingReasons.filter(
+    (reason) => reason !== 'interpretInteraction',
+  );
+  agent.decision.events = agent.decision.events.filter(
+    (event) => event.id !== 'interpretInteraction',
+  );
   if (task.consent === 'proposed') {
     wakeAgent(agent, 'proposal:' + task.id, w.time, true);
   }
@@ -130,9 +161,9 @@ export function proposeDirective(
       `请 ${ship.name} 执行 ${c.action.type}：${'targetIds' in c.action ? c.action.targetIds.join(' → ') : 'targetId' in c.action ? c.action.targetId : '所选任务'}`,
       [],
       'message',
-      { controlMode: 'voluntary',origin:'engine' },
+      { controlMode: 'voluntary', origin: 'engine' },
     );
-    (m.responses??={})[agent.id]='pending';
+    (m.responses ??= {})[agent.id] = 'pending';
     receiveObjective(
       e,
       agent.id,

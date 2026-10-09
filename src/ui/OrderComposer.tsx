@@ -14,7 +14,7 @@ import { MODULES } from '../engine/definitions/progression';
 import { routeEstimate } from '../engine/navigation';
 export type ComposerRequest = {
   action: Action;
-  objectiveId?:string;
+  objectiveId?: string;
   shipId?: string;
   shipIds?: string[];
   groupId?: string;
@@ -168,7 +168,10 @@ export function OrderComposer({
     [mode, setMode] = useState<'REPLACE' | 'QUEUE' | 'INTERRUPT'>('REPLACE');
   const [formError, setFormError] = useState('');
   const [controlMode, setControlMode] = useState<'direct' | 'voluntary'>(() => {
-    if(request.objectiveId){const mode=world.objectives.find(o=>o.id===request.objectiveId)?.controlMode;return mode==='voluntary'?'voluntary':'direct';}
+    if (request.objectiveId) {
+      const mode = world.objectives.find((o) => o.id === request.objectiveId)?.controlMode;
+      return mode === 'voluntary' ? 'voluntary' : 'direct';
+    }
     try {
       return localStorage.getItem('frontier.order-control-mode.v1') === 'voluntary'
         ? 'voluntary'
@@ -671,7 +674,7 @@ export function OrderComposer({
           <LcarsField key={s.id}>
             <input
               type="checkbox"
-              disabled={!!request.groupId||!!request.objectiveId}
+              disabled={!!request.groupId || !!request.objectiveId}
               aria-label={'分配 ' + s.id}
               checked={shipIds.includes(s.id)}
               onChange={(e) =>
@@ -680,8 +683,8 @@ export function OrderComposer({
                 )
               }
             />
-            {s.name} · {vesselControl(world,s.id)} · {s.current?.action.type ?? 'AVAILABLE'} · CARGO {Math.floor(cargoUsed(s))}/
-            {capabilities(s).cargo}
+            {s.name} · {vesselControl(world, s.id)} · {s.current?.action.type ?? 'AVAILABLE'} ·
+            CARGO {Math.floor(cargoUsed(s))}/{capabilities(s).cargo}
           </LcarsField>
         ))}
       </div>
@@ -713,18 +716,29 @@ export function OrderComposer({
           onClick={async () => {
             const r = await command(
               request.objectiveId
-                ? {type:'reviseObjective',objectiveId:request.objectiveId,expectedRevision:world.objectives.find(o=>o.id===request.objectiveId)!.revision,goal:{kind:'operation',action},instruction:'Admiral 修订 '+ACTION_LABELS[action.type]+' 的任务参数'}
+                ? {
+                    type: 'reviseObjective',
+                    objectiveId: request.objectiveId,
+                    expectedRevision: world.objectives.find((o) => o.id === request.objectiveId)!
+                      .revision,
+                    goal: { kind: 'operation', action },
+                    instruction: 'Admiral 修订 ' + ACTION_LABELS[action.type] + ' 的任务参数',
+                  }
                 : controlMode === 'voluntary'
-                ? { type: 'proposeDirective', shipIds, mode, action }
-                : request.groupId
-                  ? { type: 'issueGroupDirective', groupId: request.groupId, mode, action }
-                  : { type: 'issueDirective', shipIds, mode, action },
+                  ? { type: 'proposeDirective', shipIds, mode, action }
+                  : request.groupId
+                    ? { type: 'issueGroupDirective', groupId: request.groupId, mode, action }
+                    : { type: 'issueDirective', shipIds, mode, action },
             );
             if (r.ok) onClose();
             else setFormError(r.reason);
           }}
         >
-          {request.objectiveId?'提交目标修订':controlMode === 'direct' ? '下达 Admiral 指令' : '提交给 Agent'}
+          {request.objectiveId
+            ? '提交目标修订'
+            : controlMode === 'direct'
+              ? '下达 Admiral 指令'
+              : '提交给 Agent'}
         </LcarsButton>
         <LcarsButton tone="secondary" onClick={onClose}>
           取消

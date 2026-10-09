@@ -72,7 +72,17 @@ test('v13 complete model/engine chain: conditional escort, escrow, restart, real
   p.on('pageerror', (error) => errors.push(error.message));
   expect((await state(p)).escortRequests).toEqual([]);
   await configure(p, url);
+  await p.evaluate(() =>
+    window.frontier.command({
+      type: 'sendChat',
+      channelId: 'private:ops-meridian',
+      content: '请评估当前矿场40材料运输与护航风险。',
+      mentions: [],
+      controlMode: 'voluntary',
+    }),
+  );
   await wait(p, (w) => w.escortRequests.some((r) => r.status === 'awaitingApproval'));
+  provider!.mode = 'semantic';
   let comm = await chat(p);
   await comm.getByRole('button', { name: 'REQUESTS / 待处理请求', exact: true }).click();
   const request = (await state(p)).escortRequests[0];
@@ -113,7 +123,12 @@ test('v13 complete model/engine chain: conditional escort, escrow, restart, real
   );
   comm = await chat(p);
   await comm.locator('[data-channel-id="system-reports"]').click();
-  await expect(comm.getByRole('log')).toContainText('HAUL 完成');
+  expect(
+    done.agentRuntime.tasks.some(
+      (task) => task.status === 'completed' && task.progress.delivered.materials === 40,
+    ),
+  ).toBe(true);
+  await expect(comm.getByRole('log')).toContainText('承诺兑现');
   await expect(comm.getByLabel('通讯消息')).toHaveCount(0);
   await expect(comm).toContainText('不调用模型');
   await p.screenshot({ path: join(output, 'system-reports.png') });
@@ -195,10 +210,20 @@ test('unlimited model calls finish repairs immediately, ignore old quotas and re
   const url = await provider.start();
   let p = await launch(dir);
   await configure(p, url);
+  await p.evaluate(async () => {
+    for (const agentId of ['ops-meridian', 'ops-horizon'])
+      await window.frontier.command({
+        type: 'sendChat',
+        channelId: 'private:' + agentId,
+        content: '你好',
+        mentions: [],
+        controlMode: 'voluntary',
+      });
+  });
   await wait(p, (w) => w.agents.every((a) => a.status === 'error'));
   let stats = await p.evaluate(() => window.frontier.agentRuntime());
-  expect(stats.requests).toBe(6);
-  expect(stats.repairs).toBe(4);
+  expect(stats.requests).toBe(4);
+  expect(stats.repairs).toBe(2);
   expect(stats.failures).toBe(2);
   expect(stats.concurrency).toBe(0);
   expect(stats).not.toHaveProperty('queued');
@@ -210,7 +235,7 @@ test('unlimited model calls finish repairs immediately, ignore old quotas and re
     await wait(p, (w) => w.agents.find((a) => a.id === 'ops-meridian')?.status === 'error');
   }
   stats = await p.evaluate(() => window.frontier.agentRuntime());
-  expect(stats.requests).toBe(21);
+  expect(stats.requests).toBe(14);
   expect(Date.now() - started).toBeLessThan(15000);
   expect(provider.requests.every((r) => !('reasoning_effort' in r))).toBe(true);
   await p.evaluate(async () => {
@@ -218,13 +243,13 @@ test('unlimited model calls finish repairs immediately, ignore old quotas and re
     await window.frontier.command({ type: 'pause', paused: false });
   });
   await p.waitForTimeout(1700);
-  expect(provider.requests).toHaveLength(21);
+  expect(provider.requests).toHaveLength(14);
   await p.evaluate(() => window.frontier.command({ type: 'pause', paused: true }));
   await p.getByRole('button', { name: 'Console Settings', exact: true }).click();
   const settings = p.getByRole('dialog', { name: '控制台设置' });
   await expect(settings.getByLabel('全局请求上限')).toHaveCount(0);
   await expect(settings.getByLabel('Agent 请求上限')).toHaveCount(0);
-  await expect(settings.getByTestId('agent-usage')).toContainText('本次运行请求 21');
+  await expect(settings.getByTestId('agent-usage')).toContainText('本次运行请求 14');
   await settings.getByTestId('agent-usage').scrollIntoViewIfNeeded();
   await expect(settings.getByTestId('agent-usage')).toBeInViewport();
   await p.screenshot({ path: join(output, 'unlimited-call-stats.png'), animations: 'disabled' });

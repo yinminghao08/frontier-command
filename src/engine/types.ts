@@ -19,7 +19,15 @@ export type UpgradeId = 'shipyard' | 'armory' | 'sensors' | 'logistics' | 'defen
 export type FacilityKind = 'base' | 'colony' | 'mine' | 'outpost' | 'platform';
 export type RouteKind = 'safe' | 'direct' | 'risky';
 export type ThinkingMode = 'provider-default' | 'on' | 'off';
-export type ReasoningEffort = 'provider-default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ReasoningEffort =
+  | 'provider-default'
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
 export type AgentCareer = 'battle' | 'logistics';
 export type Activity = 'security' | 'logistics' | 'exploration' | 'growth';
 export interface AgentProfile {
@@ -34,9 +42,13 @@ export type TaskCondition =
   | { type: 'rest'; when: 'before' | 'after'; locationId: string; minutes: number }
   | { type: 'reward'; when: 'after'; credits: number }
   | { type: 'escort'; when: 'before'; agentId: string };
-export type ConditionHistory={version:number;previousConditions:TaskCondition[];conditions:TaskCondition[]};
+export type ConditionHistory = {
+  version: number;
+  previousConditions: TaskCondition[];
+  conditions: TaskCondition[];
+};
 export interface Commitment {
-  conditionVersion?:number;
+  conditionVersion?: number;
   id: string;
   contractId: string;
   agentId: string;
@@ -112,7 +124,11 @@ export interface Agent {
   relationships: Record<string, { trust: number; cooperation: number; lastInteraction: number }>;
   readonly assignedShipId: string | null;
   originPersonnelId: string | null;
-  modelConfig: { model: string | null; reasoningEffort: ReasoningEffort | null; thinking?: ThinkingMode | null };
+  modelConfig: {
+    model: string | null;
+    reasoningEffort: ReasoningEffort | null;
+    thinking?: ThinkingMode | null;
+  };
   enabled: boolean;
   status: 'online' | 'waiting' | 'executing' | 'error' | 'unassigned' | 'admiral' | 'offline';
   decision: {
@@ -164,15 +180,30 @@ export interface Objective {
   createdAt: number;
   updatedAt: number;
   originalInstruction: string;
-  amendments: {revision:number;instruction:string;goal:ObjectiveGoal;time:number}[];
+  amendments: { revision: number; instruction: string; goal: ObjectiveGoal; time: number }[];
   id: string;
   agentId: string;
   messageId: number;
   channelId: string;
-  kind: 'action' | 'assign' | 'construction' | 'surveyRoute' | 'cancel' | 'factionAssault' | 'loadReturn' | 'salvage';
+  kind:
+    | 'action'
+    | 'assign'
+    | 'construction'
+    | 'surveyRoute'
+    | 'cancel'
+    | 'factionAssault'
+    | 'loadReturn'
+    | 'salvage';
   factionId?: 'orion';
   directiveMode?: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
-  status: 'active' | 'blocked' | 'interrupted' | 'completed' | 'completed_partial' | 'cancelled' | 'failed';
+  status:
+    | 'active'
+    | 'blocked'
+    | 'interrupted'
+    | 'completed'
+    | 'completed_partial'
+    | 'cancelled'
+    | 'failed';
   action: Action | null;
   targetId: string | null;
   shipId: string | null;
@@ -183,7 +214,7 @@ export interface Objective {
   controlMode: 'voluntary' | 'direct' | 'autonomous';
   consent: 'proposed' | 'accepted' | 'rejected' | 'negotiating' | 'withdrawn';
   conditions: TaskCondition[];
-  conditionHistory?:ConditionHistory[];
+  conditionHistory?: ConditionHistory[];
   conditionVersion: number;
   rounds: number;
   turnAgentId: string;
@@ -213,8 +244,9 @@ export interface EscortRequest {
   action: Action | null;
   followUp: Action | null;
   parentTaskId: string | null;
+  parentConditionVersion?: number | null;
   conditions: TaskCondition[];
-  conditionHistory?:ConditionHistory[];
+  conditionHistory?: ConditionHistory[];
   conditionVersion: number;
   rounds: number;
   turnAgentId: string;
@@ -224,52 +256,52 @@ export interface EscortRequest {
 }
 export type CollaborationRequest = EscortRequest;
 export type CoordinationIntent =
-    | {
-        type: 'requestTask';
-        kind: CollaborationRequest['kind'];
-        agentId: string;
-        action: Action;
-        followUp: Action | null;
-        conditions: TaskCondition[];
-      }
-    | {
-        type: 'answerRequest';
-        requestId: string;
-        version: number;
-        response: 'accept' | 'reject' | 'counter' | 'withdraw';
-        conditions: TaskCondition[];
-        reason:
-          | 'risk'
-          | 'fatigue'
-          | 'damage'
-          | 'conflict'
-          | 'preference'
-          | 'relationship'
-          | 'promise';
-      }
-    | {
-        type: 'answerTask';
-        taskId: string;
-        version: number;
-        response: 'accept' | 'reject' | 'counter' | 'withdraw';
-        conditions: TaskCondition[];
-        reason:
-          | 'risk'
-          | 'fatigue'
-          | 'damage'
-          | 'conflict'
-          | 'preference'
-          | 'relationship'
-          | 'promise';
-      }
-    | null;
+  | {
+      type: 'requestTask';
+      kind: CollaborationRequest['kind'];
+      agentId: string;
+      action: Action;
+      followUp: Action | null;
+      conditions: TaskCondition[];
+    }
+  | {
+      type: 'answerRequest';
+      requestId: string;
+      version: number;
+      response: 'accept' | 'reject' | 'counter' | 'withdraw';
+      conditions: TaskCondition[];
+      reason:
+        | 'risk'
+        | 'fatigue'
+        | 'damage'
+        | 'conflict'
+        | 'preference'
+        | 'relationship'
+        | 'promise';
+    }
+  | {
+      type: 'answerTask';
+      taskId: string;
+      version: number;
+      response: 'accept' | 'reject' | 'counter' | 'withdraw';
+      conditions: TaskCondition[];
+      reason:
+        | 'risk'
+        | 'fatigue'
+        | 'damage'
+        | 'conflict'
+        | 'preference'
+        | 'relationship'
+        | 'promise';
+    }
+  | null;
 
 export type SocialInteraction = {
-    type: 'support' | 'disagree' | 'mediate' | 'compete' | 'preference';
-    messageId: number;
-    agentId: string | null;
-    activity: Activity | null;
-  } | null;
+  type: 'support' | 'disagree' | 'mediate' | 'compete' | 'preference';
+  messageId: number;
+  agentId: string | null;
+  activity: Activity | null;
+} | null;
 export type JourneyLeg =
   | { type: 'warp'; destination: Point; route: RouteKind; path: Point[] }
   | { type: 'wormhole'; wormholeId: string; entrance: Point; destination: Point };
@@ -1011,7 +1043,7 @@ interface SnapshotData {
   trade: TradeState;
 }
 export type Command =
-  | {type:'cognitionDecision';agentId:string;requestId:string;response:CognitionResponse}
+  | { type: 'cognitionDecision'; agentId: string; requestId: string; response: CognitionResponse }
   | { type: 'respondPiracy'; incidentId: string; shipId: string; response: 'comply' | 'refuse' }
   | { type: 'setPiracyPolicy'; shipId: string; policy: Ship['piracyPolicy'] }
   | { type: 'interpretInteraction'; agentId: string; messageId: number }
@@ -1055,9 +1087,21 @@ export type Command =
       mode: 'REPLACE' | 'QUEUE' | 'INTERRUPT';
       action: Action;
     }
-  | {type:'submitObjective';shipId:string;goal:ObjectiveGoal;authorizationMode:'direct'|'voluntary';instruction:string}
-  | {type:'cancelObjective'|'resumeObjective';objectiveId:string;expectedRevision:number}
-  | {type:'reviseObjective';objectiveId:string;expectedRevision:number;goal:ObjectiveGoal;instruction:string}
+  | {
+      type: 'submitObjective';
+      shipId: string;
+      goal: ObjectiveGoal;
+      authorizationMode: 'direct' | 'voluntary';
+      instruction: string;
+    }
+  | { type: 'cancelObjective' | 'resumeObjective'; objectiveId: string; expectedRevision: number }
+  | {
+      type: 'reviseObjective';
+      objectiveId: string;
+      expectedRevision: number;
+      goal: ObjectiveGoal;
+      instruction: string;
+    }
   | { type: 'cancelDirective'; shipId: string }
   | { type: 'standingOrders'; shipId: string; orders: StandingOrders }
   | { type: 'setCloak'; shipId: string; enabled: boolean }
@@ -1117,7 +1161,7 @@ export type Command =
 export type SessionCommand = { type: 'restorePreviousDay' | 'beginNewFrontier' };
 export type CommandResult = { ok: boolean; reason: string };
 interface ObservationData {
-  events:SnapshotData['events'];
+  events: SnapshotData['events'];
   wrecks: Wreck[];
   piracyIncidents: PiracyIncident[];
   rescueOptions: { agentId: string; action: Action }[];
@@ -1136,9 +1180,9 @@ interface ObservationData {
   ownShips: Ship[];
   currentTask: Directive | null;
   objective: Objective | null;
-  runtimeTask: import('./agent-runtime/model').TaskState|null;
-  objectiveContext:Objective[];
-  taskContext:import('./agent-runtime/model').TaskState[];
+  runtimeTask: import('./agent-runtime/model').TaskState | null;
+  objectiveContext: Objective[];
+  taskContext: import('./agent-runtime/model').TaskState[];
   taskProposals: Objective[];
   actionAvailability: { action: Action; autonomous: boolean; reason: string | null }[];
   constructionOptions: {

@@ -63,7 +63,14 @@ const groupFields = {
   spacing: n.min(15).max(100),
 };
 export const commandSchema = z.discriminatedUnion('type', [
-  z.object({type:z.literal('cognitionDecision'),agentId:id,requestId:id,response:cognitionResponseSchema}).strict(),
+  z
+    .object({
+      type: z.literal('cognitionDecision'),
+      agentId: id,
+      requestId: id,
+      response: cognitionResponseSchema,
+    })
+    .strict(),
   z
     .object({
       type: z.literal('respondPiracy'),
@@ -132,7 +139,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       type: z.literal('agentDecisionState'),
       agentId: id,
       revision: n.int().min(0),
-      state: z.enum(['waiting','receiving','validating','error','offline','ready']),
+      state: z.enum(['waiting', 'receiving', 'validating', 'error', 'offline', 'ready']),
       error: z.string().max(400).nullable(),
     })
     .strict(),
@@ -149,10 +156,38 @@ export const commandSchema = z.discriminatedUnion('type', [
       action: actionSchema,
     })
     .strict(),
-  z.object({type:z.literal('submitObjective'),shipId:id,goal:objectiveGoalSchema,authorizationMode:z.enum(['direct','voluntary']),instruction:z.string().min(1).max(2000)}).strict(),
-  z.object({type:z.literal('cancelObjective'),objectiveId:id,expectedRevision:n.int().min(0)}).strict(),
-  z.object({type:z.literal('resumeObjective'),objectiveId:id,expectedRevision:n.int().min(0)}).strict(),
-  z.object({type:z.literal('reviseObjective'),objectiveId:id,expectedRevision:n.int().min(0),goal:objectiveGoalSchema,instruction:z.string().min(1).max(2000)}).strict(),
+  z
+    .object({
+      type: z.literal('submitObjective'),
+      shipId: id,
+      goal: objectiveGoalSchema,
+      authorizationMode: z.enum(['direct', 'voluntary']),
+      instruction: z.string().min(1).max(2000),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('cancelObjective'),
+      objectiveId: id,
+      expectedRevision: n.int().min(0),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('resumeObjective'),
+      objectiveId: id,
+      expectedRevision: n.int().min(0),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('reviseObjective'),
+      objectiveId: id,
+      expectedRevision: n.int().min(0),
+      goal: objectiveGoalSchema,
+      instruction: z.string().min(1).max(2000),
+    })
+    .strict(),
   z.object({ type: z.literal('cancelDirective'), shipId: id }).strict(),
   z.object({ type: z.literal('modifyCurrentTask'), shipId: id, action: actionSchema }).strict(),
   z.object({ type: z.literal('standingOrders'), shipId: id, orders: standingSchema }).strict(),

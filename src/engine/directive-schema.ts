@@ -1,6 +1,9 @@
 import { z } from 'zod';
-import { actionSchema,pointSchema,stockSchema } from './action-schema';
-const n=z.number().finite(),nn=n.min(0),integer=nn.int(),id=z.string().min(1).max(160);
+import { actionSchema, pointSchema, stockSchema } from './action-schema';
+const n = z.number().finite(),
+  nn = n.min(0),
+  integer = nn.int(),
+  id = z.string().min(1).max(160);
 const journeyLeg = z.discriminatedUnion('type', [
   z
     .object({

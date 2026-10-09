@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Agent, Snapshot, ReasoningEffort,ThinkingMode } from '../engine/types';
+import type { Agent, Snapshot, ReasoningEffort, ThinkingMode } from '../engine/types';
 import type { AgentApiSettings } from '../engine/agent-api';
 import type { CommandSender } from './types';
 import { LcarsButton, LcarsField, LcarsMeter, LcarsTextBar } from './components/Lcars';
@@ -128,7 +128,7 @@ function AgentDetail({
       agent.modelConfig.reasoningEffort ?? '',
     ),
     [enabled, setEnabled] = useState(agent.enabled);
-  const [thinking,setThinking]=useState<ThinkingMode|''>(agent.modelConfig.thinking??'');
+  const [thinking, setThinking] = useState<ThinkingMode | ''>(agent.modelConfig.thinking ?? '');
   const ship = world.ships.find((s) => s.id === agent.assignedShipId);
   const objective = [...world.objectives].reverse().find((t) => t.agentId === agent.id);
   return (
@@ -159,7 +159,12 @@ function AgentDetail({
             : agent.status
         }
       />
-      <p data-testid="agent-assignment">VESSEL / {ship?.name??'未分配舰船'}{ship?.current?.source==='admiral'&&ship.current.controlMode==='direct'?' · Admiral 直接指挥':''}</p>
+      <p data-testid="agent-assignment">
+        VESSEL / {ship?.name ?? '未分配舰船'}
+        {ship?.current?.source === 'admiral' && ship.current.controlMode === 'direct'
+          ? ' · Admiral 直接指挥'
+          : ''}
+      </p>
       <p>CURRENT GOAL / {agent.currentGoal}</p>
       <p>LONG TERM / {agent.longTermGoal.summary}</p>
       <p>
@@ -182,7 +187,7 @@ function AgentDetail({
         <p className="agent-status-line">
           ADMIRAL CHAT / #{objective.messageId} · {objective.status.toUpperCase()} ·{' '}
           {objective.kind === 'surveyRoute'
-            ? `${world.agentRuntime.tasks.find(t=>t.objectiveId===objective.id)?.execution.sectorIndex??0}/${objective.sectors.length} 星区`
+            ? `${world.agentRuntime.tasks.find((t) => t.objectiveId === objective.id)?.execution.sectorIndex ?? 0}/${objective.sectors.length} 星区`
             : objective.kind.toUpperCase()}{' '}
           · {objective.allowWormholes ? '允许已确认虫洞' : '禁止虫洞'}
           {objective.reason ? ' · ' + objective.reason : ''}
@@ -304,16 +309,26 @@ function AgentDetail({
           onChange={(e) => setEffort(e.target.value as typeof effort)}
         >
           <option value="">继承全局 / {defaults?.reasoningEffort}</option>
-          {Object.entries(EFFORT_LABELS).filter(([key])=>key!=='none').map(([key, label]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
+          {Object.entries(EFFORT_LABELS)
+            .filter(([key]) => key !== 'none')
+            .map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
         </select>
       </LcarsField>
-      <LcarsField>THINKING / 独立思考
-        <select aria-label="Agent 独立思考" value={thinking} onChange={e=>setThinking(e.target.value as typeof thinking)}>
-          <option value="">继承全局 / {defaults?.thinking??'provider-default'}</option><option value="provider-default">供应商默认</option><option value="on">ON / 开启</option><option value="off">OFF / 关闭</option>
+      <LcarsField>
+        THINKING / 独立思考
+        <select
+          aria-label="Agent 独立思考"
+          value={thinking}
+          onChange={(e) => setThinking(e.target.value as typeof thinking)}
+        >
+          <option value="">继承全局 / {defaults?.thinking ?? 'provider-default'}</option>
+          <option value="provider-default">供应商默认</option>
+          <option value="on">ON / 开启</option>
+          <option value="off">OFF / 关闭</option>
         </select>
       </LcarsField>
       <LcarsField>
@@ -330,7 +345,11 @@ function AgentDetail({
           command({
             type: 'configureAgent',
             agentId: agent.id,
-            modelConfig: { model: model.trim() || null, reasoningEffort: effort || null,thinking:thinking||null },
+            modelConfig: {
+              model: model.trim() || null,
+              reasoningEffort: effort || null,
+              thinking: thinking || null,
+            },
             enabled,
           })
         }

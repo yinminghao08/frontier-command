@@ -34,15 +34,29 @@ export function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<
   });
 }
 
-const toolsSchema=z.array(z.object({index:z.number().int().optional(),type:z.string().optional(),function:z.object({name:z.string().optional(),arguments:z.string().optional()}).optional()})).max(1);
+const toolsSchema = z
+  .array(
+    z.object({
+      index: z.number().int().optional(),
+      type: z.string().optional(),
+      function: z
+        .object({ name: z.string().optional(), arguments: z.string().optional() })
+        .optional(),
+    }),
+  )
+  .max(1);
 const envelopeSchema = z.object({
   error: z.unknown().optional(),
   choices: z
     .array(
       z.object({
         index: z.number().int().optional(),
-        message: z.object({ content: z.string().nullable().optional(),tool_calls:toolsSchema.optional() }).optional(),
-        delta: z.object({ content: z.string().nullable().optional(),tool_calls:toolsSchema.optional() }).optional(),
+        message: z
+          .object({ content: z.string().nullable().optional(), tool_calls: toolsSchema.optional() })
+          .optional(),
+        delta: z
+          .object({ content: z.string().nullable().optional(), tool_calls: toolsSchema.optional() })
+          .optional(),
         finish_reason: z.string().nullable().optional(),
       }),
     )
@@ -109,8 +123,8 @@ export async function readCompletion(
   signal: AbortSignal,
   key: string,
   timing?: AgentRequestTiming,
-  idleTimeoutMs=120000,
-  onBody?:()=>void,
+  idleTimeoutMs = 120000,
+  onBody?: () => void,
 ) {
   const reader = response.body?.getReader();
   const advertisedStream = /text\/event-stream/i.test(response.headers.get('content-type') ?? '');
@@ -123,8 +137,9 @@ export async function readCompletion(
     bytes = 0,
     done = false,
     streamed = advertisedStream;
-  let reportedBody=false;
-  let toolArguments='',toolName='';
+  let reportedBody = false;
+  let toolArguments = '',
+    toolName = '';
   let usage: unknown;
   let finishReason: AgentRequestTiming['finishReason'] = null;
   let sawChoice = false;
@@ -147,12 +162,18 @@ export async function readCompletion(
     const choice = chunk.choices.find((c, index) => (c.index ?? index) === 0);
     if (!choice) return; // A final usage chunk may have choices: [].
     sawChoice = true;
-    const tool=choice.delta?.tool_calls?.[0]??choice.message?.tool_calls?.[0];
-    if(tool){if(tool.index!==undefined&&tool.index!==0)throw new AgentApiError('模型返回多个工具调用，未提交。','protocol');toolArguments+=tool.function?.arguments??'';toolName+=tool.function?.name??'';}
-    const fragment=choice.delta?.content ?? choice.message?.content ?? '';
-    if((fragment||toolArguments)&&timing&&timing.firstContentAt==null)timing.firstContentAt=Date.now();
+    const tool = choice.delta?.tool_calls?.[0] ?? choice.message?.tool_calls?.[0];
+    if (tool) {
+      if (tool.index !== undefined && tool.index !== 0)
+        throw new AgentApiError('模型返回多个工具调用，未提交。', 'protocol');
+      toolArguments += tool.function?.arguments ?? '';
+      toolName += tool.function?.name ?? '';
+    }
+    const fragment = choice.delta?.content ?? choice.message?.content ?? '';
+    if ((fragment || toolArguments) && timing && timing.firstContentAt == null)
+      timing.firstContentAt = Date.now();
     content += fragment;
-    if (Buffer.byteLength(content)+Buffer.byteLength(toolArguments) > 128000)
+    if (Buffer.byteLength(content) + Buffer.byteLength(toolArguments) > 128000)
       throw new AgentApiError('模型响应过大，已拒绝。', 'oversized');
     protect(content, key);
     if (choice.finish_reason) finishReason = safeFinish(choice.finish_reason);
@@ -188,16 +209,27 @@ export async function readCompletion(
         if (streamed && response.ok) drain();
       };
       for (;;) {
-        let idle:ReturnType<typeof setTimeout>|undefined;
-        const timeout=new Promise<never>((_,reject)=>{idle=setTimeout(()=>reject(new AgentApiError('Provider 数据流空闲超时，未提交决策。','disconnected')),idleTimeoutMs);});
-        const part=await Promise.race([abortable(reader.read(),signal),timeout]).finally(()=>clearTimeout(idle));
+        let idle: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<never>((_, reject) => {
+          idle = setTimeout(
+            () =>
+              reject(new AgentApiError('Provider 数据流空闲超时，未提交决策。', 'disconnected')),
+            idleTimeoutMs,
+          );
+        });
+        const part = await Promise.race([abortable(reader.read(), signal), timeout]).finally(() =>
+          clearTimeout(idle),
+        );
         signal.throwIfAborted();
         if (part.done) break;
         if (timing && timing.firstByteAt === null) {
           timing.firstByteAt = Date.now();
           timing.phase = 'receiving';
         }
-        if(!reportedBody){reportedBody=true;onBody?.();}
+        if (!reportedBody) {
+          reportedBody = true;
+          onBody?.();
+        }
         bytes += part.value.byteLength;
         // SSE framing has overhead; final content remains capped at 128KB.
         if (bytes > (streamed && response.ok ? 2000000 : 128000))
@@ -217,7 +249,9 @@ export async function readCompletion(
       return {
         unsupported: {
           reasoning: unsupported && /reasoning[_ ]effort|enable_thinking|thinking/i.test(buffer),
-          format: unsupported && /response[_ ]format|json_object|json_schema|tool_choice|tools/i.test(buffer),
+          format:
+            unsupported &&
+            /response[_ ]format|json_object|json_schema|tool_choice|tools/i.test(buffer),
           stream: unsupported && /\bstream(?:ing)?\b/i.test(buffer),
         },
         content: '',
@@ -241,14 +275,21 @@ export async function readCompletion(
       if (timing) timing.finishReason = finishReason;
       finish(finishReason);
       content = choice.message.content ?? '';
-      const tool=choice.message.tool_calls?.[0];if(tool){toolArguments=tool.function?.arguments??'';toolName=tool.function?.name??'';}
-      if(content&&timing&&timing.firstContentAt==null)timing.firstContentAt=Date.now();
+      const tool = choice.message.tool_calls?.[0];
+      if (tool) {
+        toolArguments = tool.function?.arguments ?? '';
+        toolName = tool.function?.name ?? '';
+      }
+      if (content && timing && timing.firstContentAt == null) timing.firstContentAt = Date.now();
     }
-    if(toolArguments){
-      if(content.trim()||toolName!=='frontier_decision'||finishReason!=='tool_calls')throw new AgentApiError('工具响应名称、结束标记或正文不一致，未提交。','protocol');
-      if(Buffer.byteLength(toolArguments)>128000)throw new AgentApiError('工具响应过大，未提交。','oversized');
-      content=toolArguments;
-    }else if(finishReason==='tool_calls')throw new AgentApiError('工具响应缺少参数。','empty');
+    if (toolArguments) {
+      if (content.trim() || toolName !== 'frontier_decision' || finishReason !== 'tool_calls')
+        throw new AgentApiError('工具响应名称、结束标记或正文不一致，未提交。', 'protocol');
+      if (Buffer.byteLength(toolArguments) > 128000)
+        throw new AgentApiError('工具响应过大，未提交。', 'oversized');
+      content = toolArguments;
+    } else if (finishReason === 'tool_calls')
+      throw new AgentApiError('工具响应缺少参数。', 'empty');
     if (!content.trim())
       throw new AgentApiError('模型返回空回复或只有推理内容，未执行决策。', 'empty');
     protect(content, key);

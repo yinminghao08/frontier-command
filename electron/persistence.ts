@@ -61,9 +61,12 @@ export class SaveStore {
       return;
     }
     mkdirSync(this.root, { recursive: true });
-    if (!existsSync(this.indexPath) && [15,14].some(v=>existsSync(join(directory, 'timeline-v'+v+'.json')))) {
+    if (
+      !existsSync(this.indexPath) &&
+      [15, 14].some((v) => existsSync(join(directory, 'timeline-v' + v + '.json')))
+    ) {
       try {
-        this.migratePrevious(existsSync(join(directory,'timeline-v15.json'))?15:14);
+        this.migratePrevious(existsSync(join(directory, 'timeline-v15.json')) ? 15 : 14);
       } catch {
         this.blocked = true;
         this.indexBlocked = true;
@@ -102,10 +105,12 @@ export class SaveStore {
       }
     }
   }
-  private migratePrevious(version: 14|15) {
+  private migratePrevious(version: 14 | 15) {
     const old = indexSchema
       .extend({ version: z.literal(version) })
-      .parse(JSON.parse(readFileSync(join(this.directory, 'timeline-v'+version+'.json'), 'utf8')));
+      .parse(
+        JSON.parse(readFileSync(join(this.directory, 'timeline-v' + version + '.json'), 'utf8')),
+      );
     if (
       !old.branches.some((b) => b.id === old.activeId) ||
       new Set(old.branches.map((b) => b.id)).size !== old.branches.length
@@ -152,7 +157,7 @@ export class SaveStore {
     mkdirSync(stage);
     try {
       for (const branch of old.branches) {
-        const source = join(this.directory, 'frontiers-v'+version, branchId.parse(branch.id));
+        const source = join(this.directory, 'frontiers-v' + version, branchId.parse(branch.id));
         const target = join(stage, branch.id);
         mkdirSync(target);
         let readable = false;

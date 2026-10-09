@@ -36,8 +36,19 @@ export function transferCargo(
     let n = Math.max(0, Math.min(free, 'cargo' in source ? source.cargo[k] : source.stock[k]));
     if (k !== 'materials') n = Math.floor(n);
     if (n <= 0) continue;
-    if ('cargo' in source) {source.cargo[k] -= n;recordCargoTransfer(e,source.id,source.id,recipient.id,k,n,'lost',source.current??undefined);}
-    else n = loseStock(e, source, k, n);
+    if ('cargo' in source) {
+      source.cargo[k] -= n;
+      recordCargoTransfer(
+        e,
+        source.id,
+        source.id,
+        recipient.id,
+        k,
+        n,
+        'lost',
+        source.current ?? undefined,
+      );
+    } else n = loseStock(e, source, k, n);
     recipient.cargo[k] += n;
     out[k] = n;
     free -= n;

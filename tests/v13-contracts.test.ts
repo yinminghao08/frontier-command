@@ -1,4 +1,4 @@
-import {runScenario} from './domain-fixtures';
+import { runScenario } from './domain-fixtures';
 import { describe, expect, it } from 'vitest';
 import { quietEngine, issue, run, until } from './helpers';
 import { SimulationEngine } from '../src/engine/engine';
@@ -18,13 +18,15 @@ import type { TaskCondition } from '../src/engine/types';
 
 const mira = 'ops-meridian',
   talia = 'ops-horizon';
-const choose=runScenario;
+const choose = runScenario;
 function propose(e: SimulationEngine, content = '巡逻基地 2 分钟') {
   e.dispatchCommand({ type: 'sendChat', channelId: privateChannel(talia), content, mentions: [] });
   const messageId = [...e.state.chatMessages]
     .reverse()
     .find((m) => m.sender === e.state.commander.id)!.id;
-  expect(e.dispatchCommand({ type: 'interpretInteraction', agentId: talia, messageId }).ok).toBe(true);
+  expect(e.dispatchCommand({ type: 'interpretInteraction', agentId: talia, messageId }).ok).toBe(
+    true,
+  );
   return e.state.objectives.at(-1)!;
 }
 function request(e: SimulationEngine, conditions: TaskCondition[] = []) {
@@ -207,13 +209,55 @@ describe('v13 engine reports, decisions and personality', () => {
   it('one revision is consumed once, duplicate actions do not restart, and outcomes cannot duplicate XP after restoring', () => {
     const e = quietEngine(),
       a = e.state.agents.find((a) => a.id === mira)!;
-    e.dispatchCommand({type:'sendChat',channelId:privateChannel(mira),content:'请安排一次真实材料运输',mentions:[],controlMode:'direct'});
-    const request=e.cognition.prepare(mira)!;
-    const response={purpose:'intent' as const,decision:{disposition:'propose' as const,proposal:{kind:'transport' as const,sourceId:'mine',destinationId:'base',cargoKind:'materials' as const,amount:10,route:'safe' as const,repeat:false},objectiveId:null,allowWormholes:true,reply:'准备运输'}};
-    expect(e.dispatchCommand({type:'cognitionDecision',agentId:mira,requestId:request.requestId,response},mira).ok).toBe(true);
-    expect(e.dispatchCommand({type:'cognitionDecision',agentId:mira,requestId:request.requestId,response},mira).ok).toBe(false);
-    const ship=e.state.ships.find(s=>s.id==='meridian')!,directive=ship.current!,task=e.runtime.taskForObjective(directive.objectiveId!)!;
-    expect(e.runtime.submitDirective(task.taskId,e.state.commander.id,{type:'issueDirective',shipIds:[ship.id],mode:'REPLACE',action:directive.action},task.revision).ok).toBe(true);
+    e.dispatchCommand({
+      type: 'sendChat',
+      channelId: privateChannel(mira),
+      content: '请安排一次真实材料运输',
+      mentions: [],
+      controlMode: 'direct',
+    });
+    const request = e.cognition.prepare(mira)!;
+    const response = {
+      purpose: 'intent' as const,
+      decision: {
+        disposition: 'propose' as const,
+        proposal: {
+          kind: 'transport' as const,
+          sourceId: 'mine',
+          destinationId: 'base',
+          cargoKind: 'materials' as const,
+          amount: 10,
+          route: 'safe' as const,
+          repeat: false,
+        },
+        objectiveId: null,
+        allowWormholes: true,
+        reply: '准备运输',
+      },
+    };
+    expect(
+      e.dispatchCommand(
+        { type: 'cognitionDecision', agentId: mira, requestId: request.requestId, response },
+        mira,
+      ).ok,
+    ).toBe(true);
+    expect(
+      e.dispatchCommand(
+        { type: 'cognitionDecision', agentId: mira, requestId: request.requestId, response },
+        mira,
+      ).ok,
+    ).toBe(false);
+    const ship = e.state.ships.find((s) => s.id === 'meridian')!,
+      directive = ship.current!,
+      task = e.runtime.taskForObjective(directive.objectiveId!)!;
+    expect(
+      e.runtime.submitDirective(
+        task.taskId,
+        e.state.commander.id,
+        { type: 'issueDirective', shipIds: [ship.id], mode: 'REPLACE', action: directive.action },
+        task.revision,
+      ).ok,
+    ).toBe(true);
     expect(ship.current!.id).toBe(directive.id);
     until(e, () => ship.current === null);
     const restored = new SimulationEngine(parseSave(e.state)),
@@ -328,7 +372,8 @@ describe('v13 voluntary tasks and enforceable commitments', () => {
     const ship = e.state.ships.find((s) => s.id === 'horizon')!;
     expect(ship.current?.objectiveId).toBe(task.id);
     e.complete(ship, '巡逻目标永久失效', true);
-    e.runtime.drain();expect(task.status).toBe('failed');
+    e.runtime.drain();
+    expect(task.status).toBe('failed');
     expect(e.state.commitments[0].status).toBe('refunded');
     expect(e.state.resources.credits).toBe(credits);
     run(e, 3);
@@ -525,10 +570,10 @@ describe('v13 voluntary tasks and enforceable commitments', () => {
     issue(e, { type: 'MOVE', point: { x: e.base.x + 15, y: e.base.y } }, ship.id, 'INTERRUPT');
     expect(rest.work).toBe(0);
     expect(a.experience).toBe(xp);
-    until(e,()=>ship.current===null);
-    const objective=e.state.objectives.find(o=>o.id===rest.objectiveId)!;
+    until(e, () => ship.current === null);
+    const objective = e.state.objectives.find((o) => o.id === rest.objectiveId)!;
     expect(e.runtime.taskForObjective(objective.id)?.status).toBe('interrupted');
-    expect(e.runtime.resume(objective.id,objective.revision).ok).toBe(true);
+    expect(e.runtime.resume(objective.id, objective.revision).ok).toBe(true);
     run(e, 2);
     expect(ship.current?.id).toBe(rest.id);
     const resumedXp = a.experience;
@@ -657,13 +702,41 @@ describe('v13 collaboration, negotiation and real consequences', () => {
     ).toBe(true);
     const other = quietEngine(),
       conditioned = request(other, [{ type: 'reward', when: 'after', credits: 25 }]);
-    const ticket=other.cognition.prepare(talia)!;
-    const decision={requestId:conditioned.id,version:conditioned.conditionVersion,response:'accept' as const,reason:'preference' as const,reply:'接受既有条件',conditions:[{type:'reward' as const,when:'after' as const,credits:0}]};
-    expect(other.dispatchCommand({type:'cognitionDecision',agentId:talia,requestId:ticket.requestId,response:{purpose:'collaboration',decision}},talia).ok).toBe(false);
-    expect(conditioned.status).toBe('pending');expect(other.state.commitments).toEqual([]);
-    expect(other.dispatchCommand({type:'cognitionDecision',agentId:talia,requestId:ticket.requestId,response:{purpose:'collaboration',decision:{...decision,conditions:[]}}},talia).ok).toBe(true);
-    expect(conditioned.status).toBe('awaitingApproval');expect(other.state.ships.find(s=>s.id==='horizon')!.current).toBeNull();
-
+    const ticket = other.cognition.prepare(talia)!;
+    const decision = {
+      requestId: conditioned.id,
+      version: conditioned.conditionVersion,
+      response: 'accept' as const,
+      reason: 'preference' as const,
+      reply: '接受既有条件',
+      conditions: [{ type: 'reward' as const, when: 'after' as const, credits: 0 }],
+    };
+    expect(
+      other.dispatchCommand(
+        {
+          type: 'cognitionDecision',
+          agentId: talia,
+          requestId: ticket.requestId,
+          response: { purpose: 'collaboration', decision },
+        },
+        talia,
+      ).ok,
+    ).toBe(false);
+    expect(conditioned.status).toBe('pending');
+    expect(other.state.commitments).toEqual([]);
+    expect(
+      other.dispatchCommand(
+        {
+          type: 'cognitionDecision',
+          agentId: talia,
+          requestId: ticket.requestId,
+          response: { purpose: 'collaboration', decision: { ...decision, conditions: [] } },
+        },
+        talia,
+      ).ok,
+    ).toBe(true);
+    expect(conditioned.status).toBe('awaitingApproval');
+    expect(other.state.ships.find((s) => s.id === 'horizon')!.current).toBeNull();
   });
   it.each(['team', 'reinforce'] as const)(
     '%s performs actual patrol support and settles mutual help once',
@@ -752,15 +825,77 @@ describe('v13 collaboration, negotiation and real consequences', () => {
     expect(e.state).toEqual(before);
     expect(ship.cargo.materials).toBe(10);
   });
-  it('same-career profile evidence leads a purpose model to different real goals',async()=>{
-    const e=quietEngine();e.dispatchCommand({type:'assignAgent',agentId:talia,shipId:null});
-    const peer=makeAgent('profile-peer','Rin','logistics');registerAgent(e.state,peer);e.dispatchCommand({type:'assignAgent',agentId:peer.id,shipId:'horizon'});
-    const safety=peer.profile.motivations.safety;expect(safety).toBeLessThan(90);const threshold=(safety+90)/2;
-    const client=new ChatCompletionsClient(async(_url,init)=>{const body=JSON.parse(String(init?.body)),obs=JSON.parse(body.messages[1].content),cautious=obs.self.profile.motivations.safety>threshold;
-      return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({disposition:'propose',proposal:cautious?{kind:'rest',duration:5}:{kind:'transport',sourceId:'mine',destinationId:'base',cargoKind:'materials',amount:10,repeat:false,route:'safe'},objectiveId:null,allowWormholes:true,reply:'结合稳定安全动机选择。'})}}]}));});
-    const config={baseUrl:'http://127.0.0.1/v1',defaultModel:'personality-fixture',reasoningEffort:'provider-default' as const,apiKey:'profile-fixture-key'};
-    for(const id of [mira,peer.id]){e.dispatchCommand({type:'sendChat',channelId:privateChannel(id),content:'请评估休整或矿场运输这两个目标。',mentions:[],controlMode:'direct'});const request=e.cognition.prepare(id)!;const response=await client.cognize(config,request,e.state.agents.find(a=>a.id===id)!.modelConfig,new AbortController().signal);expect(e.dispatchCommand({type:'cognitionDecision',agentId:id,requestId:request.requestId,response},id).ok).toBe(true);}
-    expect(e.state.ships.find(s=>s.id==='meridian')!.current?.action.type).toBe('REST');expect(e.state.ships.find(s=>s.id==='horizon')!.current?.action.type).toBe('HAUL');
+  it('same-career profile evidence leads a purpose model to different real goals', async () => {
+    const e = quietEngine();
+    e.dispatchCommand({ type: 'assignAgent', agentId: talia, shipId: null });
+    const peer = makeAgent('profile-peer', 'Rin', 'logistics');
+    registerAgent(e.state, peer);
+    e.dispatchCommand({ type: 'assignAgent', agentId: peer.id, shipId: 'horizon' });
+    const safety = peer.profile.motivations.safety;
+    expect(safety).toBeLessThan(90);
+    const threshold = (safety + 90) / 2;
+    const client = new ChatCompletionsClient(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)),
+        obs = JSON.parse(body.messages[1].content),
+        cautious = obs.self.profile.motivations.safety > threshold;
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  disposition: 'propose',
+                  proposal: cautious
+                    ? { kind: 'rest', duration: 5 }
+                    : {
+                        kind: 'transport',
+                        sourceId: 'mine',
+                        destinationId: 'base',
+                        cargoKind: 'materials',
+                        amount: 10,
+                        repeat: false,
+                        route: 'safe',
+                      },
+                  objectiveId: null,
+                  allowWormholes: true,
+                  reply: '结合稳定安全动机选择。',
+                }),
+              },
+            },
+          ],
+        }),
+      );
+    });
+    const config = {
+      baseUrl: 'http://127.0.0.1/v1',
+      defaultModel: 'personality-fixture',
+      reasoningEffort: 'provider-default' as const,
+      apiKey: 'profile-fixture-key',
+    };
+    for (const id of [mira, peer.id]) {
+      e.dispatchCommand({
+        type: 'sendChat',
+        channelId: privateChannel(id),
+        content: '请评估休整或矿场运输这两个目标。',
+        mentions: [],
+        controlMode: 'direct',
+      });
+      const request = e.cognition.prepare(id)!;
+      const response = await client.cognize(
+        config,
+        request,
+        e.state.agents.find((a) => a.id === id)!.modelConfig,
+        new AbortController().signal,
+      );
+      expect(
+        e.dispatchCommand(
+          { type: 'cognitionDecision', agentId: id, requestId: request.requestId, response },
+          id,
+        ).ok,
+      ).toBe(true);
+    }
+    expect(e.state.ships.find((s) => s.id === 'meridian')!.current?.action.type).toBe('REST');
+    expect(e.state.ships.find((s) => s.id === 'horizon')!.current?.action.type).toBe('HAUL');
   });
   it('model waiting never expires a request, but an explicit game deadline does', () => {
     const e = quietEngine(),

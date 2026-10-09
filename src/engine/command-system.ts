@@ -49,8 +49,7 @@ export function pay(e: SimulationEngine, c: Cost, locationId = 'base') {
 export function validateAction(e: SimulationEngine, s: Ship, a: Action): CommandResult {
   const w = e.state;
   if (a.type === 'MOVE' || a.type === 'RETURN') return ok();
-  if (a.type === 'LOAD')
-    return inventory(w, a.sourceId) ? ok() : no('装载来源不是可用的己方库存');
+  if (a.type === 'LOAD') return inventory(w, a.sourceId) ? ok() : no('装载来源不是可用的己方库存');
   if (a.type === 'ATTACK_SET') {
     for (const targetId of a.targetIds) {
       const result = validateAction(e, s, { type: 'ATTACK', targetId });
@@ -182,17 +181,27 @@ export function validate(
   const c = parsed.data as Command,
     w = this.state;
   if (w.status !== 'active') return no('COMMAND LOST：只能恢复昨日或开始新边疆');
-  if(['submitObjective','cancelObjective','resumeObjective','reviseObjective'].includes(c.type)) {
-    if(actorId!==w.commander.id)return no('仅 Admiral 可以管理目标');
-    if(c.type==='submitObjective')return this.runtime.validateGoal(c.goal,c.shipId,c.authorizationMode);
-    if(c.type==='reviseObjective') {const objective=w.objectives.find(o=>o.id===c.objectiveId);if(!objective)return no('目标不存在');return this.runtime.validateGoal(c.goal,objective.shipId??this.runtime.taskForObjective(objective.id)?.assignedShipIds[0]??'',objective.controlMode);}
+  if (
+    ['submitObjective', 'cancelObjective', 'resumeObjective', 'reviseObjective'].includes(c.type)
+  ) {
+    if (actorId !== w.commander.id) return no('仅 Admiral 可以管理目标');
+    if (c.type === 'submitObjective')
+      return this.runtime.validateGoal(c.goal, c.shipId, c.authorizationMode);
+    if (c.type === 'reviseObjective') {
+      const objective = w.objectives.find((o) => o.id === c.objectiveId);
+      if (!objective) return no('目标不存在');
+      return this.runtime.validateGoal(
+        c.goal,
+        objective.shipId ?? this.runtime.taskForObjective(objective.id)?.assignedShipIds[0] ?? '',
+        objective.controlMode,
+      );
+    }
     return ok();
   }
   if (c.type === 'interpretInteraction') {
     const agent = w.agents.find((a) => a.id === c.agentId);
     return actorId === w.commander.id &&
       agent &&
-
       addressedAdmiralMessage(this, c.agentId, c.messageId)
       ? ok()
       : no('聊天授权必须来自尚未处理的、定向发送的真实 Admiral 消息');
@@ -208,7 +217,15 @@ export function validate(
     !(
       (c.type === 'issueDirective' &&
         c.shipIds.length === 1 &&
-        (w.assignments.some((a) => a.operatorId === actorId && a.shipId === c.shipIds[0]) || actorId==='standing:'+c.shipIds[0]&&w.objectives.some(o=>o.id===this.executingObjectiveId&&o.issuerId===actorId&&o.shipId===c.shipIds[0]&&o.consent==='accepted'))) ||
+        (w.assignments.some((a) => a.operatorId === actorId && a.shipId === c.shipIds[0]) ||
+          (actorId === 'standing:' + c.shipIds[0] &&
+            w.objectives.some(
+              (o) =>
+                o.id === this.executingObjectiveId &&
+                o.issuerId === actorId &&
+                o.shipId === c.shipIds[0] &&
+                o.consent === 'accepted',
+            )))) ||
       (['agentDecisionState', 'cognitionDecision'].includes(c.type) &&
         'agentId' in c &&
         c.agentId === actorId) ||
@@ -477,12 +494,14 @@ export function dispatchCommand(
     );
     return ok('响应已接受');
   }
-  if(c.type==='submitObjective')return this.runtime.submitGoal(c.goal,c.shipId,c.authorizationMode,c.instruction);
-  if(c.type==='cancelObjective')return this.runtime.cancel(c.objectiveId,c.expectedRevision);
-  if(c.type==='resumeObjective')return this.runtime.resume(c.objectiveId,c.expectedRevision);
-  if(c.type==='reviseObjective')return this.runtime.revise(c.objectiveId,c.expectedRevision,c.goal,c.instruction);
+  if (c.type === 'submitObjective')
+    return this.runtime.submitGoal(c.goal, c.shipId, c.authorizationMode, c.instruction);
+  if (c.type === 'cancelObjective') return this.runtime.cancel(c.objectiveId, c.expectedRevision);
+  if (c.type === 'resumeObjective') return this.runtime.resume(c.objectiveId, c.expectedRevision);
+  if (c.type === 'reviseObjective')
+    return this.runtime.revise(c.objectiveId, c.expectedRevision, c.goal, c.instruction);
   if (c.type === 'interpretInteraction') {
-    this.runtime.receiveMessage(c.agentId,c.messageId);
+    this.runtime.receiveMessage(c.agentId, c.messageId);
     return ok('Admiral 消息已解析');
   }
   if (c.type === 'resolveProposal') return applyResolution(this, c);
@@ -558,8 +577,17 @@ export function dispatchCommand(
             incident.response = 'refuse';
             incident.responseSource = 'admiral';
           }
-        if(c.mode==='REPLACE'||c.mode==='QUEUE'&&s.current?.source!=='admiral'||c.mode==='INTERRUPT'&&s.current?.objectiveId&&w.objectives.some(o=>o.id===s.current?.objectiveId&&(o.messageId>0||o.controlMode!=='direct')))cancelObjectives(this,s.id);
-
+        if (
+          c.mode === 'REPLACE' ||
+          (c.mode === 'QUEUE' && s.current?.source !== 'admiral') ||
+          (c.mode === 'INTERRUPT' &&
+            s.current?.objectiveId &&
+            w.objectives.some(
+              (o) =>
+                o.id === s.current?.objectiveId && (o.messageId > 0 || o.controlMode !== 'direct'),
+            ))
+        )
+          cancelObjectives(this, s.id);
       } else if (
         c.mode === 'REPLACE' &&
         s.current?.contractId &&
@@ -572,7 +600,11 @@ export function dispatchCommand(
       else {
         if (c.mode === 'INTERRUPT' && s.current) {
           if (s.current.action.type === 'REST') s.current.work = 0;
-          if(!s.current.objectiveId||this.runtime.taskForObjective(s.current.objectiveId)?.status!=='interrupted')s.suspended.push(s.current);
+          if (
+            !s.current.objectiveId ||
+            this.runtime.taskForObjective(s.current.objectiveId)?.status !== 'interrupted'
+          )
+            s.suspended.push(s.current);
         }
         if (c.mode === 'REPLACE') {
           s.current = null;
@@ -600,7 +632,7 @@ export function dispatchCommand(
         d.taskId = chatTask.id;
         d.controlMode = chatTask.controlMode;
         d.executorAgentId = w.agents.find((a) => a.assignedShipId === s.id)?.id ?? null;
-        d.sourceMessageId = chatTask.messageId||null;
+        d.sourceMessageId = chatTask.messageId || null;
         d.allowWormholes = chatTask.allowWormholes;
       }
       const agent = w.agents.find((a) => a.assignedShipId === s.id);

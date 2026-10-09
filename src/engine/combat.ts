@@ -123,7 +123,7 @@ export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
       ammunition: { photon: s.photon, quantum: s.quantum },
       operatorIds,
     });
-    agentVesselLost(e, s,operatorIds);
+    agentVesselLost(e, s, operatorIds);
     w.assignments = w.assignments.filter((a) => a.shipId !== s.id);
     for (const op of w.operators) if (operatorIds.includes(op.id)) op.availability = 'vesselLost';
     for (const p of w.personnel)
@@ -180,7 +180,17 @@ export function destroyShip(e: SimulationEngine, s: Ship, reason: string) {
       }
     }
   }
-  for(const kind of GOODS)recordCargoTransfer(e,s.id,s.id,'wreck:'+s.id,kind,s.cargo[kind],'lost',s.current??undefined);
+  for (const kind of GOODS)
+    recordCargoTransfer(
+      e,
+      s.id,
+      s.id,
+      'wreck:' + s.id,
+      kind,
+      s.cargo[kind],
+      'lost',
+      s.current ?? undefined,
+    );
   const stock = emptyStock();
   for (const k of GOODS) stock[k] = Math.floor(s.cargo[k] * 0.65);
   stock.materials += Math.round(SHIP_CLASSES[s.classId].hull * 0.08);

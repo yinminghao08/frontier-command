@@ -1,4 +1,4 @@
-import { recordCargoTransfer,emitDomainEvent } from './agent-runtime/journal';
+import { recordCargoTransfer, emitDomainEvent } from './agent-runtime/journal';
 import { unlockProductionDiscount } from './production';
 import { BASE_REFIT } from './definitions/progression';
 import { deposit, haulLoad } from './inventory';
@@ -10,6 +10,7 @@ import {
   autonomousAllowed,
   groupSpeed,
   groupPeers,
+  formationPoint,
   prepareGroupHaul,
 } from './fleet';
 import { assistEvent, createEvent } from './world-events';
@@ -329,14 +330,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       }
     }
   } else if (a.type === 'MOVE') {
-    const spacing = d.groupSpacing;
-    const point =
-      d.groupOrderId && d.groupSlot
-        ? {
-            x: a.point.x + (d.groupSlot % 2 ? 1 : -1) * Math.ceil(d.groupSlot / 2) * spacing,
-            y: a.point.y + Math.ceil(d.groupSlot / 2) * spacing,
-          }
-        : a.point;
+    const point = d.groupOrderId ? formationPoint(a.point, d.groupSlot, d.groupSpacing) : a.point;
     if (go(e, s, d, point, dt)) e.complete(s, '抵达坐标');
   } else if (a.type === 'EXPLORE') {
     const close = a.approach === 'close',
@@ -410,22 +404,42 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       }
     }
   } else if (a.type === 'LOAD') {
-    const source=inventory(w,a.sourceId);
-    if(!source){e.complete(s,'装载来源已失效',true);return;}
-    if(!go(e,s,d,source,dt,a.route,8))return;
-    if(d.phase==='starting') {
-      const availableAmount=Math.min(c.cargo-cargoUsed(s),available(w,source.id,a.cargoKind)),amount=a.cargoKind==='materials'?availableAmount:Math.floor(availableAmount);
-      if(amount<=1e-8){d.note=cargoUsed(s)>=c.cargo?'货舱已满，请卸货或改令':'等待实际生产或库存';return;}
-      d.reserved[a.cargoKind]=amount;d.phase='loading';d.work=0;
+    const source = inventory(w, a.sourceId);
+    if (!source) {
+      e.complete(s, '装载来源已失效', true);
+      return;
     }
-    d.work+=dt;d.note='装载真实货物';
-    if(d.work+1e-8>=RULES.loadMinutes/(1+personnelBonus(e,s.id,'logistics'))) {
-      const amount=d.reserved[a.cargoKind];
-      if(source.stock[a.cargoKind]+1e-8<amount||c.cargo-cargoUsed(s)+1e-8<amount){e.complete(s,'装载预留已失效',true);return;}
-      source.stock[a.cargoKind]-=amount;s.cargo[a.cargoKind]+=amount;d.reserved[a.cargoKind]=0;d.carried+=amount;
-      recordCargoTransfer(e,s.id,source.id,s.id,a.cargoKind,amount,'loaded',d);
-      e.record('cargo',s.name+' 实际装载 '+amount+' '+a.cargoKind,source.id,false);
-      e.complete(s,'已装载实际库存，货物保留');
+    if (!go(e, s, d, source, dt, a.route, 8)) return;
+    if (d.phase === 'starting') {
+      const availableAmount = Math.min(
+          c.cargo - cargoUsed(s),
+          available(w, source.id, a.cargoKind),
+        ),
+        amount = a.cargoKind === 'materials' ? availableAmount : Math.floor(availableAmount);
+      if (amount <= 1e-8) {
+        d.note = cargoUsed(s) >= c.cargo ? '货舱已满，请卸货或改令' : '等待实际生产或库存';
+        directiveFeedback(e, d, d.note, 'waiting-load');
+        return;
+      }
+      d.reserved[a.cargoKind] = amount;
+      d.phase = 'loading';
+      d.work = 0;
+    }
+    d.work += dt;
+    d.note = '装载真实货物';
+    if (d.work + 1e-8 >= RULES.loadMinutes / (1 + personnelBonus(e, s.id, 'logistics'))) {
+      const amount = d.reserved[a.cargoKind];
+      if (source.stock[a.cargoKind] + 1e-8 < amount || c.cargo - cargoUsed(s) + 1e-8 < amount) {
+        e.complete(s, '装载预留已失效', true);
+        return;
+      }
+      source.stock[a.cargoKind] -= amount;
+      s.cargo[a.cargoKind] += amount;
+      d.reserved[a.cargoKind] = 0;
+      d.carried += amount;
+      recordCargoTransfer(e, s.id, source.id, s.id, a.cargoKind, amount, 'loaded', d);
+      e.record('cargo', s.name + ' 实际装载 ' + amount + ' ' + a.cargoKind, source.id, false);
+      e.complete(s, '已装载实际库存，货物保留');
     }
   } else if (a.type === 'HAUL') {
     const src = inventory(w, a.sourceId),
@@ -488,7 +502,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         }
         src.stock[a.cargoKind] -= n;
         s.cargo[a.cargoKind] += n;
-        recordCargoTransfer(e,s.id,src.id,s.id,a.cargoKind,n,'loaded',d);
+        recordCargoTransfer(e, s.id, src.id, s.id, a.cargoKind, n, 'loaded', d);
         d.carried += n;
         d.reserved[a.cargoKind] = 0;
         d.phase = 'delivering';
@@ -498,9 +512,6 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         const text = s.name + ' 装载 ' + n + ' ' + a.cargoKind + '；真实航线启用';
         directiveFeedback(e, d, text + '；本次实际运输 ' + d.carried, 'loaded');
         e.record('cargo', text, s.id, false);
-        appendChat(e, d.actorId, COMMAND_CHANNEL, text, [], 'report', {
-          eventId: `${d.id}:${d.cycle}:loaded`,
-        });
       }
     } else if (d.phase === 'delivering') {
       const escortRequests = w.escortRequests.filter(
@@ -535,17 +546,14 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         const remaining = Math.max(0, d.carried - d.delivered);
         const n = deposit(dest, a.cargoKind, Math.min(remaining, s.cargo[a.cargoKind]));
         s.cargo[a.cargoKind] -= n;
-        recordCargoTransfer(e,s.id,s.id,dest.id,a.cargoKind,n,'delivered',d);
+        recordCargoTransfer(e, s.id, s.id, dest.id, a.cargoKind, n, 'delivered', d);
         d.delivered += n;
         if (n > 0) {
-          appendChat(
+          directiveFeedback(
             e,
-            d.actorId,
-            COMMAND_CHANNEL,
+            d,
             s.name + ' 实际卸货 ' + n + ' ' + a.cargoKind + ' 至 ' + dest.name,
-            [],
-            'report',
-            { eventId: `${d.id}:${d.cycle}:unloaded:${d.delivered}` },
+            'unloaded:' + d.cycle + ':' + d.delivered,
           );
           e.record(
             'cargo',
@@ -560,7 +568,20 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
           return;
         }
         if (a.repeat) {
-          emitDomainEvent(e,{type:'directiveCycle',sourceId:s.id,objectiveId:d.objectiveId??null,taskId:d.taskId,directiveId:d.id,payload:{shipId:s.id,cycle:d.cycle,carried:d.carried,delivered:d.delivered,lost:d.lost??0}});
+          emitDomainEvent(e, {
+            type: 'directiveCycle',
+            sourceId: s.id,
+            objectiveId: d.objectiveId ?? null,
+            taskId: d.taskId,
+            directiveId: d.id,
+            payload: {
+              shipId: s.id,
+              cycle: d.cycle,
+              carried: d.carried,
+              delivered: d.delivered,
+              lost: d.lost ?? 0,
+            },
+          });
           agentOutcome(
             e,
             s,
@@ -759,7 +780,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
         const n = Math.min(wreck.stock[k], Math.floor(free));
         wreck.stock[k] -= n;
         s.cargo[k] += n;
-        recordCargoTransfer(e,s.id,wreck.id,s.id,k,n,'loaded',d);
+        recordCargoTransfer(e, s.id, wreck.id, s.id, k, n, 'loaded', d);
         free -= n;
       }
       if (s.cargo.specialFinds > 0) unlockProductionDiscount(e);
@@ -772,7 +793,11 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       return;
     }
     if (go(e, s, d, dest, dt, 'safe', 8)) {
-      for (const kind of GOODS) {const n=deposit(dest,kind,s.cargo[kind]);s.cargo[kind]-=n;recordCargoTransfer(e,s.id,s.id,dest.id,kind,n,'delivered',d);}
+      for (const kind of GOODS) {
+        const n = deposit(dest, kind, s.cargo[kind]);
+        s.cargo[kind] -= n;
+        recordCargoTransfer(e, s.id, s.id, dest.id, kind, n, 'delivered', d);
+      }
       e.complete(s, '真实货物已卸入建设项目');
     }
   } else if (arrivedService(e, s, d, dt)) {
@@ -791,7 +816,7 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
       for (const k of GOODS) {
         const n = deposit(dest, k, s.cargo[k]);
         s.cargo[k] -= n;
-        recordCargoTransfer(e,s.id,s.id,dest.id,k,n,'delivered',d);
+        recordCargoTransfer(e, s.id, s.id, dest.id, k, n, 'delivered', d);
       }
       e.record('cargo', s.name + ' 将实物货舱卸至 ' + dest.name, dest.id);
       if (cargoUsed(s) > 0) {

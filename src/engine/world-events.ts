@@ -390,7 +390,7 @@ export function assistEvent(
     // Validate the full cost before either inventory is debited; reservations stay intact.
     facility.stock.materials -= materials.atSite;
     s.cargo.materials -= materials.fromShip;
-    recordCargoTransfer(e,s.id,s.id,facility.id,'materials',materials.fromShip,'consumed',d);
+    recordCargoTransfer(e, s.id, s.id, facility.id, 'materials', materials.fromShip, 'consumed', d);
     finishEvent(
       e,
       v,
@@ -423,7 +423,7 @@ export function assistEvent(
         return;
       }
       s.cargo.materials -= 5;
-      recordCargoTransfer(e,s.id,s.id,v.subjectId,'materials',5,'consumed',d);
+      recordCargoTransfer(e, s.id, s.id, v.subjectId, 'materials', 5, 'consumed', d);
       target.stability = Math.min(1, target.stability + 0.3);
       target.stable = target.stability >= 0.7;
     }

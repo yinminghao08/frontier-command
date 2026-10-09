@@ -1,5 +1,5 @@
-import {conversation} from './provider-harness';
-import type {CognitionResponse,ObjectiveProposal} from '../src/engine/cognition-protocol';
+import { conversation } from './provider-harness';
+import type { CognitionResponse, ObjectiveProposal } from '../src/engine/cognition-protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { quietEngine, issue, run, until, v14Fixture } from './helpers';
 import { makeEnemy } from '../src/engine/data';
 import { updateSensors } from '../src/engine/sensors';
-import { compileIntent,resolveProposal } from '../src/engine/intent-gateway';
+import { compileIntent, resolveProposal } from '../src/engine/intent-gateway';
 import { privateChannel } from '../src/engine/chat';
 import { parseSave } from '../src/engine/saves';
 import { SimulationEngine } from '../src/engine/engine';
@@ -55,7 +55,7 @@ function send(
   id: string,
   content: string,
   mode: 'direct' | 'voluntary' = 'direct',
-  decision?:Extract<CognitionResponse,{purpose:'intent'}>['decision'],
+  decision?: Extract<CognitionResponse, { purpose: 'intent' }>['decision'],
 ) {
   expect(
     e.dispatchCommand({
@@ -69,7 +69,20 @@ function send(
   const message = [...e.state.chatMessages]
     .reverse()
     .find((m) => m.sender === e.state.commander.id)!;
-  if(decision){const ticket=e.cognition.prepare(id)!;expect(e.dispatchCommand({type:'cognitionDecision',agentId:id,requestId:ticket.requestId,response:{purpose:'intent',decision}},id).ok).toBe(true);}
+  if (decision) {
+    const ticket = e.cognition.prepare(id)!;
+    expect(
+      e.dispatchCommand(
+        {
+          type: 'cognitionDecision',
+          agentId: id,
+          requestId: ticket.requestId,
+          response: { purpose: 'intent', decision },
+        },
+        id,
+      ).ok,
+    ).toBe(true);
+  }
   return message;
 }
 function targets(e: SimulationEngine) {
@@ -105,13 +118,29 @@ describe('v15 actual commands and feedback', () => {
       e,
       new ChatCompletionsClient(async (_url, init) => {
         bodies.push(String(init?.body));
-        const purpose=JSON.parse(String(init?.body)).messages[0].content as string;
-        return response(purpose.startsWith('Intent:')?{disposition:'propose',proposal:{kind:'factionAssault',factionId:'orion'},objectiveId:null,allowWormholes:true,reply:'计划清剿已知 Orion。'}:{response:'accept',reason:'preference',reply:'我会持续清剿已知 Orion，确认战果后继续。',conditions:[]});
+        const purpose = JSON.parse(String(init?.body)).messages[0].content as string;
+        return response(
+          purpose.startsWith('Intent:')
+            ? {
+                disposition: 'propose',
+                proposal: { kind: 'factionAssault', factionId: 'orion' },
+                objectiveId: null,
+                allowWormholes: true,
+                reply: '计划清剿已知 Orion。',
+              }
+            : {
+                response: 'accept',
+                reason: 'preference',
+                reply: '我会持续清剿已知 Orion，确认战果后继续。',
+                conditions: [],
+              },
+        );
       }),
     );
     svc.pump();
     await flush();
-    svc.pump();await flush();
+    svc.pump();
+    await flush();
     expect(bodies).toHaveLength(2);
     expect(Buffer.byteLength(bodies[1])).toBeLessThan(Buffer.byteLength(bodies[0]));
     expect(bodies[1]).toContain('TaskJudgment:');
@@ -130,15 +159,22 @@ describe('v15 actual commands and feedback', () => {
       e.state.chatMessages.some(
         (m) =>
           m.channelId === privateChannel(battle) &&
-          m.sender===battle&&
+          m.sender === battle &&
           m.replyTo === task.messageId,
       ),
     ).toBe(true);
     until(e, () => e.state.enemies.length === 0, 120);
     run(e, 1);
     expect(task.status).toBe('blocked');
-    expect(e.state.agentRuntime.events.some(event=>event.type==='directiveProgress'&&event.payload.phase.startsWith('fired:')&&event.objectiveId===task.id)).toBe(true);
-    expect(e.state.chatMessages.some(m=>m.content.includes('实际开火'))).toBe(false);
+    expect(
+      e.state.agentRuntime.events.some(
+        (event) =>
+          event.type === 'directiveProgress' &&
+          event.payload.phase.startsWith('fired:') &&
+          event.objectiveId === task.id,
+      ),
+    ).toBe(true);
+    expect(e.state.chatMessages.some((m) => m.content.includes('实际开火'))).toBe(false);
     const enemy = makeEnemy('orion-test-new', 'raider', 'orion', { x: 40, y: 0 });
     enemy.weapons = 0;
     enemy.engines = 0;
@@ -185,7 +221,10 @@ describe('v15 actual commands and feedback', () => {
       e,
       new ChatCompletionsClient(async () =>
         response({
-          response:'accept',reason:'preference',reply:'改为巡逻基地。',conditions:[],
+          response: 'accept',
+          reason: 'preference',
+          reply: '改为巡逻基地。',
+          conditions: [],
         }),
       ),
     );
@@ -217,7 +256,21 @@ describe('v15 actual commands and feedback', () => {
     );
     until(e, () => ship.cargo.materials === 50);
     run(e, 1);
-    const m = send(e,freight,'运输直接装满货仓，立即执行！','direct',{disposition:'revise',proposal:{kind:'transport',sourceId:'mine',destinationId:'base',cargoKind:'materials',amount:null,repeat:false,route:'safe'},objectiveId:ship.current!.objectiveId!,allowWormholes:true,reply:'保留原任务与已装货物，追加装满后交付。'});
+    const m = send(e, freight, '运输直接装满货仓，立即执行！', 'direct', {
+      disposition: 'revise',
+      proposal: {
+        kind: 'transport',
+        sourceId: 'mine',
+        destinationId: 'base',
+        cargoKind: 'materials',
+        amount: null,
+        repeat: false,
+        route: 'safe',
+      },
+      objectiveId: ship.current!.objectiveId!,
+      allowWormholes: true,
+      reply: '保留原任务与已装货物，追加装满后交付。',
+    });
     expect(e.state.chatMessages.some((r) => r.id > m.id && r.content.includes('请明确货物'))).toBe(
       false,
     );
@@ -252,7 +305,15 @@ describe('v15 actual commands and feedback', () => {
       ),
     ).toMatchObject({ amount: 600, loadPolicy: 'auto' });
     expect(
-      resolveProposal(o,{kind:'transport',sourceId:'mine',destinationId:'base',cargoKind:'materials',amount:50,repeat:false,route:'safe'}).action,
+      resolveProposal(o, {
+        kind: 'transport',
+        sourceId: 'mine',
+        destinationId: 'base',
+        cargoKind: 'materials',
+        amount: 50,
+        repeat: false,
+        route: 'safe',
+      }).action,
     ).toMatchObject({ amount: 50, loadPolicy: 'fixed' });
   });
   it('an amendment inherits the real route and cargo while explicit new parameters override it', () => {
@@ -270,15 +331,59 @@ describe('v15 actual commands and feedback', () => {
       },
       'meridian',
     );
-    const o=e.getObservation(freight)!;
-    expect(compileIntent(o,{content:'运输直接装满货仓，立即执行'}).intent).toBeNull();
-    const original=o.objectiveContext.find(task=>task.goal.kind==='operation'&&task.goal.action.type==='HAUL')!;
-    expect(original.goal).toMatchObject({kind:'operation',action:{sourceId:'mine',targetId:'base',cargoKind:'quantum',route:'risky'}});
-    send(e,freight,'运输直接装满货仓，立即执行','direct',{disposition:'revise',proposal:{kind:'transport',sourceId:'mine',destinationId:'base',cargoKind:'quantum',amount:null,repeat:false,route:'risky'},objectiveId:original.id,allowWormholes:true,reply:'继承真实路线、货物与目标。'});
-    expect(e.state.ships.find(s=>s.id==='meridian')!.current?.action).toMatchObject({sourceId:'mine',targetId:'base',cargoKind:'quantum',route:'risky',loadPolicy:'auto'});
-    expect(resolveProposal(e.getObservation(freight)!,{kind:'transport',sourceId:'base',destinationId:'mine',cargoKind:'photon',amount:50,repeat:false,route:'safe'}).action).toMatchObject({cargoKind:'photon',amount:50,route:'safe',loadPolicy:'fixed'});
-    expect(()=>resolveProposal(e.getObservation(freight)!,{kind:'transport',sourceId:'unknown',destinationId:'base',cargoKind:'materials',amount:50,repeat:false,route:'safe'})).toThrow('设施');
-
+    const o = e.getObservation(freight)!;
+    expect(compileIntent(o, { content: '运输直接装满货仓，立即执行' }).intent).toBeNull();
+    const original = o.objectiveContext.find(
+      (task) => task.goal.kind === 'operation' && task.goal.action.type === 'HAUL',
+    )!;
+    expect(original.goal).toMatchObject({
+      kind: 'operation',
+      action: { sourceId: 'mine', targetId: 'base', cargoKind: 'quantum', route: 'risky' },
+    });
+    send(e, freight, '运输直接装满货仓，立即执行', 'direct', {
+      disposition: 'revise',
+      proposal: {
+        kind: 'transport',
+        sourceId: 'mine',
+        destinationId: 'base',
+        cargoKind: 'quantum',
+        amount: null,
+        repeat: false,
+        route: 'risky',
+      },
+      objectiveId: original.id,
+      allowWormholes: true,
+      reply: '继承真实路线、货物与目标。',
+    });
+    expect(e.state.ships.find((s) => s.id === 'meridian')!.current?.action).toMatchObject({
+      sourceId: 'mine',
+      targetId: 'base',
+      cargoKind: 'quantum',
+      route: 'risky',
+      loadPolicy: 'auto',
+    });
+    expect(
+      resolveProposal(e.getObservation(freight)!, {
+        kind: 'transport',
+        sourceId: 'base',
+        destinationId: 'mine',
+        cargoKind: 'photon',
+        amount: 50,
+        repeat: false,
+        route: 'safe',
+      }).action,
+    ).toMatchObject({ cargoKind: 'photon', amount: 50, route: 'safe', loadPolicy: 'fixed' });
+    expect(() =>
+      resolveProposal(e.getObservation(freight)!, {
+        kind: 'transport',
+        sourceId: 'unknown',
+        destinationId: 'base',
+        cargoKind: 'materials',
+        amount: 50,
+        repeat: false,
+        route: 'safe',
+      }),
+    ).toThrow('设施');
   });
   it('queued cargo cannot copy the current manifest and an immediate smaller order preserves the leftover goods', () => {
     const e = quietEngine(),
@@ -349,9 +454,7 @@ describe('v15 actual commands and feedback', () => {
       new ChatCompletionsClient(async (_url, init) => {
         calls++;
         bodies.push(String(init?.body));
-        return response(
-          calls===1?{bad:true}:conversation('当前没有新目标'),
-        );
+        return response(calls === 1 ? { bad: true } : conversation('当前没有新目标'));
       }),
     );
     svc.pump();
@@ -533,7 +636,7 @@ describe('v15 actual commands and feedback', () => {
     run(e, 30);
     expect(a.psychology.resentment - resentment).toBeCloseTo(3, 2);
     expect(workWillingness(a)).toBeLessThan(ready);
-    const events = a.decision.events.filter((v) => v.id==='danger:fatigue80');
+    const events = a.decision.events.filter((v) => v.id === 'danger:fatigue80');
     expect(events).toHaveLength(1);
   });
   it('waiting safely for stock is idle and a disabled or unconfigured Agent still answers every addressed message', async () => {
@@ -591,7 +694,7 @@ describe('v15 actual commands and feedback', () => {
     e.dispatchCommand({
       type: 'sendChat',
       channelId: privateChannel(battle),
-      content:'你是谁？',
+      content: '你是谁？',
       mentions: [],
     });
     const msg = [...e.state.chatMessages].reverse().find((m) => m.sender === e.state.commander.id)!;
@@ -599,7 +702,7 @@ describe('v15 actual commands and feedback', () => {
       e,
       new ChatCompletionsClient(async (_url, init) => {
         body = String(init?.body);
-        return response({content:'我是 Talia，会结合舰况与偏好判断。',purpose:'information'});
+        return response({ content: '我是 Talia，会结合舰况与偏好判断。', purpose: 'information' });
       }, tracker),
     );
     svc.pump();
@@ -608,7 +711,7 @@ describe('v15 actual commands and feedback', () => {
     expect(msg.responses?.[battle]).toBe('replied');
     expect(
       e.state.chatMessages.some(
-        (m)=>m.sender===battle&&m.replyTo===msg.id&&m.channelId===msg.channelId,
+        (m) => m.sender === battle && m.replyTo === msg.id && m.channelId === msg.channelId,
       ),
     ).toBe(true);
     expect(tracker.stats().recentRequests[0]).toMatchObject({
@@ -653,7 +756,12 @@ describe('v15 actual commands and feedback', () => {
     await flush();
     svc.pump();
     await flush();
-    expect(calls).toBe(1);expect(a.fatigue).toBeGreaterThan(50);run(e,5);svc.pump();await flush();expect(calls).toBe(1);
+    expect(calls).toBe(1);
+    expect(a.fatigue).toBeGreaterThan(50);
+    run(e, 5);
+    svc.pump();
+    await flush();
+    expect(calls).toBe(1);
     expect(() => parseSave(e.state)).not.toThrow();
     svc.dispose();
   });
@@ -679,16 +787,18 @@ describe('v15 actual commands and feedback', () => {
       decision: e.state.agents.find((a) => a.id === battle)!.decision,
     }).toMatchObject({ responses: { [battle]: 'cancelled' } });
     expect(
-      e.state.agentRuntime.replies.some(r=>r.sourceMessageId===msg.id&&r.phase==='cancelled'),
+      e.state.agentRuntime.replies.some(
+        (r) => r.sourceMessageId === msg.id && r.phase === 'cancelled',
+      ),
     ).toBe(true);
-    expect(e.state.chatMessages.filter(m=>m.replyTo===msg.id&&m.sender===battle)).toHaveLength(0);
+    expect(
+      e.state.chatMessages.filter((m) => m.replyTo === msg.id && m.sender === battle),
+    ).toHaveLength(0);
     svc.dispose();
     e.dispatchCommand({ type: 'retryAgent', agentId: battle, messageId: msg.id });
     const next = service(
       e,
-      new ChatCompletionsClient(async () =>
-        response(conversation('已恢复通讯')),
-      ),
+      new ChatCompletionsClient(async () => response(conversation('已恢复通讯'))),
     );
     next.pump();
     await flush();

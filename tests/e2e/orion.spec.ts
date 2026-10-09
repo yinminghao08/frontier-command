@@ -15,7 +15,7 @@ import { makeLocation } from '../../src/engine/data';
 import { AgentTestProvider } from './agent-provider';
 import type { Snapshot } from '../../src/engine/types';
 let app: ElectronApplication | undefined, provider: AgentTestProvider | undefined;
-const output = resolve('docs/verification/v14');
+const output = resolve('.test-data/verification/v16/orion');
 const state = async (p: Page) => (await p.evaluate(() => window.frontier.getState())).state;
 async function launch(dir: string, width = 1366, height = 900) {
   app = await electron.launch({

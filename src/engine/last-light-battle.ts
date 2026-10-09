@@ -201,6 +201,24 @@ export function advanceLastLightBattle(e: SimulationEngine, dt: number): void {
   if (scripted(w, RESPONDED) && !scripted(w, FINISHED)) {
     const remaining = w.enemies.filter((s) =>
       s.factionId === 'orion' && s.id !== 'orion-escape' && s.hull > 0);
+    if (remaining.length && w.tick % 10 === 0) {
+      const contacts = remaining.filter((enemy) => w.intel.some((intel) =>
+        intel.id === enemy.id && !intel.resolved &&
+        w.time - intel.lastSeen <= 30));
+      if (contacts.length) {
+        for (const shipId of ['horizon', 'resolute']) {
+          const ship = w.ships.find((s) => s.id === shipId);
+          if (!ship || ship.hull <= 0 || ship.current) continue;
+          // An ATTACK_SET can legitimately finish with unconfirmed targets.
+          // Keep real combat going while a real sensor contact survives.
+          e.dispatchCommand({
+            type: 'issueDirective',
+            shipIds: [shipId], mode: 'REPLACE',
+            action: { type: 'ATTACK_SET', targetIds: contacts.map((s) => s.id) },
+          });
+        }
+      }
+    }
     if (!remaining.length) {
       for (const shipId of ['horizon', 'resolute']) {
         const ship = w.ships.find((s) => s.id === shipId);

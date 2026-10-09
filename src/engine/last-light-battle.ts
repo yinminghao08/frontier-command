@@ -1,4 +1,5 @@
 import { createWorld, makeLocation, makeShip, makeEnemy } from './data';
+import { materialize } from './world-generation';
 import { SimulationEngine } from './engine';
 import { parseSave } from './saves';
 import { makeAgent, registerAgent } from './agents';
@@ -91,6 +92,10 @@ export function createLastLightBattleWorld(): WorldState {
   w.operators.push({ id: 'ops-veil', name: 'VEIL / Admiral reconnaissance',
     kind: 'rules', availability: 'available' });
   w.assignments.push({ operatorId: 'ops-veil', shipId: veil.id, since: w.time });
+  materialize(w, { q: 0, r: 12 });
+  const veilWreck = w.bodies.find((b) => b.id === 'veil-derelict');
+  if (!veilWreck) throw Error('Cannot materialize canonical VEIL wreck');
+  veilWreck.specialClaimed = true;
   w.recoveredVeil = true;
 
   for (const [id, name, career, ship] of [
@@ -106,7 +111,15 @@ export function createLastLightBattleWorld(): WorldState {
     a.decision.pendingReasons = [];
     a.decision.events = [];
     a.decision.nextAt = 1000000;
-    registerAgent(w, a);
+    if (id === 'ops-resolute-demo') registerAgent(w, a);
+    else {
+      const existing = w.agents.find((agent) => agent.id === id)!;
+      existing.enabled = a.enabled;
+      existing.status = a.status;
+      existing.decision.pendingReasons = [];
+      existing.decision.events = [];
+      existing.decision.nextAt = a.decision.nextAt;
+    }
   }
 
   w.enemies = w.enemies.filter((s) => s.factionId === 'orion');

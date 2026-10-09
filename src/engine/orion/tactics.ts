@@ -2,6 +2,7 @@ import type { Enemy, Location, OrionOperation, Ship } from '../types';
 import type { SimulationEngine } from '../engine';
 import { capabilities, cargoUsed } from '../capabilities';
 import { dist, move } from '../navigation';
+import { isLastLightDeployed, isLastLightWorld } from '../last-light';
 import { canDetectShip, advanceEvasion } from '../tracking';
 import { regenerate } from '../combat';
 import { ORION_RULES as R } from '../definitions/orion';
@@ -31,6 +32,7 @@ const assigned = (e: SimulationEngine, id: string) =>
     (op) => op.status === 'active' && op.members.some((m) => m.shipId === id),
   );
 const available = (e: SimulationEngine, s: Enemy) =>
+  (s.id !== 'orion-escape' || !isLastLightWorld(e.state)) &&
   e.state.time >= s.nextDecision &&
   !assigned(e, s.id) &&
   s.intent !== 'retreat' &&
@@ -129,7 +131,7 @@ export function planOrion(e: SimulationEngine) {
           dist(s, leader) < 320,
       )
       .sort((a, b) => dist(a, leader) - dist(b, leader) || a.id.localeCompare(b.id));
-    const fighters = [leader, ...nearby].slice(0, 5);
+    const fighters = [leader, ...nearby].slice(0, isLastLightDeployed(w) ? 24 : 5);
     const capacity = fighters.reduce((n, s) => n + capabilities(s).cargo - cargoUsed(s), 0);
     const power = fighters.reduce((n, s) => n + combatStrength(s), 0);
     const candidates = localReports(e, leader)
@@ -155,10 +157,10 @@ export function planOrion(e: SimulationEngine) {
           travel * 5 -
           returnCost * 0.6 -
           Math.max(0, defense - power) * 0.8;
-        return { r, score, safe: escort < power * 0.65 && defense < power * 1.55 };
+        return { r, score, safe: (isLastLightDeployed(w) && r.id === 'meridian') || (escort < power * 0.65 && defense < power * 1.55) };
       })
-      .filter((c) => c.safe && c.score > 30)
-      .sort((a, b) => b.score - a.score || a.r.id.localeCompare(b.r.id));
+      .filter((c) => (c.safe && c.score > 30) || (isLastLightDeployed(w) && c.r.id === 'meridian'))
+      .sort((a, b) => (isLastLightDeployed(w) ? Number(b.r.id === 'meridian') - Number(a.r.id === 'meridian') : 0) || b.score - a.score || a.r.id.localeCompare(b.r.id));
     const best = candidates[0];
     if (!best) continue;
     const r = best.r,

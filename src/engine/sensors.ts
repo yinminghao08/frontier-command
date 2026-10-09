@@ -4,6 +4,7 @@ import { capabilities } from './capabilities';
 import { dist } from './navigation';
 import { RULES } from './definitions/rules';
 import { canDetectShip, updateSiteIntel, TRACKING_RULES } from './tracking';
+import { isLastLightWaiting, isLastLightWorld } from './last-light';
 export const visibleIntel = (w: WorldState) =>
   w.intel.filter((i) => !i.resolved && w.time - i.lastSeen <= RULES.intelTTL);
 export function observe(w: WorldState, s: Enemy, strength: number) {
@@ -85,6 +86,7 @@ export function updateSensors(e: SimulationEngine) {
     if (ship.tracking) ship.tracking.live = false;
   }
   for (const enemy of [...w.enemies].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (isLastLightWaiting(w) && enemy.factionId === 'orion') continue;
     const detecting = sources.filter((source) =>
       'classId' in source
         ? canDetectShip(source, enemy, w.time)
@@ -106,6 +108,16 @@ export function updateSensors(e: SimulationEngine) {
     const result = observe(w, enemy, source.active ? 2 : 1);
     let alert = w.contactAlerts.find((a) => a.contactId === enemy.id);
     const firstContact = !alert;
+    if (isLastLightWorld(w)) {
+      // LAST LIGHT alerts exactly once in advanceLastLight(), for the entire
+      // fleet. Still retain per-vessel contact intelligence without pausing.
+      if (!alert) {
+        alert = { contactId: enemy.id, lastAlertAt: w.time, hostileAlerted: false };
+        w.contactAlerts.push(alert);
+      }
+      alert.lastAlertAt = w.time;
+      alert.hostileAlerted ||= result.record.hostile;
+    } else {
     if (
       !alert ||
       (previousSeen !== undefined && w.time - previousSeen >= 10) ||
@@ -124,6 +136,7 @@ export function updateSensors(e: SimulationEngine) {
       }
       alert.lastAlertAt = w.time;
       alert.hostileAlerted ||= result.record.hostile;
+    }
     }
     for (const ship of w.ships.filter(
       (s) => s.current?.action.type === 'SHADOW' && s.current.action.targetId === enemy.id,

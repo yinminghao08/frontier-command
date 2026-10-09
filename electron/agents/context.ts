@@ -1,3 +1,4 @@
+import { AgentApiError } from './transport';
 import type { Observation } from '../../src/engine/types';
 /** Task-oriented public projection. It cannot access the authoritative world. */
 export function compactObservation(o: Observation) {
@@ -8,6 +9,11 @@ export function compactObservation(o: Observation) {
     ? { ...o.objective, reason: o.objective.reason?.slice(0, 240) ?? null }
     : null;
   const ids = new Set<string>();
+  const goal=task?.goal;
+  if(goal?.kind==='loadReturn'){ids.add(goal.sourceId);ids.add(goal.destinationId);}
+  if(goal?.kind==='recovery'){for(const id of goal.wreckIds)ids.add(id);if(goal.destinationId)ids.add(goal.destinationId);}
+  if(goal?.kind==='construction')ids.add(goal.siteId);
+  for(const condition of task?.conditions??[])if('locationId'in condition)ids.add(condition.locationId);
   if (task?.targetId) ids.add(task.targetId);
   if (o.currentTask?.action && 'targetId' in o.currentTask.action)
     ids.add(o.currentTask.action.targetId);
@@ -40,7 +46,7 @@ export function compactObservation(o: Observation) {
             : 0) ||
           a.id.localeCompare(b.id),
       )
-      .slice(0, count);
+      .filter((item,index)=>ids.has(item.id)||index<count);
   const self = o.self;
   const result = {
     time: o.time,
@@ -94,6 +100,7 @@ export function compactObservation(o: Observation) {
         }
       : null,
     objective: task,
+    runtimeTask:o.runtimeTask,
     taskProposals: o.taskProposals.slice(-2),
     decisionContext: o.decisionContext,
     recentChat: latest
@@ -120,7 +127,7 @@ export function compactObservation(o: Observation) {
     })),
     inventories: [...o.inventories]
       .sort((a, b) => Number(ids.has(b.locationId)) - Number(ids.has(a.locationId)))
-      .slice(0, 6),
+      .filter((item,index)=>ids.has(item.locationId)||index<6),
     opportunities: o.opportunities.slice(0, 5),
     logisticsNeeds: o.logisticsNeeds.slice(0, 4),
     escortRequests: o.escortRequests.slice(-3),
@@ -140,33 +147,8 @@ export function compactObservation(o: Observation) {
       })
       .slice(0, 18),
   };
-  // Optional context is shed before the complete player instruction. Transcript persistence is unaffected.
-  const tooLarge = () => Buffer.byteLength(JSON.stringify(result)) > 8200;
-  while (tooLarge() && result.recentChat.length > 1) result.recentChat.shift();
-  for (const key of [
-    'actionExamples',
-    'opportunities',
-    'journeys',
-    'constructionOptions',
-    'bodies',
-    'taskProposals',
-    'fleet',
-    'logisticsNeeds',
-    'rescueOptions',
-  ] as const)
-    while (tooLarge() && result[key].length) result[key].pop();
-  if (tooLarge() && result.self) {
-    result.self.memory = [];
-    result.self.relationships = {};
-    result.self.stateDynamics = { ...result.self.stateDynamics, recent: [] };
-  }
-  for (const key of [
-    'contacts',
-    'locations',
-    'inventories',
-    'escortRequests',
-    'piracyIncidents',
-  ] as const)
-    while (tooLarge() && result[key].length) result[key].pop();
+  // Required goal, original instruction, constraints, commitments and execution
+  // facts are indivisible. Refuse an oversized request instead of dropping them.
+  if(Buffer.byteLength(JSON.stringify(result))>64000)throw new AgentApiError('关键任务上下文超过请求预算；请缩小目标或增加模型上下文容量。','protocol');
   return result;
 }

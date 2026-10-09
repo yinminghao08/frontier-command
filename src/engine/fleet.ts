@@ -78,6 +78,7 @@ export function advanceStanding(e: SimulationEngine, s: Ship) {
     d.actorId = 'standing:' + s.id;
     d.origin = { x: s.x, y: s.y };
     s.current = d;
+    e.runtime.adoptDirective(s,d);
     s.path = [];
     s.status = 'active';
   };

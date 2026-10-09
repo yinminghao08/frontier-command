@@ -50,6 +50,7 @@ export class AgentDecisionService {
     const config = this.config();
     for (const a of latest.agents) {
       const awaitingMessage = latest.chatMessages.some((m) => m.responses?.[a.id] === 'pending');
+      if(!a.assignedShipId&&!awaitingMessage)continue;
       if (!a.enabled && awaitingMessage) {
         this.host.command(
           {

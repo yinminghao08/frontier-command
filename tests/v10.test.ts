@@ -1,3 +1,4 @@
+import { recordCargoTransfer } from '../src/engine/agent-runtime/journal';
 import { describe, expect, it, afterEach } from 'vitest';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -126,7 +127,7 @@ describe('v10 production, capture and persistent world', () => {
       materials: 50,
       specialFinds: 0,
     });
-    ship.cargo.specialFinds = 0;
+    ship.cargo.specialFinds = 0;recordCargoTransfer(e,ship.id,ship.id,null,'specialFinds',1,'consumed');
     const restored = new SimulationEngine(parseSave(e.state));
     const b = restored.base.stock.materials;
     expect(
@@ -415,7 +416,7 @@ describe('v10 production, capture and persistent world', () => {
     const e = quietEngine();
     store.write(e.state);
     expect(store.read().world?.version).toBe(16);
-    expect(store.root).toContain('frontiers-v15');
+    expect(store.root).toContain('frontiers-v16');
     for (const version of [9, 10])
       expect(readFileSync(join(dir, 'frontiers-v' + version, branch.id, 'head.json'), 'utf8')).toBe(
         original,

@@ -1,3 +1,7 @@
+import { AgentDecisionService } from '../electron/agents/service';
+import { ChatCompletionsClient } from '../electron/agents/client';
+import { makeAgent,registerAgent } from '../src/engine/agents';
+import { compactObservation } from '../electron/agents/context';
 import { describe,it,expect } from 'vitest';
 import { quietEngine,run,until,issue } from './helpers';
 import { SimulationEngine } from '../src/engine/engine';
@@ -13,7 +17,7 @@ function logistics(stock: number) {
   return {e,mine,ship};
 }
 describe('FAR authoritative logistics and event ownership',()=>{
-  it.each([600,17])('loads actual stock %s then returns without changing RETURN semantics',stock=>{
+  it.each([600,17,17.4])('loads actual stock %s then returns without changing RETURN semantics',stock=>{
     const {e,mine,ship}=logistics(stock),capacity=capabilities(ship).cargo;
     const objective=e.runtime.start({kind:'loadReturn',sourceId:mine.id,destinationId:'base',cargoKind:'materials',deliver:false,route:'safe'},ship.id);
     const base=e.base.stock.materials;
@@ -64,6 +68,24 @@ describe('FAR authoritative logistics and event ownership',()=>{
     until(restored,()=>restored.runtime.taskForObjective(o.id)?.status==='completed');
     expect(restored.runtime.taskForObjective(o.id)!.progress.loaded.materials).toBe(50);
     expect(restored.runtime.taskForObjective(o.id)!.progress.delivered.materials).toBe(50);
+  });
+  it('Cadet 28 consumes no autonomous requests while unassigned but answers a player',async()=>{
+    const {e}=logistics(0);for(const agent of e.state.agents)agent.enabled=false;
+    const cadet=makeAgent('cadet-28','Cadet 28','logistics');registerAgent(e.state,cadet);
+    let calls=0;const client=new ChatCompletionsClient(async()=>{calls++;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({goal:'对话',rationale:'主动输入',action:null})}}]}));});
+    const service=new AgentDecisionService({snapshot:()=>e.snapshot(),controllerPort:id=>e.controllerPort(id),command:(c,id)=>e.dispatchCommand(c,id),validate:(c,id)=>e.validate(c,id)},()=>({baseUrl:'http://mock.invalid/v1',defaultModel:'mock',reasoningEffort:'none',apiKey:'isolated-test-key'}),client);
+    for(let i=0;i<10;i++){run(e,20);service.pump();}
+    await new Promise(resolve=>setTimeout(resolve,20));expect(calls).toBe(0);
+    expect(e.state.chatMessages.filter(m=>m.sender===cadet.id)).toHaveLength(0);
+    e.dispatchCommand({type:'sendChat',channelId:'private:'+cadet.id,content:'你好',mentions:[]});service.pump();
+    await new Promise(resolve=>setTimeout(resolve,30));expect(calls).toBe(1);service.pump();run(e,20);service.pump();expect(calls).toBe(1);service.dispose();
+  });
+  it('required objective context retains the full source and constraint facts',()=>{
+    const {e,ship}=logistics(20),owner=e.state.assignments.find(a=>a.shipId===ship.id)!.operatorId;
+    const instruction='矿场装满后返航；'.repeat(100);
+    e.runtime.start({kind:'loadReturn',sourceId:'mine',destinationId:'base',cargoKind:'materials',deliver:false,route:'safe'},ship.id,e.state.commander.id,owner,instruction);
+    const context=compactObservation(e.getObservation(owner)!);
+    expect(context.objective?.originalInstruction).toBe(instruction);expect(context.inventories.some(i=>i.locationId==='mine')).toBe(true);expect(context.runtimeTask).not.toBeNull();
   });
   it('primary replies and repeated journal consumption are idempotent',()=>{
     const {e}=logistics(0),agent=e.state.agents[0];

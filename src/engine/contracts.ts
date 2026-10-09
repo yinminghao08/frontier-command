@@ -1,3 +1,4 @@
+import { commitPrimaryReply } from './agent-runtime/replies';
 import type { SimulationEngine } from './engine';
 import type {
   Action,
@@ -96,10 +97,11 @@ function notice(
   kind: 'request' | 'reply' | 'danger' | 'report' = 'request',
 ) {
   const sender = beneficiary(c);
+  if(isTask(c)&&c.messageId>0&&['reply','request'].includes(kind))return commitPrimaryReply(e,sender,c.messageId,text,kind==='request'?'request':'reply');
   return appendChat(e, sender, isTask(c) ? c.channelId : COMMAND_CHANNEL, text, [], kind, {
     origin: 'engine',
     requestId: c.id,
-    eventId: `${c.id}:${c.conditionVersion}:${kind}:${text}`.slice(0, 160),
+    eventId: (c.id+':'+c.conditionVersion+':'+(isTask(c)?c.consent:c.status)+':'+kind).slice(0,160),
   });
 }
 export function conditionsReason(

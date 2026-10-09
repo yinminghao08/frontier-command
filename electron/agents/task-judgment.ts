@@ -31,7 +31,7 @@ export function taskJudgmentContext(o: Observation) {
   const c = ship ? capabilities(ship) : null;
   const context = {
     task: { ...task, reason: task.reason?.slice(0, 240) ?? null },
-    instruction: o.recentChat.find((m) => m.id === task.messageId)?.content ?? a.currentGoal,
+    instruction: task.originalInstruction,
     self: {
       id: a.id,
       name: a.name,
@@ -99,14 +99,5 @@ export function taskJudgmentContext(o: Observation) {
       .slice(0, 6),
     company: { credits: o.company.credits, tension: o.company.tension },
   };
-  const tooLarge = () => Buffer.byteLength(JSON.stringify(context)) > 8200;
-  for (const key of ['constructionOptions', 'threats', 'targets', 'inventories'] as const)
-    while (tooLarge() && context[key].length) context[key].pop();
-  if (tooLarge()) context.task.sectors = [...task.sectors.slice(0, 2), ...task.sectors.slice(-1)];
-  if (tooLarge() && context.task.action?.type === 'ATTACK_SET')
-    context.task.action = {
-      ...context.task.action,
-      targetIds: context.task.action.targetIds.slice(0, 12),
-    };
   return context;
 }

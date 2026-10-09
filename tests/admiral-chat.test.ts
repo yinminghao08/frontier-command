@@ -243,10 +243,10 @@ describe('Admiral chat becomes scoped real engine commands', () => {
     }
     const next = order(e, battle, '沿 0/0 一路测绘回来直到 0/2，不走虫洞');
     issue(e, { type: 'MOVE', point: { x: -240, y: 0 } }, ship.id);
-    expect(next.status).toBe('cancelled');
-    expect(ship.current?.taskId).toBeNull();
+    expect(next.status).toBe('interrupted');
+    expect(ship.current?.objectiveId).not.toBe(next.id);
     run(e, 10);
-    expect(next.status).toBe('cancelled');
+    expect(next.status).toBe('interrupted');
   });
   it('acknowledgements persist with reply links but do not wake peers into a feedback loop', () => {
     const e = quietEngine();
@@ -308,18 +308,18 @@ describe('Admiral chat becomes scoped real engine commands', () => {
         action: { type: 'RETURN' },
       }).ok,
     ).toBe(true);
-    expect(task.status).toBe('cancelled');
+    expect(task.status).toBe('interrupted');
     expect(ship.current?.action.type).toBe('RETURN');
     run(e, 2);
-    expect(task.status).toBe('cancelled');
+    expect(task.status).toBe('interrupted');
   });
-  it('QUEUE preserves the current physical delivery while cancelling future chat-task steps', () => {
+  it('QUEUE preserves the current complete objective before the next direct operation', () => {
     const e = quietEngine();
     const task = order(e, freight, '从 mine 运送 10 Materials 到 base');
     const ship = e.state.ships.find((s) => s.id === 'meridian')!;
     const currentId = ship.current!.id;
     issue(e, { type: 'RETURN' }, ship.id, 'QUEUE');
-    expect(task.status).toBe('cancelled');
+    expect(task.status).toBe('active');
     expect(ship.current!.id).toBe(currentId);
     expect(ship.queue[0].action.type).toBe('RETURN');
     until(e, () => !ship.current && !ship.queue.length);

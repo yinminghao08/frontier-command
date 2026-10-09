@@ -1151,6 +1151,7 @@ export const worldSchema = z
       if(!taskIds.has(task.objectiveId)||task.currentStep>task.steps.length||task.updatedAt>w.time||new Set(task.processedEventIds).size!==task.processedEventIds.length)bad('Invalid FAR Task');
       if(task.status==='completed'&&(!task.progress.verified||!task.completionEvidence.some(v=>v.kind==='verified')))bad('Task success lacks evidence');
     }
+    if(runtime.consumedSequence>runtime.events.length||runtime.nextEvent!==runtime.events.length+1||runtime.events.some((event,index)=>event.sequence!==index+1||event.eventId!=='domain:'+event.sequence))bad('Invalid event consumption cursor');
     if(new Set(runtime.events.map(e=>e.eventId)).size!==runtime.events.length||runtime.events.some(e=>e.sequence>=runtime.nextEvent||e.simulationTick>w.tick))bad('Invalid domain journal');
     if(new Set(runtime.replies.map(r=>r.key)).size!==runtime.replies.length)bad('Duplicate primary reply identity');
     if(new Set(runtime.interactions.map(i=>i.interactionId)).size!==runtime.interactions.length)bad('Duplicate interaction identity');

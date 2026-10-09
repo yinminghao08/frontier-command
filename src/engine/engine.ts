@@ -195,7 +195,6 @@ export class SimulationEngine {
     if (this.pending.some((r) => r.kind === 'newContact'))
       return [...events, ...this.pendingEvents.splice(0), ...this.finishCritical()];
     advanceEconomy(this, fixedDelta);
-    this.runtime.drain();
     advancePiracyPolicies(this);
     for (const s of [...w.ships]) {
       if (this.isCommandLost()) break;

@@ -134,8 +134,9 @@ export function proposeDirective(
       `请 ${ship.name} 执行 ${c.action.type}：${'targetIds' in c.action ? c.action.targetIds.join(' → ') : 'targetId' in c.action ? c.action.targetId : '所选任务'}`,
       [],
       'message',
-      { controlMode: 'voluntary' },
+      { controlMode: 'voluntary',origin:'engine' },
     );
+    (m.responses??={})[agent.id]='pending';
     receiveObjective(
       e,
       agent.id,

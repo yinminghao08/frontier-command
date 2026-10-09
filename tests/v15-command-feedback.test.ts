@@ -627,7 +627,7 @@ describe('v15 actual commands and feedback', () => {
     expect(msg.responses?.[battle]).toBe('replied');
     expect(
       e.state.chatMessages.some(
-        (m) => m.origin === 'agent' && m.replyTo === msg.id && m.channelId === msg.channelId,
+        (m) => m.origin === 'engine' && m.replyTo === msg.id && m.channelId === msg.channelId,
       ),
     ).toBe(true);
     expect(tracker.stats().recentRequests[0]).toMatchObject({
@@ -790,7 +790,7 @@ describe('v15 actual commands and feedback', () => {
     const dir = mkdtempSync(join(tmpdir(), 'frontier-v15-migration-error-'));
     dirs.push(dir);
     const w = quietEngine().state,
-      old = { ...w, version: 14, agents: w.agents.map(({ stateDynamics: _, ...a }) => a) },
+      old = v14Fixture(w),
       bytes = JSON.stringify(old),
       root = join(dir, 'frontiers-v14', 'frontier-000001');
     mkdirSync(root, { recursive: true });
@@ -810,9 +810,9 @@ describe('v15 actual commands and feedback', () => {
     writeFileSync(join(root, 'day-1.json'), bytes);
     const recovered = new SaveStore(dir);
     expect(recovered.read().world?.version).toBe(16);
-    const index = readFileSync(join(dir, 'timeline-v15.json'), 'utf8');
+    const index = readFileSync(join(dir, 'timeline-v16.json'), 'utf8');
     writeFileSync(join(recovered.root, '.migration-v16.json'), index);
-    rmSync(join(dir, 'timeline-v15.json'));
+    rmSync(join(dir, 'timeline-v16.json'));
     expect(new SaveStore(dir).read().world?.version).toBe(16);
     expect(readFileSync(join(root, 'head.json'), 'utf8')).toBe(bytes);
   });

@@ -414,8 +414,8 @@ export function advanceShip(e: SimulationEngine, s: Ship, dt: number) {
     if(!source){e.complete(s,'装载来源已失效',true);return;}
     if(!go(e,s,d,source,dt,a.route,8))return;
     if(d.phase==='starting') {
-      const amount=Math.floor(Math.min(c.cargo-cargoUsed(s),available(w,source.id,a.cargoKind)));
-      if(amount<1){d.note=cargoUsed(s)>=c.cargo?'货舱已满，请卸货或改令':'等待实际生产或库存';return;}
+      const availableAmount=Math.min(c.cargo-cargoUsed(s),available(w,source.id,a.cargoKind)),amount=a.cargoKind==='materials'?availableAmount:Math.floor(availableAmount);
+      if(amount<=1e-8){d.note=cargoUsed(s)>=c.cargo?'货舱已满，请卸货或改令':'等待实际生产或库存';return;}
       d.reserved[a.cargoKind]=amount;d.phase='loading';d.work=0;
     }
     d.work+=dt;d.note='装载真实货物';

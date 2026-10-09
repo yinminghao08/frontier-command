@@ -28,13 +28,6 @@ export function decisionWorldKey(a: Agent, w: WorldState) {
       .filter((i) => i.live && i.hostile && !i.resolved)
       .map((i) => i.id)
       .sort(),
-    fatigue: a.fatigue >= 80 ? 'exhausted' : a.fatigue >= 50 ? 'tired' : 'ready',
-    trust: Math.floor(a.trust / 20),
-    morale: Math.floor(a.morale / 20),
-    growth: Math.floor(a.experience / 60),
-    peers: Object.entries(a.relationships)
-      .map(([id, r]) => [id, Math.floor((r.trust + r.cooperation) / 20)])
-      .sort(),
     goal: a.longTermGoal.activity,
   }).slice(0, 19000);
 }

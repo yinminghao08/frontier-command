@@ -54,7 +54,7 @@ describe('short LLM task judgments', () => {
     service.pump();
     finish!();
     await flush();
-    expect(e.state.objectives[0].status).toBe('cancelled');
+    expect(e.state.objectives[0].status).toBe('interrupted');
     expect(e.state.ships.find((s) => s.id === 'meridian')!.current?.action.type).toBe('REST');
     service.dispose();
   });

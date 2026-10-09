@@ -2,19 +2,9 @@ import type { Directive } from './types';
 import type { SimulationEngine } from './engine';
 import { appendChat, privateChannel, REPORT_CHANNEL } from './chat';
 export function directiveFeedback(e: SimulationEngine, d: Directive, text: string, phase: string) {
-  const message = e.state.chatMessages.find((m) => m.id === d.sourceMessageId);
-  const agent = e.state.agents.find((a) => a.id === d.executorAgentId || a.id === d.actorId);
-  appendChat(
-    e,
-    agent?.id ?? 'system',
-    message?.channelId ?? (agent ? privateChannel(agent.id) : REPORT_CHANNEL),
-    text,
-    [],
-    'reply',
-    {
-      origin: 'engine',
-      replyTo: message?.id ?? null,
-      eventId: `${d.id}:${d.cycle}:${phase}`.slice(0, 160),
-    },
-  );
+  const task=d.objectiveId?e.runtime.taskForObjective(d.objectiveId):null;
+  if(task){task.blockReason=/等待|满|不足|失效/.test(text)?text:null;task.updatedAt=e.state.time;return;}
+  // Untasked feedback is a structured engine fact and never a primary reply.
+  e.record('directiveProgress',d.id+' / '+phase+' / '+text,null,false);
+
 }

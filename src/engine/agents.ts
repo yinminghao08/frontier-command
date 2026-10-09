@@ -1,3 +1,4 @@
+import { replyRecord } from './agent-runtime/replies';
 import type { SimulationEngine } from './engine';
 import type {
   Agent,
@@ -376,6 +377,7 @@ export function applyAgentCommand(
     if (c.messageId) {
       const message = w.chatMessages.find((m) => m.id === c.messageId)!;
       message.responses![a.id] = 'pending';
+      const record=replyRecord(e,c.messageId,a.id);if(record.primaryMessageId===null){record.phase='pending';record.revision++;}
     }
     wakeAgent(a, 'manual', w.time, true);
     a.decision.lastError = null;
@@ -712,6 +714,7 @@ export function advanceAgents(e: SimulationEngine, dt: number) {
       !(ship?.current?.action.type === 'REST' && ship.status === 'docked') &&
       (ship?.current?.source === 'agent' || ship?.current?.executorAgentId === a.id);
     advanceAgentState(e, a, ship, dt);
+    if(!ship)continue;
     if (w.tick % 10 !== 0 || !a.enabled) continue;
     if (ship && hasAdmiralWork(ship)) {
       a.status = 'admiral';

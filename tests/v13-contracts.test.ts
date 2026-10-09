@@ -364,9 +364,9 @@ describe('v13 voluntary tasks and enforceable commitments', () => {
     });
     run(e, 1);
     const ship = e.state.ships.find((s) => s.id === 'horizon')!;
-    expect(ship.current?.taskId).toBe(task.id);
+    expect(ship.current?.objectiveId).toBe(task.id);
     e.complete(ship, '巡逻目标永久失效', true);
-    expect(task.status).toBe('failed');
+    e.runtime.drain();expect(task.status).toBe('failed');
     expect(e.state.commitments[0].status).toBe('refunded');
     expect(e.state.resources.credits).toBe(credits);
     run(e, 3);
@@ -563,7 +563,10 @@ describe('v13 voluntary tasks and enforceable commitments', () => {
     issue(e, { type: 'MOVE', point: { x: e.base.x + 15, y: e.base.y } }, ship.id, 'INTERRUPT');
     expect(rest.work).toBe(0);
     expect(a.experience).toBe(xp);
-    until(e, () => ship.current?.id === rest.id);
+    until(e,()=>ship.current===null);
+    const objective=e.state.objectives.find(o=>o.id===rest.objectiveId)!;
+    expect(e.runtime.taskForObjective(objective.id)?.status).toBe('interrupted');
+    expect(e.runtime.resume(objective.id,objective.revision).ok).toBe(true);
     run(e, 2);
     expect(ship.current?.id).toBe(rest.id);
     const resumedXp = a.experience;

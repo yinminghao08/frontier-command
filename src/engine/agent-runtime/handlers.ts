@@ -30,14 +30,15 @@ export function planTask(e: SimulationEngine, task: Objective) {
     return;
   const w = e.state,
     agent = w.agents.find((a) => a.id === task.agentId);
-  if (!agent) return;
-  if (task.goal.kind === 'cancel') {
+
+  if (task.goal.kind === 'cancel' && agent) {
+    for(const objective of e.state.objectives.filter(o=>o.id!==task.id&&o.ownerAgentId===agent.id)){const root=e.runtime.taskForObjective(objective.id);if(root&&!['completed','completed_partial','cancelled','failed'].includes(root.status))e.runtime.cancel(objective.id,objective.revision);}
     if (agent.assignedShipId)
       command(e, task, { type: 'cancelDirective', shipId: agent.assignedShipId });
     report(e, task, '指定舰船指令已取消，真实货物保留。', 'completed');
     return;
   }
-  if (task.goal.kind === 'assignment') {
+  if (task.goal.kind === 'assignment' && agent) {
     const shipId=task.goal.shipId;
     const result = command(e, task, {
       type: 'assignAgent',
@@ -54,7 +55,7 @@ export function planTask(e: SimulationEngine, task: Objective) {
     );
     return;
   }
-  let ship = w.ships.find((s) => s.id === agent.assignedShipId);
+  let ship = w.ships.find((s) => s.id === (agent?.assignedShipId??task.shipId));
   if (!ship) {
     report(e, task, '任务等待：尚未分配舰船，请先指定舰船。', 'blocked');
     return;
@@ -187,7 +188,7 @@ export function planTask(e: SimulationEngine, task: Objective) {
     task.reason = '物资已到位，等待实际施工';
     return;
   }
-  if (!task.carrierAgentId && capabilities(ship).cargo < need) {
+  if (agent && !task.carrierAgentId && capabilities(ship).cargo < need) {
     const peer = w.agents
       .filter(
         (a) =>

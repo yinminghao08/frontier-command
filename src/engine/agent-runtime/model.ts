@@ -45,7 +45,7 @@ export const interactionSchema = z.object({ interactionId: id, source: z.enum(['
 export type Interaction = z.infer<typeof interactionSchema>;
 const eventBase = { eventId: id, sequence: tick, sourceId: id, objectiveId: id.nullable(), taskId: id.nullable(), directiveId: id.nullable(), simulationTick: tick };
 export const domainEventSchema = z.discriminatedUnion('type', [
-  z.object({...eventBase, type: z.literal('directiveOutcome'), payload: z.object({shipId: id, actorId:id, executorAgentId:id.nullable(), contractId:id.nullable(), action: actionSchema, failed: z.boolean(), interrupted: z.boolean(), text: z.string().max(2000)}).strict()}).strict(),
+  z.object({...eventBase, type: z.literal('directiveOutcome'), payload: z.object({shipId: id, actorId:id, executorAgentId:id.nullable(), contractId:id.nullable(), work:count,carried:count,delivered:count,lost:count,cycle:tick,paidCredits:count,action: actionSchema, failed: z.boolean(), interrupted: z.boolean(), text: z.string().max(2000)}).strict()}).strict(),
   z.object({...eventBase, type: z.literal('cargoTransfer'), payload: z.object({ shipId: id, sourceId: id.nullable(), targetId: id.nullable(), cargoKind: goodsSchema, amount: count, disposition: z.enum(['loaded','delivered','consumed','lost']) }).strict()}).strict(),
   z.object({...eventBase, type: z.literal('taskTransition'), payload: z.object({from: taskStatusSchema, to: taskStatusSchema, reason: z.string().max(2000).nullable()}).strict()}).strict(),
 ]);

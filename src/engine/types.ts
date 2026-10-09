@@ -1154,6 +1154,7 @@ interface ObservationData {
   ownShips: Ship[];
   currentTask: Directive | null;
   objective: Objective | null;
+  runtimeTask: import('./agent-runtime/model').TaskState|null;
   taskProposals: Objective[];
   actionAvailability: { action: Action; autonomous: boolean; reason: string | null }[];
   constructionOptions: {

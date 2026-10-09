@@ -1,3 +1,4 @@
+import { commitPrimaryReply,replyRecord } from './agent-runtime/replies';
 import type { SimulationEngine } from './engine';
 import type { Agent, AgentMemory, ChatMessage, WorldState } from './types';
 import { AGENT_RULES } from './definitions/agents';
@@ -28,11 +29,8 @@ export function finishReply(
     task.status = 'cancelled';
     task.reason = status === 'superseded' ? '新的玩家消息替代了尚未接受的提议' : reason;
   }
-  appendChat(e, agentId, m.channelId, reason, [], status === 'failed' ? 'error' : 'reply', {
-    origin: 'engine',
-    replyTo: messageId,
-    eventId: `reply:${messageId}:${agentId}:${status}`,
-  });
+  const record=replyRecord(e,messageId,agentId);if(record.primaryMessageId===null){record.phase=status;record.revision++;}
+
 }
 export function remember(
   w: WorldState,
@@ -125,6 +123,11 @@ export function appendChat(
     'purpose' | 'replyTo' | 'origin' | 'eventId' | 'requestId' | 'controlMode'
   > = {},
 ) {
+  if(metadata.replyTo&&e.state.agents.some(a=>a.id===sender)&&e.state.chatMessages.some(m=>m.id===metadata.replyTo&&m.sender===e.state.commander.id)&&metadata.eventId!=='reply:'+metadata.replyTo+':'+sender) {
+    const primary=commitPrimaryReply(e,sender,metadata.replyTo,content,kind==='request'?'request':'reply');
+    if(primary)return primary;
+    return e.state.chatMessages.find(m=>m.id===metadata.replyTo)!;
+  }
   if (metadata.eventId) {
     const existing = e.state.chatMessages.find((m) => m.eventId === metadata.eventId);
     if (existing) return existing;

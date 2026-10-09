@@ -390,6 +390,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
     ship,
     currentTask: ship?.current ?? null,
     objective,
+    runtimeTask: objective?snap.agentRuntime.tasks.find(t=>t.objectiveId===objective.id)??null:null,
     taskProposals,
     constructionOptions,
     actionAvailability: ship

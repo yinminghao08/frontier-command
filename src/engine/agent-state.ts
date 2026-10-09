@@ -161,7 +161,7 @@ export function advanceAgentState(
       state.thresholds.push(key);
       remember(w, a, 'decision', `状态变化：${key}，需要重新判断工作与休息`, ship?.id ?? null, 8);
       e.record('agentState', `${a.name} / ${key}`, a.id, false);
-      if (a.enabled) wakeAgent(a, 'state:' + key, w.time);
+      if(a.enabled&&ship&&key!=='fatigue50')wakeAgent(a,'danger:'+key,w.time);
     }
   }
 }

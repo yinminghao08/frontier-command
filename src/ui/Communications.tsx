@@ -361,7 +361,7 @@ export function Communications({
                               </small>
                             )}
                           </header>
-                          <p>{highlightMentions(m.content, world)}</p>
+                          <p>{highlightMentions(m.eventId?.startsWith('lastLight:') ? m.content.replace(/^【剧情脚本·非 LLM】/, '') : m.content, world)}</p>
                           {m.responses &&
                             Object.entries(m.responses).map(([agentId, status]) => (
                               <div

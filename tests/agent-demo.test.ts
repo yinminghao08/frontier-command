@@ -44,7 +44,7 @@ describe('fixed-seed v13 autonomous collaboration demo', () => {
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
         validate: (c, id) => e.validate(c, id),
       },

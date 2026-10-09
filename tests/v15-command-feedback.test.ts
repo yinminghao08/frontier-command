@@ -40,7 +40,7 @@ function service(e: SimulationEngine, client: ChatCompletionsClient) {
   return new AgentDecisionService(
     {
       snapshot: () => e.snapshot(),
-      controllerPort: (id) => e.controllerPort(id),
+      cognitionPort: (id) => e.cognitionPort(id),
       command: (c, id) => e.dispatchCommand(c, id),
       validate: (c, id) => e.validate(c, id),
     },

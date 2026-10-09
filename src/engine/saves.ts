@@ -61,7 +61,7 @@ export function parseSave(input: unknown): WorldState {
       const reply=old.chatMessages.find(m=>m.sender===agentId&&m.replyTo===message.id);
       agentRuntime.replies.push({key:`reply:${message.id}:${agentId}`,sourceMessageId:message.id,recipientAgentId:agentId,phase:reply||response==='replied'?'committed':'failed',primaryMessageId:reply?.id??null,revision:0});
     }
-    const agents=base.agents.map(a=>({...a,decision:{...a.decision,revision:a.decision.revision+1,pendingReasons:[],events:[],lastAdmiralMessageId:Math.max(a.decision.lastAdmiralMessageId,0,...old.chatMessages.filter(m=>m.sender===old.commander.id&&(m.channelId==='private:'+a.id||m.mentions.includes(a.id))).map(m=>m.id))}}));
+    const agents=base.agents.map(a=>({...a,modelConfig:{...a.modelConfig,thinking:null,reasoningEffort:a.modelConfig.reasoningEffort==='none'?'provider-default' as const:a.modelConfig.reasoningEffort},decision:{...a.decision,revision:a.decision.revision+1,pendingReasons:[],events:[],lastAdmiralMessageId:Math.max(a.decision.lastAdmiralMessageId,0,...old.chatMessages.filter(m=>m.sender===old.commander.id&&(m.channelId==='private:'+a.id||m.mentions.includes(a.id))).map(m=>m.id))}}));
     const migrated={...base,version:16 as const,ships,agents,objectives,agentRuntime};
     for(const wreck of migrated.wrecks) {
       const loss=old.losses.find(l=>'wreck:'+l.shipId===wreck.id);

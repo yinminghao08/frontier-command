@@ -36,7 +36,7 @@ describe('short LLM task judgments', () => {
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (a) => e.controllerPort(a),
+        cognitionPort: (a) => e.cognitionPort(a),
         command: (c, a) => e.dispatchCommand(c, a),
         validate: (c, a) => e.validate(c, a),
       },
@@ -113,7 +113,7 @@ describe('short LLM task judgments', () => {
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (a) => e.controllerPort(a),
+        cognitionPort: (a) => e.cognitionPort(a),
         command: (c, a) => e.dispatchCommand(c, a),
         validate: (c, a) => e.validate(c, a),
       },

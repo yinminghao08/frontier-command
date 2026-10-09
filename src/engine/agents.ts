@@ -70,7 +70,7 @@ export function makeAgent(
     relationships: {},
     assignedShipId: shipId,
     originPersonnelId,
-    modelConfig: { model: null, reasoningEffort: null },
+    modelConfig: { model: null, reasoningEffort: null,thinking:null },
     enabled: true,
     status: shipId ? 'online' : 'unassigned',
     decision: {
@@ -145,6 +145,7 @@ export function validateAgentCommand(
   actorId: string,
 ): CommandResult | null {
   const w = e.state;
+  if(c.type==='cognitionDecision')return actorId===c.agentId?e.cognition.validate(c.agentId,c.requestId,c.response):no('不能提交其他Agent的认知');
   if (c.type === 'interpretInteraction') return null;
   if (c.type === 'sendChat') {
     const reason = chatReason(w, actorId, c.channelId, c.content, c.mentions);
@@ -298,6 +299,7 @@ export function applyAgentCommand(
   actorId: string,
 ): CommandResult | null {
   const w = e.state;
+  if(c.type==='cognitionDecision')return actorId===c.agentId?e.cognition.commit(c.agentId,c.requestId,c.response):no('不能提交其他Agent的认知');
   if (c.type === 'interpretInteraction') return null;
   if (c.type === 'sendChat') {
     appendChat(e, actorId, c.channelId, c.content, c.mentions, 'message', {
@@ -384,7 +386,9 @@ export function applyAgentCommand(
     return ok('已请求再次决策');
   }
   if (c.type === 'agentDecisionState') {
-    if (c.state === 'waiting') {
+    if (['waiting','receiving','validating'].includes(c.state)) {
+      const pending=pendingReply(w,a.id);
+      if(pending){const record=replyRecord(e,pending.id,a.id);if(record.primaryMessageId===null){record.phase=c.state==='validating'?'validating':c.state==='receiving'?'receiving':'pending';record.revision++;}}
       a.status = 'waiting';
       // Keep the triggering evidence durable while HTTP work is pending.
       // The service's per-Agent flight prevents concurrent logical decisions.
@@ -392,7 +396,7 @@ export function applyAgentCommand(
     } else if (c.state === 'ready') a.status = a.assignedShipId ? 'online' : 'unassigned';
     else {
       const alreadyOffline = c.state === 'offline' && a.decision.lastError === c.error;
-      a.status = c.state;
+      a.status = c.state==='error'?'error':'offline';
       a.decision.failures++;
       a.decision.lastError = c.error;
       a.decision.nextAt = w.time;
@@ -630,10 +634,8 @@ export function agentOutcome(
       failed ? 'danger' : 'report',
       { eventId: outcomeId },
     );
-  if (!cycle) {
-    a.decision.revision++;
+  if (!cycle && a.status !== 'waiting') {
     a.status = a.enabled ? 'online' : 'offline';
-    a.decision.nextAt = w.time + AGENT_RULES.minDecisionMinutes;
   }
 }
 export function agentVesselLost(e: SimulationEngine, ship: Ship) {

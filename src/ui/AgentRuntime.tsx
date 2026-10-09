@@ -20,7 +20,7 @@ export function AgentCallStatus({ status, agentId }: { agentId: string; status: 
   const current = stats?.activeRequests.find((r) => r.agentId === agentId);
   return status === 'waiting' ? (
     <span role="status">
-      {current?.phase === 'receiving' ? '正在接收回复' : '正在等待模型回复'}
+      {current?.phase === 'validating'?'正在校验回复':current?.phase === 'receiving' ? '正在接收回复' : '正在等待模型回复'}
       {current
         ? ` · 已用 ${Math.max(0, (Date.now() - current.decisionStartedAt) / 1000).toFixed(1)} 秒`
         : ''}
@@ -59,7 +59,7 @@ export function AgentRuntime() {
           {r.requestBytes} bytes · 响应{' '}
           {r.firstByteAt ? ((r.firstByteAt - r.startedAt) / 1000).toFixed(2) : '—'} 秒 · 总耗时{' '}
           {r.endedAt ? ((r.endedAt - r.startedAt) / 1000).toFixed(2) : '—'} 秒 · 校验{' '}
-          {r.validationMs} ms{r.failureKind ? ' · ' + r.failureKind : ''}
+          {r.validationMs} ms · 输入 {r.inputTokens??'未知'} / 输出 {r.outputTokens??'未知'} / 推理 {r.reasoningTokens??'未知'} Token{r.failureKind ? ' · ' + r.failureKind : ''}
           {r.reason ? ' · ' + r.reason : ''}
         </p>
       ))}

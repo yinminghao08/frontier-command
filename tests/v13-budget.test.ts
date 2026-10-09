@@ -186,7 +186,7 @@ describe('unlimited HTTP telemetry', () => {
       const service = new AgentDecisionService(
         {
           snapshot: () => e.snapshot(),
-          controllerPort: (id) => e.controllerPort(id),
+          cognitionPort: (id) => e.cognitionPort(id),
           command: (c, id) => e.dispatchCommand(c, id),
           validate: (c, id) => e.validate(c, id),
         },
@@ -225,7 +225,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
         validate: (c, id) => e.validate(c, id),
       },
@@ -276,7 +276,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,
@@ -346,7 +346,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,
@@ -387,7 +387,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,
@@ -424,7 +424,7 @@ describe('v13 meaningful event dispatch and bounded error recovery', () => {
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,

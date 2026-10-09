@@ -41,7 +41,9 @@ export class FrontierAgentRuntime {
     const shipId=objective.shipId??agent?.assignedShipId;
     task=createTask(objective,shipId??null);
     r.tasks.push(task);this.tasksByObjective.set(objective.id,task);this.tasksById.set(task.taskId,task);if(!terminalTask(task.status))this.activeObjectives.set(objective.id,objective);
-    if(!r.interactions.some(i=>i.interactionId===objective.originInteractionId))r.interactions.push({
+    const interaction=r.interactions.find(i=>i.interactionId===objective.originInteractionId);
+    if(interaction){interaction.objectiveId=objective.id;interaction.phase='committed';}
+    else r.interactions.push({
       interactionId:objective.originInteractionId,source:objective.messageId?'chat':'ui',senderId:objective.issuerId,
       recipientAgentId:objective.ownerAgentId,sourceMessageId:objective.messageId||null,instruction:objective.originalInstruction,
       authorizationMode:objective.controlMode,objectiveId:objective.id,phase:'committed',createdAt:this.e.state.time});

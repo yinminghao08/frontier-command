@@ -72,8 +72,8 @@ describe('FAR authoritative logistics and event ownership',()=>{
   it('Cadet 28 consumes no autonomous requests while unassigned but answers a player',async()=>{
     const {e}=logistics(0);for(const agent of e.state.agents)agent.enabled=false;
     const cadet=makeAgent('cadet-28','Cadet 28','logistics');registerAgent(e.state,cadet);
-    let calls=0;const client=new ChatCompletionsClient(async()=>{calls++;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({goal:'对话',rationale:'主动输入',action:null})}}]}));});
-    const service=new AgentDecisionService({snapshot:()=>e.snapshot(),controllerPort:id=>e.controllerPort(id),command:(c,id)=>e.dispatchCommand(c,id),validate:(c,id)=>e.validate(c,id)},()=>({baseUrl:'http://mock.invalid/v1',defaultModel:'mock',reasoningEffort:'none',apiKey:'isolated-test-key'}),client);
+    let calls=0;const client=new ChatCompletionsClient(async()=>{calls++;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({disposition:'conversation',proposal:null,allowWormholes:true,reply:'你好'})}}]}));});
+    const service=new AgentDecisionService({snapshot:()=>e.snapshot(),cognitionPort:id=>e.cognitionPort(id),command:(c,id)=>e.dispatchCommand(c,id),validate:(c,id)=>e.validate(c,id)},()=>({baseUrl:'http://mock.invalid/v1',defaultModel:'mock',reasoningEffort:'none',apiKey:'isolated-test-key'}),client);
     for(let i=0;i<10;i++){run(e,20);service.pump();}
     await new Promise(resolve=>setTimeout(resolve,20));expect(calls).toBe(0);
     expect(e.state.chatMessages.filter(m=>m.sender===cadet.id)).toHaveLength(0);

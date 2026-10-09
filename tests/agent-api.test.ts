@@ -211,7 +211,7 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,
@@ -261,7 +261,7 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,
@@ -293,7 +293,7 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     const service = new AgentDecisionService(
       {
         snapshot: () => e.snapshot(),
-        controllerPort: (id) => e.controllerPort(id),
+        cognitionPort: (id) => e.cognitionPort(id),
         command: (c, id) => e.dispatchCommand(c, id),
       },
       () => config,

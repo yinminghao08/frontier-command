@@ -1,16 +1,11 @@
+import type { CapabilityStatus,ModelCapabilities,ModelInfo,ModelsResult } from '../../src/engine/agent-api';
+export type { CapabilityStatus,ModelCapabilities,ModelInfo,ModelsResult } from '../../src/engine/agent-api';
+import type { ThinkingMode } from '../../src/engine/types';
+export type { ThinkingMode } from '../../src/engine/types';
 import type { ConnectionConfig } from './config';
 import { AgentApiError,abortable,httpError } from './transport';
 import { z } from 'zod';
 
-export type CapabilityStatus='supported'|'unsupported'|'unknown';
-export type ThinkingMode='provider-default'|'on'|'off';
-export interface ModelCapabilities {
-  thinkingOn:CapabilityStatus;thinkingOff:CapabilityStatus;reasoningEffort:CapabilityStatus;
-  strictSchema:CapabilityStatus;jsonObject:CapabilityStatus;toolCalling:CapabilityStatus;streaming:CapabilityStatus;
-  evidence:'official-documentation'|'unknown';
-}
-export interface ModelInfo {id:string;capabilities:ModelCapabilities;}
-export interface ModelsResult {ok:boolean;models:ModelInfo[];reason:string;directory:CapabilityStatus;}
 export const providerEndpoints=(baseUrl:string)=>{
   const url=new URL(baseUrl);url.pathname=url.pathname.replace(/\/+$/,'').replace(/\/chat\/completions$/,'');
   if(!url.pathname||url.pathname==='/')url.pathname='/v1';

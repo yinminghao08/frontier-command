@@ -378,6 +378,7 @@ export function getObservation(this: SimulationEngine, operatorId: string): Obse
         i.shipId === ship?.id ||
         snap.contacts.some((c) => c.hostile && i.attackerIds.includes(c.id)),
     ),
+    wrecks: snap.wrecks,
     rescueOptions: ship
       ? snap.agents
           .filter(

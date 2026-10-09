@@ -1,3 +1,4 @@
+import { CognitionGateway } from './cognition';
 import { advanceTrade } from './trade';
 import { advanceEvents } from './world-events';
 import { FIXED_DELTA, TICKS_PER_DAY, gameCalendar } from './clock';
@@ -29,6 +30,7 @@ import type {
 export { FIXED_DELTA } from './clock';
 export { dist } from './navigation';
 export class SimulationEngine {
+  readonly cognition = new CognitionGateway(this);
   state: WorldState;
   runtime: FrontierAgentRuntime;
   pending: CriticalReason[] = [];
@@ -125,6 +127,9 @@ export class SimulationEngine {
   submitAction = commands.submitAction.bind(this);
   snapshot = projection.snapshot.bind(this);
   getObservation = projection.getObservation.bind(this);
+  cognitionPort(agentId: string) {
+    return Object.freeze({prepare: () => this.cognition.prepare(agentId),cancel: () => this.cognition.cancel(agentId)});
+  }
   controllerPort(operatorId: string): AgentControllerPort {
     return Object.freeze({
       getObservation: () => this.getObservation(operatorId),

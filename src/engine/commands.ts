@@ -1,3 +1,4 @@
+import { cognitionResponseSchema } from './cognition-protocol';
 import { objectiveGoalSchema } from './agent-runtime/model';
 import { z } from 'zod';
 import { agentCareerSchema, modelConfigSchema } from './agent-schema';
@@ -114,6 +115,7 @@ const groupFields = {
   spacing: n.min(15).max(100),
 };
 export const commandSchema = z.discriminatedUnion('type', [
+  z.object({type:z.literal('cognitionDecision'),agentId:id,requestId:id,response:cognitionResponseSchema}).strict(),
   z
     .object({
       type: z.literal('respondPiracy'),
@@ -191,7 +193,7 @@ export const commandSchema = z.discriminatedUnion('type', [
       type: z.literal('agentDecisionState'),
       agentId: id,
       revision: n.int().min(0),
-      state: z.enum(['waiting', 'error', 'offline', 'ready']),
+      state: z.enum(['waiting','receiving','validating','error','offline','ready']),
       error: z.string().max(400).nullable(),
     })
     .strict(),

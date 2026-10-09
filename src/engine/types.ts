@@ -1,3 +1,4 @@
+import type { CognitionResponse } from './cognition-protocol';
 import type { SimulationSpeed } from './clock';
 import type { ShipClassId } from './definitions/ships';
 import type { ObjectiveGoal, RuntimeState } from './agent-runtime/model';
@@ -17,7 +18,8 @@ export type ModuleId =
 export type UpgradeId = 'shipyard' | 'armory' | 'sensors' | 'logistics' | 'defense';
 export type FacilityKind = 'base' | 'colony' | 'mine' | 'outpost' | 'platform';
 export type RouteKind = 'safe' | 'direct' | 'risky';
-export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high';
+export type ThinkingMode = 'provider-default' | 'on' | 'off';
+export type ReasoningEffort = 'provider-default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type AgentCareer = 'battle' | 'logistics';
 export type Activity = 'security' | 'logistics' | 'exploration' | 'growth';
 export interface AgentProfile {
@@ -108,7 +110,7 @@ export interface Agent {
   relationships: Record<string, { trust: number; cooperation: number; lastInteraction: number }>;
   assignedShipId: string | null;
   originPersonnelId: string | null;
-  modelConfig: { model: string | null; reasoningEffort: ReasoningEffort | null };
+  modelConfig: { model: string | null; reasoningEffort: ReasoningEffort | null; thinking?: ThinkingMode | null };
   enabled: boolean;
   status: 'online' | 'waiting' | 'executing' | 'error' | 'unassigned' | 'admiral' | 'offline';
   decision: {
@@ -1025,6 +1027,7 @@ interface SnapshotData {
   trade: TradeState;
 }
 export type Command =
+  | {type:'cognitionDecision';agentId:string;requestId:string;response:CognitionResponse}
   | { type: 'respondPiracy'; incidentId: string; shipId: string; response: 'comply' | 'refuse' }
   | { type: 'setPiracyPolicy'; shipId: string; policy: Ship['piracyPolicy'] }
   | { type: 'interpretInteraction'; agentId: string; messageId: number }
@@ -1065,7 +1068,7 @@ export type Command =
       type: 'agentDecisionState';
       agentId: string;
       revision: number;
-      state: 'waiting' | 'error' | 'offline' | 'ready';
+      state: 'waiting' | 'receiving' | 'validating' | 'error' | 'offline' | 'ready';
       error: string | null;
     }
   | { type: 'dismissMapMarker'; entityId: string }
@@ -1137,6 +1140,7 @@ export type Command =
 export type SessionCommand = { type: 'restorePreviousDay' | 'beginNewFrontier' };
 export type CommandResult = { ok: boolean; reason: string };
 interface ObservationData {
+  wrecks: Wreck[];
   piracyIncidents: PiracyIncident[];
   rescueOptions: { agentId: string; action: Action }[];
   time: number;

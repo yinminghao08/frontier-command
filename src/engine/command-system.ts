@@ -201,7 +201,7 @@ export function validate(
     return actorId === w.commander.id
       ? validateResolution(this, c)
       : no('仅 Admiral 可以确认预算或接管');
-  if (actorId === w.commander.id && ['agentDecision', 'agentDecisionState'].includes(c.type))
+  if (actorId === w.commander.id && ['agentDecision', 'agentDecisionState', 'cognitionDecision'].includes(c.type))
     return no('此命令仅允许主进程 Agent port 调用');
   if (
     actorId !== w.commander.id &&
@@ -209,7 +209,7 @@ export function validate(
       (c.type === 'issueDirective' &&
         c.shipIds.length === 1 &&
         w.assignments.some((a) => a.operatorId === actorId && a.shipId === c.shipIds[0])) ||
-      (['agentDecision', 'agentDecisionState'].includes(c.type) &&
+      (['agentDecision', 'agentDecisionState', 'cognitionDecision'].includes(c.type) &&
         'agentId' in c &&
         c.agentId === actorId) ||
       (c.type === 'sendChat' && w.agents.some((a) => a.id === actorId))

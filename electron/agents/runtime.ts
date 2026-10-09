@@ -46,12 +46,14 @@ export class RequestTracker {
   }
   validation(agentId: string, milliseconds: number) {
     const timing = [...this.timings].reverse().find((t) => t.agentId === agentId);
-    if (timing) timing.validationMs += milliseconds;
+    if (timing){timing.validationMs+=milliseconds;timing.validatedAt=this.now();timing.endedAt=timing.validatedAt;}
   }
+  validating(agentId:string){const timing=[...this.timings].reverse().find(t=>t.agentId===agentId);if(timing){timing.phase='validating';timing.endedAt=null;}}
+  validated(agentId:string){const timing=[...this.timings].reverse().find(t=>t.agentId===agentId);if(timing){timing.phase='completed';timing.endedAt=this.now();}}
   rejected(agentId: string, reason: string) {
     const timing = [...this.timings].reverse().find((t) => t.agentId === agentId);
     if (timing) {
-      timing.phase = 'failed';
+      timing.phase = 'failed';timing.endedAt=this.now();
       timing.failureKind = 'validation';
       timing.reason = reason.slice(0, 400);
     }
@@ -75,7 +77,9 @@ export class RequestTracker {
       byAgent: { ...this.byAgent },
     };
   }
-  usage(value: unknown) {
+  usage(value: unknown, timing?:AgentRequestTiming) {
+    const metadata=z.object({prompt_tokens:z.number().int().nonnegative().optional(),completion_tokens:z.number().int().nonnegative().optional(),completion_tokens_details:z.object({reasoning_tokens:z.number().int().nonnegative().optional()}).optional()}).safeParse(value);
+    if(timing){timing.inputTokens=metadata.success?metadata.data.prompt_tokens??null:null;timing.outputTokens=metadata.success?metadata.data.completion_tokens??null:null;timing.reasoningTokens=metadata.success?metadata.data.completion_tokens_details?.reasoning_tokens??null:null;}
     const parsed = z.object({ total_tokens: z.number().int().min(0) }).safeParse(value);
     if (parsed.success) this.counts.tokens += parsed.data.total_tokens;
     else this.counts.unknownUsage++;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Agent, Snapshot, ReasoningEffort } from '../engine/types';
+import type { Agent, Snapshot, ReasoningEffort,ThinkingMode } from '../engine/types';
 import type { AgentApiSettings } from '../engine/agent-api';
 import type { CommandSender } from './types';
 import { LcarsButton, LcarsField, LcarsMeter, LcarsTextBar } from './components/Lcars';
@@ -128,6 +128,7 @@ function AgentDetail({
       agent.modelConfig.reasoningEffort ?? '',
     ),
     [enabled, setEnabled] = useState(agent.enabled);
+  const [thinking,setThinking]=useState<ThinkingMode|''>(agent.modelConfig.thinking??'');
   const ship = world.ships.find((s) => s.id === agent.assignedShipId);
   const objective = [...world.objectives].reverse().find((t) => t.agentId === agent.id);
   return (
@@ -302,11 +303,16 @@ function AgentDetail({
           onChange={(e) => setEffort(e.target.value as typeof effort)}
         >
           <option value="">继承全局 / {defaults?.reasoningEffort}</option>
-          {Object.entries(EFFORT_LABELS).map(([key, label]) => (
+          {Object.entries(EFFORT_LABELS).filter(([key])=>key!=='none').map(([key, label]) => (
             <option key={key} value={key}>
               {label}
             </option>
           ))}
+        </select>
+      </LcarsField>
+      <LcarsField>THINKING / 独立思考
+        <select aria-label="Agent 独立思考" value={thinking} onChange={e=>setThinking(e.target.value as typeof thinking)}>
+          <option value="">继承全局 / {defaults?.thinking??'provider-default'}</option><option value="provider-default">供应商默认</option><option value="on">ON / 开启</option><option value="off">OFF / 关闭</option>
         </select>
       </LcarsField>
       <LcarsField>
@@ -323,7 +329,7 @@ function AgentDetail({
           command({
             type: 'configureAgent',
             agentId: agent.id,
-            modelConfig: { model: model.trim() || null, reasoningEffort: effort || null },
+            modelConfig: { model: model.trim() || null, reasoningEffort: effort || null,thinking:thinking||null },
             enabled,
           })
         }

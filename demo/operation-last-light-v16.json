@@ -397,7 +397,7 @@
     },
     {
       "operatorId": "ops-veil-demo",
-      "shipId": "veil-demo",
+      "shipId": "veil",
       "since": 884
     }
   ],
@@ -1151,7 +1151,7 @@
     {
       "x": -292,
       "y": 12,
-      "id": "veil-demo",
+      "id": "veil",
       "name": "USS VEIL / 帷幕号",
       "classId": "veil",
       "factionId": "starfleet",
@@ -3382,13 +3382,13 @@
       "kind": "derelict",
       "category": "废弃 Veil 侦察舰",
       "population": 0,
-      "survey": 1,
+      "survey": 2,
       "habitable": false,
       "remaining": 0,
       "richness": 1.2,
       "hazard": 0.05,
       "hidden": false,
-      "specialClaimed": false,
+      "specialClaimed": true,
       "discovered": true
     },
     {

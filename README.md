@@ -12,7 +12,6 @@ Ctrl 可多选敌舰并保留己方舰船选择。攻击按选择顺序集中清
 
 运输默认自动装满可用舱位，受实际库存、目的仓位和建设需求约束。满载修订继承持久的来源、路线和交付目标，保留已装货物并补装；自愿目标发生实质修订时重新取得同意。“矿场装满后返航”先装载实际可用库存，再返回并保留货物；明确要求交付时才卸货。状态按真实活动明显变化：30 游戏分钟普通工作疲劳 +7.5、持续交战约 +15、安全休息 −22.5，实际受击立即产生压力。
 
-![v13 任务协商](docs/verification/v13/request-negotiation.png)
 
 ## 运行
 
@@ -156,3 +155,5 @@ npx playwright test tests/e2e/v13.spec.ts tests/e2e/agents.spec.ts
 验收使用隔离 userData、仓库内 v12 fixture 和本地 HTTP 测试 provider；不读取玩家 APPDATA。真实模型的输出可不同，必须通过相同的结构与规则验证。应用没有脚本决策回退；正常试玩使用玩家配置的真实模型。[v13 验证记录](docs/verification/v13/README.md)。
 
 [架构](docs/architecture.md) · [世界](docs/worldbuilding.md) · [验收](docs/acceptance.md) · [演示](docs/demo-script.md) · [验证记录](docs/verification.md)
+
+开发产物统一写入 `.test-data/`；历史截图只保留在本地。新克隆请运行 `npm run hooks:install` 启用提交和推送检查，详情见 [仓库维护规则](docs/repository-hygiene.md)。必要运行字体已保留，普通构建与离线运行无需下载或生成字体。

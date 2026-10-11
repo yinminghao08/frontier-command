@@ -541,7 +541,7 @@ describe('v14 starts an independent world and preserves historical chat files', 
   it('does not import or replay old commands and leaves older branch bytes unchanged', () => {
     const dir = mkdtempSync(join(tmpdir(), 'frontier-v14-isolation-'));
     directories.push(dir);
-    const old = readFileSync('demo/agent-demo-v11.json', 'utf8');
+    const old = readFileSync('tests/fixtures/demo/agent-demo-v11.json', 'utf8');
     const root = join(dir, 'frontiers-v11', 'frontier-000001');
     mkdirSync(root, { recursive: true });
     writeFileSync(join(root, 'head.json'), old);

@@ -1,3 +1,4 @@
+import './test-data.mjs';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, mkdtempSync } from 'node:fs';
 import { resolve, join } from 'node:path';

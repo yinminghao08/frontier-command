@@ -4,15 +4,15 @@
 
 # 历史 Frontier Command / v9 验证记录
 
-验证日期：2026-10-06。基线为本地提交 `49f5660`，保持主进程引擎、固定步、现有指令、事件和 LCARS 26 Classic 架构。新建严格 v9 世界；原 v8 世界文件没有读取、迁移或修改。所有检查的汇总见 [验收结果](verification/v9/checks-summary.json)。
+验证日期：2026-10-06。基线为本地提交 `49f5660`，保持主进程引擎、固定步、现有指令、事件和 LCARS 26 Classic 架构。新建严格 v9 世界；原 v8 世界文件没有读取、迁移或修改。所有检查的汇总见 验收结果（历史产物，仅本地保留：`verification/v9/checks-summary.json`）。
 
 | 检查                                | 结果与证据                                                                                                                                                                |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm test`                          | 11 文件、159 项通过；[机器结果](verification/v9/unit-last-run.json)                                                                                                       |
-| `npm run build`                     | 严格 TypeScript、Vite Renderer、Electron 主进程生产编译通过；[构建输出](verification/v9/build-last-run.txt)                                                               |
-| 完整 Electron E2E                   | 30 项通过，无失败、跳过或重试；[机器结果](verification/v9/electron-last-run.json)                                                                                         |
-| 正常新世界、可见 Electron、离线字体 | seed 236807 通过；[真实实玩记录](verification/v9/acceptance-236807.json)                                                                                                  |
-| 原生显示缩放与文字/界面放大         | 125% / 150% / 200%，文字 100% / 150% / 200%；[125%](verification/v9/display-125.json)、[150%](verification/v9/display-150.json)、[200%](verification/v9/display-200.json) |
+| `npm test`                          | 11 文件、159 项通过；机器结果（历史产物，仅本地保留：`verification/v9/unit-last-run.json`）                                                                                                       |
+| `npm run build`                     | 严格 TypeScript、Vite Renderer、Electron 主进程生产编译通过；构建输出（历史产物，仅本地保留：`verification/v9/build-last-run.txt`）                                                               |
+| 完整 Electron E2E                   | 30 项通过，无失败、跳过或重试；机器结果（历史产物，仅本地保留：`verification/v9/electron-last-run.json`）                                                                                         |
+| 正常新世界、可见 Electron、离线字体 | seed 236807 通过；真实实玩记录（历史产物，仅本地保留：`verification/v9/acceptance-236807.json`）                                                                                                  |
+| 原生显示缩放与文字/界面放大         | 125% / 150% / 200%，文字 100% / 150% / 200%；125%（历史产物，仅本地保留：`verification/v9/display-125.json`）、150%（历史产物，仅本地保留：`verification/v9/display-150.json`）、200%（历史产物，仅本地保留：`verification/v9/display-200.json`） |
 
 ## 航线、连续选舰和物流
 
@@ -22,9 +22,9 @@
 
 实际 Wormhole 穿越后，主进程仅推送己方舰船 ID、实际出口和 tick。镜头在真实出口跟随，重新点击正在跟随的舰船保留跟随，选残骸结束；管理窗口和正在编辑的指令不因展示事件被关闭。批量穿越优先保留主选舰的跟随。
 
-![连续多舰选择与 Dawn 卸货](verification/v9/multi-selection-unload.png)
+连续多舰选择与 Dawn 卸货（历史产物，仅本地保留：`verification/v9/multi-selection-unload.png`）
 
-![实际穿越后跟随舰船](verification/v9/wormhole-follow.png)
+实际穿越后跟随舰船（历史产物，仅本地保留：`verification/v9/wormhole-follow.png`）
 
 ## 接管指引、隐形和地图清理
 
@@ -34,7 +34,7 @@ SURVEY 近距完成的同一步立即建立现有失落舰船事件，详情提�
 
 普通 Orion/Romulan 跟踪仍需真实传感器观测，会积累暴露并被假航点甩尾。Veil 隐形尾随到实际目的地，先显示疑似设施，再持续侦察十游戏分钟确认。未知基地、AI intent、真目的地、假航点及私有暴露证据不进入公开输出。秘密尾随的 Electron 测试由实际按钮下令和确认警报；测试通过独立存档判定私有甩尾状态，没有 Renderer 测试修改入口。
 
-![接管后隐形状态](verification/v9/veil-captured-cloak.png)
+接管后隐形状态（历史产物，仅本地保留：`verification/v9/veil-captured-cloak.png`）
 
 ## 接触警报与真实进度
 
@@ -46,9 +46,9 @@ SURVEY 近距完成的同一步立即建立现有失落舰船事件，详情提�
 
 五项战略升级按钮旁的百分比、进度条和剩余游戏分钟来自真实工作量，暂停明确标注，施工按钮禁用，完成后 ONLINE；真实 UI 在管理页保持打开时验证进度增加与完成。造舰、制造和改装使用同一进度组件及其引擎工作数值，原经济/工业回归验证执行结算。
 
-![合并接触警报](verification/v9/contact-alert.png)
+合并接触警报（历史产物，仅本地保留：`verification/v9/contact-alert.png`）
 
-![真实升级进度与暂停状态](verification/v9/upgrade-paused.png)
+真实升级进度与暂停状态（历史产物，仅本地保留：`verification/v9/upgrade-paused.png`）
 
 ## 可读性与字体
 
@@ -60,9 +60,9 @@ SURVEY 近距完成的同一步立即建立现有失落舰船事件，详情提�
 
 标签只在标记附近避让，连线接文字框最近边缘且不超过当前字号 4em；不足时省略名称或隐藏低优先级文字，全名由悬浮/详情提供。三层地图继续使用现有稀疏生成和统一语义 palette。
 
-![默认文字与五项基地资源](verification/v9/native-125-text-100.png)
+默认文字与五项基地资源（历史产物，仅本地保留：`verification/v9/native-125-text-100.png`）
 
-![200% 原生显示缩放与 200% 文字](verification/v9/native-200-text-200.png)
+200% 原生显示缩放与 200% 文字（历史产物，仅本地保留：`verification/v9/native-200-text-200.png`）
 
 ## 正常新世界和保留规则
 

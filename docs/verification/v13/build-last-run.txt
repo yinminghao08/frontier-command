@@ -1,4 +1,0 @@
-Command: npm run build
-Frontier Command: 1.4.0 / save version 13
-Result: exit code 0
-Validated: TypeScript --noEmit, Vite production renderer (123 modules), TypeScript Electron production output.

@@ -25,4 +25,4 @@
 
 本次为单次探索性运行。FAR 单步中位数有额外任务与验证开销，不能据此宣称引擎更快；请求体和无效唤醒数量的下降有实际记录。Mock p50/p95 保留在 JSON，仅反映本地定时器与进程调度，不代表真实供应商的连接、首字节、推理、费用或可用性。完整回收、取消、来源批次与存档恢复另由真实引擎测试覆盖。
 
-重现：先将基线源码 `git archive c83889a src/engine electron/agents` 导出到 `.test-data/far-baseline`，然后在工作区执行 `node scripts/benchmark-far.cjs`。未引入服务端或外部供应商访问。原始数据见 [far-performance.json](far-performance.json)。
+重现：先将基线源码 `git archive c83889a src/engine electron/agents` 导出到 `.test-data/far-baseline`，然后在工作区执行 `node scripts/benchmark-far.cjs`。未引入服务端或外部供应商访问。原始数据见 far-performance.json（历史产物，仅本地保留：`far-performance.json`）。

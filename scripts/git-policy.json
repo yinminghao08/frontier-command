@@ -1,0 +1,29 @@
+{
+  "maxBytes": 1048576,
+  "allow": {
+    "fonts/AlibabaPuHuiTi-LCARS-Regular.ttf": 9000000,
+    "fonts/AlibabaPuHuiTi-LCARS-Bold.ttf": 17000000,
+    "src/assets/lcars-26/assets/Antonio-Regular.woff2": 100000,
+    "src/assets/lcars-26/assets/Antonio-Bold.woff2": 100000,
+    "src/assets/lcars-26/assets/beep1.mp3": 100000,
+    "src/assets/lcars-26/assets/beep2.mp3": 100000,
+    "src/assets/lcars-26/assets/beep3.mp3": 100000,
+    "src/assets/lcars-26/assets/beep4.mp3": 100000,
+    "src/assets/lcars-26/assets/picard-key.mp3": 100000,
+    "src/assets/lcars-26/assets/sfcmd.png": 300000,
+    "build/icon.png": 200000,
+    "build/icon.ico": 200000
+  },
+  "fixtures": [
+    "tests/fixtures/v9/initial.json",
+    "tests/fixtures/v9/in-progress.json",
+    "tests/fixtures/v9/continued.json",
+    "tests/fixtures/v9/command-lost.json",
+    "tests/fixtures/v12/in-progress.json",
+    "tests/fixtures/demo/agent-demo-v11.json",
+    "tests/fixtures/demo/agent-demo-v16.json",
+    "tests/fixtures/demo/user-data/frontiers-v11/frontier-000001/branch.json",
+    "tests/fixtures/demo/user-data/frontiers-v11/frontier-000001/head.json",
+    "tests/fixtures/demo/user-data/timeline-v11.json"
+  ]
+}

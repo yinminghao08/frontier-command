@@ -6,7 +6,7 @@ import { advanceLastLight, isLastLightWaiting } from '../src/engine/last-light';
 import type { Objective, WorldState } from '../src/engine/types';
 
 function prepare() {
-  const input = JSON.parse(readFileSync('demo/agent-demo-v16.json', 'utf8')) as WorldState;
+  const input = JSON.parse(readFileSync('tests/fixtures/demo/agent-demo-v16.json', 'utf8')) as WorldState;
   const world = parseSave(input);
   const old = world.agents.find((a) => a.id === 'ops-horizon')!;
   world.agents.push({ ...structuredClone(old), id: 'ops-resolute-demo', name: 'Rhea' });

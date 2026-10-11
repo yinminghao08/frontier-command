@@ -111,7 +111,7 @@ test('complete UI lifecycle: rename, pause, new world, copy progress, load, canc
   await confirmation.getByRole('button', { name: '确认删除', exact: true }).click();
   await expect(manager(page).locator(`[data-save-id="${fresh}"]`)).toHaveCount(0);
   expect((await catalog(page)).saves).toHaveLength(2);
-  await page.screenshot({ path: 'test-results/save-manager-wide.png', animations: 'disabled' });
+  await page.screenshot({ path: '.test-data/test-results/save-manager-wide.png', animations: 'disabled' });
   expect(errors).toEqual([]);
   await app!.close();
   app = undefined;
@@ -242,7 +242,7 @@ test('LCARS manager handles many saves, long names, a small window, large text a
   const overflow = await manager(page).evaluate((el) => el.scrollWidth > el.clientWidth + 1);
   expect(overflow).toBe(false);
   await page.screenshot({
-    path: 'test-results/save-manager-small-large-text.png',
+    path: '.test-data/test-results/save-manager-small-large-text.png',
     animations: 'disabled',
   });
   await page.keyboard.press('Escape');

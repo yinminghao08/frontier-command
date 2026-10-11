@@ -163,7 +163,7 @@ test('real UI: discoveries, construction cargo, directives, refit, strategic upg
   await nav(page, 'ARCHIVE');
   await page.getByRole('button', { name: '立即保存', exact: true }).click();
   const saved = await state(page);
-  await page.screenshot({ path: 'test-results/v9-playable.png', animations: 'disabled' });
+  await page.screenshot({ path: '.test-data/test-results/v9-playable.png', animations: 'disabled' });
   expect(errors).toEqual([]);
   await app!.close();
   app = undefined;
@@ -231,7 +231,7 @@ test('new contacts pause, acknowledgment and focus preserve pause; illegal direc
   await d.getByLabel('航线', { exact: true }).selectOption('risky');
   await expect(d).toContainText('exposed corridor');
   await expect(d).toContainText('航段已测绘');
-  await page.screenshot({ path: 'test-results/v9-risky-route.png', animations: 'disabled' });
+  await page.screenshot({ path: '.test-data/test-results/v9-risky-route.png', animations: 'disabled' });
   await page.keyboard.press('Escape');
   await running(page);
   await expect.poll(async () => (await state(page)).contacts.length).toBeGreaterThan(0);

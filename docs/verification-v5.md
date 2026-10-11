@@ -20,21 +20,21 @@
 
 | 内容视口 | 实际截图 |
 | --- | --- |
-| 1600×900 | [主控制台](screenshots/lcars-console-1600x900.png) |
-| 1920×1080 | [主控制台](screenshots/lcars-console-1920x1080.png) |
-| 1920×1200 | [主控制台](screenshots/lcars-console-1920x1200.png) |
-| 2560×1440 | [主控制台](screenshots/lcars-console-2560x1440.png) |
-| 2560×1600 | [主控制台](screenshots/lcars-console-2560x1600.png) |
-| 3840×2160 | [主控制台](screenshots/lcars-console-3840x2160.png) |
-| 125% 显示缩放 | [控制台](screenshots/lcars-scale-125.png)、[表单](screenshots/lcars-scale-125-form.png) |
-| 150% 显示缩放 | [控制台](screenshots/lcars-scale-150.png)、[表单](screenshots/lcars-scale-150-form.png) |
-| 200% 显示缩放 | [控制台](screenshots/lcars-scale-200.png)、[表单](screenshots/lcars-scale-200-form.png)、[Inspector 覆盖层](screenshots/lcars-compact-inspector.png) |
+| 1600×900 | 主控制台（历史产物，仅本地保留：`screenshots/lcars-console-1600x900.png`） |
+| 1920×1080 | 主控制台（历史产物，仅本地保留：`screenshots/lcars-console-1920x1080.png`） |
+| 1920×1200 | 主控制台（历史产物，仅本地保留：`screenshots/lcars-console-1920x1200.png`） |
+| 2560×1440 | 主控制台（历史产物，仅本地保留：`screenshots/lcars-console-2560x1440.png`） |
+| 2560×1600 | 主控制台（历史产物，仅本地保留：`screenshots/lcars-console-2560x1600.png`） |
+| 3840×2160 | 主控制台（历史产物，仅本地保留：`screenshots/lcars-console-3840x2160.png`） |
+| 125% 显示缩放 | 控制台（历史产物，仅本地保留：`screenshots/lcars-scale-125.png`）、表单（历史产物，仅本地保留：`screenshots/lcars-scale-125-form.png`） |
+| 150% 显示缩放 | 控制台（历史产物，仅本地保留：`screenshots/lcars-scale-150.png`）、表单（历史产物，仅本地保留：`screenshots/lcars-scale-150-form.png`） |
+| 200% 显示缩放 | 控制台（历史产物，仅本地保留：`screenshots/lcars-scale-200.png`）、表单（历史产物，仅本地保留：`screenshots/lcars-scale-200-form.png`）、Inspector 覆盖层（历史产物，仅本地保留：`screenshots/lcars-compact-inspector.png`） |
 
 地图始终占主工作区最大面积；抽屉开启前后地图 viewport 不变。六项导航在高缩放下仍可访问。FIT、8× 上限、指针缩放、四向平移边界、窗口调整、语义缩放与标签避让均通过实际交互检查。模态表单 Tab 循环、Escape 及关闭后焦点恢复已验证；COMMAND LOST 保留明确的恢复、档案和新世界入口。
 
-管理页面：[Operations](screenshots/lcars-operations.png)、[Personnel](screenshots/lcars-personnel.png)、[Starbase](screenshots/lcars-starbase.png)、[Colonies](screenshots/lcars-colonies.png)、[Archive](screenshots/lcars-archive.png)。任务表单：[Defense](screenshots/lcars-form-defense.png)、[Transport](screenshots/lcars-form-transport.png)、[Explore](screenshots/lcars-form-explore.png)。
+管理页面：Operations（历史产物，仅本地保留：`screenshots/lcars-operations.png`）、Personnel（历史产物，仅本地保留：`screenshots/lcars-personnel.png`）、Starbase（历史产物，仅本地保留：`screenshots/lcars-starbase.png`）、Colonies（历史产物，仅本地保留：`screenshots/lcars-colonies.png`）、Archive（历史产物，仅本地保留：`screenshots/lcars-archive.png`）。任务表单：Defense（历史产物，仅本地保留：`screenshots/lcars-form-defense.png`）、Transport（历史产物，仅本地保留：`screenshots/lcars-form-transport.png`）、Explore（历史产物，仅本地保留：`screenshots/lcars-form-explore.png`）。
 
-Inspector：[地点](screenshots/lcars-inspector-location.png)、[舰船](screenshots/lcars-inspector-ship.png)、[接触](screenshots/lcars-inspector-contact.png)、[调查决策](screenshots/lcars-inspector-decision.png)、[坐标](screenshots/lcars-inspector-point.png)、[永久舰损](screenshots/lcars-inspector-loss.png)。其他状态：[设置](screenshots/lcars-settings.png)、[COMMAND LOST](screenshots/v5-command-lost-1920.png)、[新世界确认](screenshots/v5-new-frontier-confirm.png)。
+Inspector：地点（历史产物，仅本地保留：`screenshots/lcars-inspector-location.png`）、舰船（历史产物，仅本地保留：`screenshots/lcars-inspector-ship.png`）、接触（历史产物，仅本地保留：`screenshots/lcars-inspector-contact.png`）、调查决策（历史产物，仅本地保留：`screenshots/lcars-inspector-decision.png`）、坐标（历史产物，仅本地保留：`screenshots/lcars-inspector-point.png`）、永久舰损（历史产物，仅本地保留：`screenshots/lcars-inspector-loss.png`）。其他状态：设置（历史产物，仅本地保留：`screenshots/lcars-settings.png`）、COMMAND LOST（历史产物，仅本地保留：`screenshots/v5-command-lost-1920.png`）、新世界确认（历史产物，仅本地保留：`screenshots/v5-new-frontier-confirm.png`）。
 
 ## 反馈、持久化与功能
 
@@ -97,13 +97,13 @@ Inspector：[地点](screenshots/lcars-inspector-location.png)、[舰船](screen
 
 | 画面         | 1920×1080                                         | 1600×900                                          |
 | ------------ | ------------------------------------------------- | ------------------------------------------------- |
-| 主界面       | [截图](screenshots/v5-sector-1920.png)            | [截图](screenshots/v5-sector-1600.png)            |
-| 任务表单     | [截图](screenshots/v5-composer-1920.png)          | [截图](screenshots/v5-composer-1600.png)          |
-| 表单提交控件 | [截图](screenshots/v5-composer-controls-1920.png) | [截图](screenshots/v5-composer-controls-1600.png) |
-| 人员分配     | [截图](screenshots/v5-personnel-1920.png)         | [截图](screenshots/v5-personnel-1600.png)         |
-| COMMAND LOST | [截图](screenshots/v5-command-lost-1920.png)      | [截图](screenshots/v5-command-lost-1600.png)      |
+| 主界面       | 截图（历史产物，仅本地保留：`screenshots/v5-sector-1920.png`）            | 截图（历史产物，仅本地保留：`screenshots/v5-sector-1600.png`）            |
+| 任务表单     | 截图（历史产物，仅本地保留：`screenshots/v5-composer-1920.png`）          | 截图（历史产物，仅本地保留：`screenshots/v5-composer-1600.png`）          |
+| 表单提交控件 | 截图（历史产物，仅本地保留：`screenshots/v5-composer-controls-1920.png`） | 截图（历史产物，仅本地保留：`screenshots/v5-composer-controls-1600.png`） |
+| 人员分配     | 截图（历史产物，仅本地保留：`screenshots/v5-personnel-1920.png`）         | 截图（历史产物，仅本地保留：`screenshots/v5-personnel-1600.png`）         |
+| COMMAND LOST | 截图（历史产物，仅本地保留：`screenshots/v5-command-lost-1920.png`）      | 截图（历史产物，仅本地保留：`screenshots/v5-command-lost-1600.png`）      |
 
-另见[舰损档案](screenshots/v5-vessel-loss.png)、[实物装弹](screenshots/v5-armory-loading.png)、[Day1恢复禁用](screenshots/v5-day-one-lost.png)、[新世界确认](screenshots/v5-new-frontier-confirm.png)。其余抽屉截图保存在同目录v5前缀文件中；旧截图仅为历史产物，不作为此次验收证据。
+另见舰损档案（历史产物，仅本地保留：`screenshots/v5-vessel-loss.png`）、实物装弹（历史产物，仅本地保留：`screenshots/v5-armory-loading.png`）、Day1恢复禁用（历史产物，仅本地保留：`screenshots/v5-day-one-lost.png`）、新世界确认（历史产物，仅本地保留：`screenshots/v5-new-frontier-confirm.png`）。其余抽屉截图保存在同目录v5前缀文件中；旧截图仅为历史产物，不作为此次验收证据。
 
 ## 验证中修复的问题
 

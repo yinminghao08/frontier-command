@@ -1,3 +1,4 @@
+import './test-data.mjs';
 import { _electron as electron } from '@playwright/test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';

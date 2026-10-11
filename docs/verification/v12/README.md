@@ -20,10 +20,10 @@
 
 ## 画面
 
-![真实聊天开火](admiral-fire.png)
+真实聊天开火（历史产物，仅本地保留：`admiral-fire.png`）
 
-![玩家存档副本中的建设完成](player-save-construction.png)
+玩家存档副本中的建设完成（历史产物，仅本地保留：`player-save-construction.png`）
 
-![返航任务与 Admiral 接管](route-control.png)
+返航任务与 Admiral 接管（历史产物，仅本地保留：`route-control.png`）
 
-![200% 字号通讯窗](chat-1024-text-200.png)
+200% 字号通讯窗（历史产物，仅本地保留：`chat-1024-text-200.png`）

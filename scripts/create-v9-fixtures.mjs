@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 const { SimulationEngine } = require('../dist-electron/src/engine/engine.js');
 const { createWorld } = require('../dist-electron/src/engine/data.js');
 const { parseSave } = require('../dist-electron/src/engine/saves.js');
-const output = resolve('tests/fixtures/v9');
+const output = resolve('.test-data/generated-fixtures/v9');
 mkdirSync(output, { recursive: true });
 const save = (name, engine) =>
   writeFileSync(

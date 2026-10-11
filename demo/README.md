@@ -21,12 +21,12 @@ npx playwright test tests/e2e/v13.spec.ts
 
 测试 provider 只在 `tests/e2e/agent-provider.ts` 中使用，不是应用的决策回退。拒绝和直接接管分别有规则与 Electron 回归。没有 API 时，自愿任务等待判断；Admiral 仍能通过地图或直接接管模式指挥舰船。
 
-运行 `npm run demo:save` 导出 `agent-demo-v16.json` 和 `user-data/frontiers-v16` / `timeline-v16.json`，不包含 API Key。场景保留实际运行的 Orion 舰队；发布的旧版存档先验证再迁移，新时间线保留原文件。测试不读取玩家 APPDATA。
+运行 `npm run demo:save` 导出到 `.test-data/demo/` 下的 `agent-demo-v16.json` 和 `user-data/frontiers-v16` / `timeline-v16.json`，不包含 API Key。场景保留实际运行的 Orion 舰队；发布的旧版存档先验证再迁移，新时间线保留原文件。测试不读取玩家 APPDATA。
 
 用隔离演示目录启动：
 
 ```powershell
-$env:FRONTIER_USER_DATA = Join-Path (Get-Location) 'demo/user-data'
+$env:FRONTIER_USER_DATA = Join-Path (Get-Location) '.test-data/demo/user-data'
 npm start
 # 结束后恢复默认目录
 Remove-Item Env:FRONTIER_USER_DATA

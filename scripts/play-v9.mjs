@@ -1,3 +1,4 @@
+import './test-data.mjs';
 import { _electron as electron } from '@playwright/test';
 import { mkdtempSync, mkdirSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,7 +13,7 @@ if (seed !== undefined) {
   const { SaveStore } = require('../dist-electron/electron/persistence.js');
   new SaveStore(directory).write(createWorld(seed));
 }
-const output = resolve('docs/verification/v9');
+const output = resolve('.test-data/verification/v9');
 mkdirSync(output, { recursive: true });
 const log = join(output, 'play-' + (seed ?? 'default') + '.jsonl');
 const app = await electron.launch({

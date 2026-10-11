@@ -434,10 +434,10 @@ test('Electron v11: floating communications stays usable at narrow widths and 20
 test('Electron v14: old demo files stay untouched; a new demo awaits genuine model consent', async () => {
   test.setTimeout(90000);
   const directory = mkdtempSync(join(tmpdir(), 'frontier-v11-demo-'));
-  cpSync(resolve('demo/user-data/frontiers-v11'), join(directory, 'frontiers-v11'), {
+  cpSync(resolve('tests/fixtures/demo/user-data/frontiers-v11'), join(directory, 'frontiers-v11'), {
     recursive: true,
   });
-  cpSync(resolve('demo/user-data/timeline-v11.json'), join(directory, 'timeline-v11.json'));
+  cpSync(resolve('tests/fixtures/demo/user-data/timeline-v11.json'), join(directory, 'timeline-v11.json'));
   const p = await launch(directory);
   const initial = await state(p);
   expect(initial.paused).toBe(true);
@@ -445,7 +445,7 @@ test('Electron v14: old demo files stay untouched; a new demo awaits genuine mod
   expect(initial.speed).toBe(1);
   expect((await p.evaluate(() => window.frontier.agentSettings())).hasKey).toBe(false);
   expect(readFileSync(join(directory, 'timeline-v11.json'), 'utf8')).toBe(
-    readFileSync(resolve('demo/user-data/timeline-v11.json'), 'utf8'),
+    readFileSync(resolve('tests/fixtures/demo/user-data/timeline-v11.json'), 'utf8'),
   );
   await nav(p, 'ARCHIVE');
   const manager = p.getByRole('dialog', { name: 'ARCHIVE 工作面板' });

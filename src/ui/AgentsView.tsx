@@ -9,7 +9,9 @@ import { privateChannel } from '../engine/chat';
 import { ACTION_LABELS } from './format';
 import { AgentRequests } from './AgentRequests';
 import { workWillingness } from '../engine/personality';
-import { AgentCallStatus } from './AgentRuntime';
+import { AgentCallStatus, AgentRuntime } from './AgentRuntime';
+import { ReasoningNotice } from './ReasoningNotice';
+import { effortLabel, thinkingConflict } from '../engine/deepseek';
 export const AGENT_STATUS: Record<Agent['status'], string> = {
   online: 'ONLINE / 在线',
   waiting: 'WAITING / 正在处理模型决策',
@@ -31,8 +33,18 @@ export function AgentsView({
   const [selectedId, setSelectedId] = useState<string | null>(null),
     [defaults, setDefaults] = useState<AgentApiSettings | null>(null);
   useEffect(() => {
-    void window.frontier.agentSettings().then(setDefaults);
-  }, []);
+    let mounted = true;
+    const refresh = () =>
+      void window.frontier.agentSettings().then((s) => {
+        if (mounted) setDefaults(s);
+      });
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => {
+      mounted = false;
+      window.removeEventListener('focus', refresh);
+    };
+  }, [selectedId]);
   const selected = world.agents.find((a) => a.id === selectedId);
   return (
     <div className="agents-workspace">
@@ -91,7 +103,13 @@ export function AgentsView({
                     <span>
                       {a.modelConfig.model ?? defaults?.defaultModel ?? '全局默认'}
                       <small>
-                        {a.modelConfig.reasoningEffort ?? defaults?.reasoningEffort ?? '继承全局'}
+                        {effortLabel(
+                          defaults?.baseUrl ?? '',
+                          a.modelConfig.reasoningEffort ??
+                            defaults?.reasoningEffort ??
+                            'provider-default',
+                          a.modelConfig.reasoningEffort ?? defaults?.reasoningEffort ?? '继承全局',
+                        )}
                       </small>
                     </span>
                   </LcarsButton>
@@ -129,6 +147,11 @@ function AgentDetail({
     ),
     [enabled, setEnabled] = useState(agent.enabled);
   const [thinking, setThinking] = useState<ThinkingMode | ''>(agent.modelConfig.thinking ?? '');
+  useEffect(() => {
+    setModel(agent.modelConfig.model ?? '');
+    setEffort(agent.modelConfig.reasoningEffort ?? '');
+    setThinking(agent.modelConfig.thinking ?? '');
+  }, [agent.modelConfig.model, agent.modelConfig.reasoningEffort, agent.modelConfig.thinking]);
   const ship = world.ships.find((s) => s.id === agent.assignedShipId);
   const objective = [...world.objectives].reverse().find((t) => t.agentId === agent.id);
   return (
@@ -308,12 +331,19 @@ function AgentDetail({
           value={effort}
           onChange={(e) => setEffort(e.target.value as typeof effort)}
         >
-          <option value="">继承全局 / {defaults?.reasoningEffort}</option>
+          <option value="">
+            继承全局 /{' '}
+            {effortLabel(
+              defaults?.baseUrl ?? '',
+              defaults?.reasoningEffort ?? 'provider-default',
+              defaults?.reasoningEffort ?? 'provider-default',
+            )}
+          </option>
           {Object.entries(EFFORT_LABELS)
             .filter(([key]) => key !== 'none')
             .map(([key, label]) => (
               <option key={key} value={key}>
-                {label}
+                {effortLabel(defaults?.baseUrl ?? '', key, label)}
               </option>
             ))}
         </select>
@@ -340,7 +370,17 @@ function AgentDetail({
         />
         AUTONOMOUS CONTROL / 自主控制
       </LcarsField>
+      <ReasoningNotice
+        baseUrl={defaults?.baseUrl ?? ''}
+        thinking={thinking || defaults?.thinking || 'provider-default'}
+        effort={effort || defaults?.reasoningEffort || 'provider-default'}
+        resetEffort={() => setEffort('provider-default')}
+      />
       <LcarsButton
+        disabled={thinkingConflict(
+          thinking || defaults?.thinking || 'provider-default',
+          effort || defaults?.reasoningEffort || 'provider-default',
+        )}
         onClick={() =>
           command({
             type: 'configureAgent',
@@ -356,6 +396,7 @@ function AgentDetail({
       >
         保存 Agent 模型
       </LcarsButton>
+      <AgentRuntime agentId={agent.id} />
       <LcarsTextBar literal>RELATIONSHIPS / 关系</LcarsTextBar>
       {Object.entries(agent.relationships).map(([id, r]) => (
         <p key={id}>

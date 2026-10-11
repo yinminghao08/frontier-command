@@ -15,6 +15,7 @@ export type { ThinkingMode } from '../../src/engine/types';
 import type { ConnectionConfig } from './config';
 import { AgentApiError, abortable, httpError } from './transport';
 import { z } from 'zod';
+import { deepSeekModels, deepSeekEffort, isDeepSeek } from '../../src/engine/deepseek';
 
 export const providerEndpoints = (baseUrl: string) => {
   const url = new URL(baseUrl);
@@ -37,11 +38,29 @@ const unknown = (): ModelCapabilities => ({
   streaming: 'unknown',
   evidence: 'unknown',
 });
-/** The model directory is metadata, not evidence for reasoning capabilities. */
+/** Official DeepSeek effort metadata is authoritative, scoped to the endpoint. */
 export class ModelRegistry {
+  private readonly directory = new Map<string, ModelCapabilities>();
   constructor(private readonly fetcher: typeof fetch = fetch) {}
   capabilities(baseUrl: string, model: string): ModelCapabilities {
     const host = new URL(baseUrl).hostname;
+    const discovered = this.directory.get(providerEndpoints(baseUrl).models + '\n' + model);
+    if (discovered) return discovered;
+    if (isDeepSeek(baseUrl) && deepSeekModels.includes(model))
+      return {
+        thinkingOn: 'supported',
+        thinkingOff: 'supported',
+        reasoningEffort: 'supported',
+        strictSchema: 'unsupported',
+        jsonObject: 'supported',
+        toolCalling: 'supported',
+        streaming: 'supported',
+        evidence: 'official-documentation',
+        effortLevels: ['low', 'high', 'max'],
+        defaultEffort: 'high',
+        defaultThinking: 'on',
+        maxOutputTokens: 393216,
+      };
     if (host === 'api.openai.com') {
       // Endpoint-specific: these models support structured text in Chat
       // Completions, but require Responses for tool calling.
@@ -104,7 +123,7 @@ export class ModelRegistry {
     model: string,
     thinking: ThinkingMode,
     effort: string,
-  ): Record<string, string | boolean> {
+  ): Record<string, string | boolean | { type: 'enabled' | 'disabled' }> {
     const cap = this.capabilities(baseUrl, model),
       explicitEffort = !['none', 'provider-default'].includes(effort);
     if (thinking === 'provider-default' && !explicitEffort) return {};
@@ -132,6 +151,22 @@ export class ModelRegistry {
         '此模型不支持或尚未确认 Reasoning Effort，未发送请求。',
         'validation',
       );
+    if (isDeepSeek(baseUrl)) {
+      const effective = deepSeekEffort(effort);
+      if (explicitEffort && !cap.effortLevels?.includes(effective))
+        throw new AgentApiError(
+          'DeepSeek 模型不支持此实际推理强度：' + effective + '，未发送请求。',
+          'validation',
+        );
+      return {
+        ...(thinking === 'off'
+          ? { thinking: { type: 'disabled' as const } }
+          : thinking === 'on'
+            ? { thinking: { type: 'enabled' as const } }
+            : {}),
+        ...(explicitEffort ? { reasoning_effort: effective } : {}),
+      };
+    }
     if (new URL(baseUrl).hostname === 'api.openai.com') {
       if (thinking === 'off') return { reasoning_effort: 'none' };
       const allowed = ['gpt-6.1-sol', 'gpt-6-astra'].includes(model)
@@ -198,16 +233,70 @@ export class ModelRegistry {
         if (JSON.stringify(data).includes(config.apiKey))
           throw new AgentApiError('模型目录包含凭据，已拒绝并保护记录。', 'credentials');
         const models = z
-          .object({ data: z.array(z.object({ id: z.string().min(1).max(120) })).max(10000) })
+          .object({
+            data: z
+              .array(
+                z.object({
+                  id: z.string().min(1).max(120),
+                  max_output_tokens: z.number().int().positive().optional(),
+                  effort: z
+                    .object({
+                      supported_levels: z.array(z.string().min(1).max(30)).max(20),
+                      default_level: z.string().min(1).max(30).optional(),
+                    })
+                    .optional(),
+                }),
+              )
+              .max(10000),
+          })
           .safeParse(data);
         if (!models.success)
           throw new AgentApiError('Provider 模型目录格式不受支持；可手动输入模型 ID。', 'protocol');
+        if (isDeepSeek(config.baseUrl)) {
+          // Refresh, rather than retaining stale levels for removed models.
+          const prefix = paths.models + '\n';
+          const refreshed = new Map<string, ModelCapabilities>();
+          const documented = new ModelRegistry(this.fetcher);
+          for (const entry of models.data.data) {
+            if (!entry.effort) {
+              const capability = documented.capabilities(config.baseUrl, entry.id);
+              refreshed.set(prefix + entry.id, {
+                ...capability,
+                maxOutputTokens: entry.max_output_tokens ?? capability.maxOutputTokens,
+              });
+              continue;
+            }
+            const levels = entry.effort.supported_levels;
+            if (entry.effort.default_level && !levels.includes(entry.effort.default_level))
+              throw new AgentApiError('DeepSeek 模型目录默认强度不在支持列表中。', 'protocol');
+            refreshed.set(prefix + entry.id, {
+              ...unknown(),
+              thinkingOn: levels.length ? 'supported' : 'unsupported',
+              thinkingOff: 'supported',
+              reasoningEffort: levels.length ? 'supported' : 'unsupported',
+              strictSchema: 'unsupported',
+              jsonObject: 'supported',
+              streaming: 'supported',
+              toolCalling: 'supported',
+              evidence: 'model-directory',
+              effortLevels: levels,
+              defaultEffort: entry.effort.default_level,
+              defaultThinking: levels.length ? 'on' : 'off',
+              maxOutputTokens: entry.max_output_tokens,
+            });
+          }
+          for (const key of this.directory.keys())
+            if (key.startsWith(prefix)) this.directory.delete(key);
+          for (const [key, capability] of refreshed) this.directory.set(key, capability);
+        }
         return {
           ok: true,
           models: [...new Set(models.data.data.map((m) => m.id))]
             .sort()
             .map((id) => ({ id, capabilities: this.capabilities(config.baseUrl, id) })),
-          reason: '已获取模型目录；目录本身不证明推理和输出能力。',
+          reason: isDeepSeek(config.baseUrl)
+            ? '已读取 DeepSeek 官方模型能力与实际 Effort 档位；默认可能开启 HIGH 思考。'
+            : '已获取模型目录；目录本身不证明推理和输出能力。',
           directory: 'supported',
         };
       }

@@ -138,9 +138,17 @@ describe('streaming and non-streaming provider protocol', () => {
       } else response.end(JSON.stringify({ choices: [{ message: { content: decision } }] }));
     });
     const client = new ChatCompletionsClient();
-    await askIntent(client, local.config, quietEngine().getObservation('ops-meridian')!);
+    await askIntent(
+      client,
+      { ...local.config, compatibilityRetries: 2 },
+      quietEngine().getObservation('ops-meridian')!,
+    );
     expect(local.bodies).toHaveLength(3);
-    await askIntent(client, local.config, quietEngine().getObservation('ops-meridian')!);
+    await askIntent(
+      client,
+      { ...local.config, compatibilityRetries: 2 },
+      quietEngine().getObservation('ops-meridian')!,
+    );
     expect(local.bodies).toHaveLength(4);
     expect(local.bodies[3]).toMatchObject({ stream: false });
     expect(local.bodies[3]).not.toHaveProperty('reasoning_effort');

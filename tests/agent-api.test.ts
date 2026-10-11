@@ -82,7 +82,11 @@ describe('Chat Completions compatible transport and protected credentials', () =
       if (count === 1) return new Response('response_format unsupported', { status: 400 });
       return response('{"ok":true}');
     });
-    const result = await client.test(config);
+    const result = await client.test(
+      { ...config, compatibilityRetries: 1 },
+      undefined,
+      'configuration',
+    );
     expect(result.ok).toBe(true);
     expect(count).toBe(2);
     expect(result.reason).toContain('Thinking/Effort 沿用配置');
@@ -282,7 +286,7 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     const client = new ChatCompletionsClient(async () => {
       calls++;
       return response(
-        calls <= 3
+        calls <= 1
           ? 'broken JSON'
           : JSON.stringify({
               opportunityId: null,
@@ -308,12 +312,12 @@ describe('asynchronous decision nodes, real chat influence and late-result autho
     expect(e.state.agents[1].decision.lastError).toBeTruthy();
     run(e, 1);
     for (let i = 0; i < 30; i++) service.pump();
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
     expect(JSON.stringify(e.snapshot())).not.toContain(config.apiKey);
     e.dispatchCommand({ type: 'retryAgent', agentId: 'ops-meridian' });
     service.pump();
     await flush();
-    expect(calls).toBe(4);
+    expect(calls).toBe(2);
     expect(e.state.agents[1].status).toBe('online');
     service.dispose();
   });

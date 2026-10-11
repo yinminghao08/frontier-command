@@ -3,6 +3,8 @@ import type { AgentApiInput, AgentApiSettings, ModelInfo } from '../engine/agent
 import type { ReasoningEffort, ThinkingMode } from '../engine/types';
 import { LcarsButton, LcarsField, LcarsPanel } from './components/Lcars';
 import { AgentRuntime } from './AgentRuntime';
+import { ReasoningNotice } from './ReasoningNotice';
+import { effortLabel, thinkingConflict } from '../engine/deepseek';
 export const EFFORT_LABELS: Record<ReasoningEffort, string> = {
   'provider-default': 'PROVIDER DEFAULT / 供应商默认',
   none: 'LEGACY DEFAULT / 旧配置默认',
@@ -26,7 +28,11 @@ export function AgentApiSettingsPanel() {
     [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; reason: string } | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [testMode, setTestMode] = useState<'connection' | 'configuration'>('connection');
   const testRequest = useRef<string | null>(null);
+  useEffect(() => {
+    setModels([]);
+  }, [draft.baseUrl]);
   useEffect(() => {
     void window.frontier.agentSettings().then((settings) => {
       setStored(settings);
@@ -37,6 +43,9 @@ export function AgentApiSettingsPanel() {
         thinking: settings.thinking ?? 'provider-default',
         connectionTimeoutMs: settings.connectionTimeoutMs,
         idleTimeoutMs: settings.idleTimeoutMs,
+        thinkingBudget: settings.thinkingBudget,
+        compatibilityRetries: settings.compatibilityRetries,
+        modelPricesCny: settings.modelPricesCny,
       });
     });
   }, []);
@@ -54,7 +63,7 @@ export function AgentApiSettingsPanel() {
     testRequest.current = requestId;
     try {
       const r = await (test
-        ? window.frontier.testAgentApi(input(), requestId!)
+        ? window.frontier.testAgentApi(input(), requestId!, testMode)
         : window.frontier.configureAgentApi(input()));
       setResult(r);
       if (r.ok && !test) {
@@ -171,9 +180,103 @@ export function AgentApiSettingsPanel() {
             .filter(([key]) => key !== 'none')
             .map(([effort, label]) => (
               <option key={effort} value={effort}>
-                {label}
+                {effortLabel(draft.baseUrl, effort, label)}
               </option>
             ))}
+        </select>
+      </LcarsField>
+      <ReasoningNotice
+        baseUrl={draft.baseUrl}
+        thinking={draft.thinking ?? 'provider-default'}
+        effort={draft.reasoningEffort}
+        resetEffort={() => setDraft((d) => ({ ...d, reasoningEffort: 'provider-default' }))}
+      />
+      <LcarsField>
+        思考总生成预算 / 包含推理与正文（256–32768；沟通使用 50%，判断与协作使用 75%）
+        <input
+          aria-label="思考总生成预算"
+          type="number"
+          min={256}
+          max={32768}
+          value={draft.thinkingBudget ?? 4096}
+          disabled={busy}
+          onChange={(e) => setDraft((d) => ({ ...d, thinkingBudget: Number(e.target.value) }))}
+        />
+      </LcarsField>
+      <LcarsField>
+        自动兼容重试 / 默认 0；DeepSeek 始终 0；JSON 修复仅手动重试
+        <select
+          aria-label="自动兼容重试"
+          value={draft.compatibilityRetries ?? 0}
+          disabled={busy}
+          onChange={(e) =>
+            setDraft((d) => ({ ...d, compatibilityRetries: Number(e.target.value) }))
+          }
+        >
+          <option value={0}>0 / 禁用</option>
+          <option value={1}>1</option>
+          <option value={2}>2</option>
+        </select>
+      </LcarsField>
+      <LcarsField>
+        <input
+          type="checkbox"
+          aria-label="配置当前模型人民币价格"
+          disabled={busy || !draft.defaultModel}
+          checked={!!draft.modelPricesCny?.[draft.defaultModel]}
+          onChange={(e) =>
+            setDraft((d) => {
+              const prices = { ...d.modelPricesCny };
+              if (e.target.checked) prices[d.defaultModel] = { input: 0, cacheHit: 0, output: 0 };
+              else delete prices[d.defaultModel];
+              return { ...d, modelPricesCny: prices };
+            })
+          }
+        />
+        当前模型人民币估算单价 / 每百万 Token；启用后请填入实际价格，0 表示免费
+      </LcarsField>
+      {draft.modelPricesCny?.[draft.defaultModel] &&
+        (['input', 'cacheHit', 'output'] as const).map((field) => (
+          <LcarsField key={field}>
+            {
+              {
+                input: '输入 / Cache miss',
+                cacheHit: '输入 / Cache hit',
+                output: '输出（含推理）',
+              }[field]
+            }
+            <input
+              aria-label={'人民币单价 ' + field}
+              type="number"
+              min={0}
+              step="any"
+              disabled={busy}
+              value={draft.modelPricesCny![draft.defaultModel][field]}
+              onChange={(e) =>
+                setDraft((d) => ({
+                  ...d,
+                  modelPricesCny: {
+                    ...d.modelPricesCny,
+                    [d.defaultModel]: {
+                      ...d.modelPricesCny![d.defaultModel],
+                      [field]: Number(e.target.value),
+                    },
+                  },
+                }))
+              }
+            />
+          </LcarsField>
+        ))}
+      <LcarsField>
+        API 测试模式
+        <select
+          aria-label="API 测试模式"
+          value={testMode}
+          disabled={busy}
+          onChange={(e) => setTestMode(e.target.value as typeof testMode)}
+        >
+          <option value="connection">低成本连接 / 64 Token；不验证真实思考配置</option>
+          <option value="configuration">真实配置验证 / 使用配置与思考预算，可能产生更高费用</option>
         </select>
       </LcarsField>
       <p className="muted">
@@ -181,7 +284,14 @@ export function AgentApiSettingsPanel() {
         需要已确认的模型能力；不支持时会报错，不会静默改变设置。Key 通过系统加密独立保存。
       </p>
       <div className="inline-actions">
-        <LcarsButton disabled={busy || !stored} onClick={() => void run(false)}>
+        <LcarsButton
+          disabled={
+            busy ||
+            !stored ||
+            thinkingConflict(draft.thinking ?? 'provider-default', draft.reasoningEffort)
+          }
+          onClick={() => void run(false)}
+        >
           保存 Agent API
         </LcarsButton>
         {busy && testRequest.current && (
@@ -194,7 +304,16 @@ export function AgentApiSettingsPanel() {
             取消连接测试
           </LcarsButton>
         )}
-        <LcarsButton tone="secondary" disabled={busy || !stored} onClick={() => void run(true)}>
+        <LcarsButton
+          tone="secondary"
+          disabled={
+            busy ||
+            !stored ||
+            (testMode === 'configuration' &&
+              thinkingConflict(draft.thinking ?? 'provider-default', draft.reasoningEffort))
+          }
+          onClick={() => void run(true)}
+        >
           {busy ? 'CONNECTING / 测试中…' : '测试 API 连接'}
         </LcarsButton>
       </div>

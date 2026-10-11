@@ -9,9 +9,61 @@ import { decisionIssues } from '../../src/engine/structured-output';
 import type { ReasoningEffort } from '../../src/engine/types';
 import type { ConnectionConfig } from './config';
 import { RequestTracker, type RequestKind } from './runtime';
-import type { AgentRequestTiming } from '../../src/engine/agent-api';
+import type { AgentRequestTiming, ModelCapabilities } from '../../src/engine/agent-api';
 import { abortable, readCompletion, httpError, AgentApiError } from './transport';
+import { isDeepSeek } from '../../src/engine/deepseek';
 export { AgentApiError } from './transport';
+export function requestPolicy(
+  config: ConnectionConfig,
+  model: string,
+  thinkingSource: 'provider-default' | 'on' | 'off',
+  parameters: Record<string, unknown>,
+  cap: ModelCapabilities,
+  purpose?: string,
+  outputBudget?: number,
+  generationBudget?: number,
+): NonNullable<AgentRequestTiming['effective']> {
+  const switchValue = parameters.thinking as { type?: string } | undefined;
+  const thinking =
+    switchValue?.type === 'disabled' ||
+    parameters.enable_thinking === false ||
+    parameters.reasoning_effort === 'none'
+      ? 'off'
+      : switchValue?.type === 'enabled' ||
+          parameters.enable_thinking === true ||
+          parameters.reasoning_effort
+        ? 'on'
+        : (cap.defaultThinking ?? 'unknown');
+  const outputLimit = purpose === 'intent' ? 1800 : 900;
+  const purposeScale =
+    purpose === 'communication'
+      ? 0.5
+      : purpose === 'judgment' || purpose === 'collaboration'
+        ? 0.75
+        : 1;
+  const requested =
+    generationBudget ??
+    (thinking === 'on'
+      ? (config.thinkingBudget ?? 4096) * purposeScale
+      : Math.min(outputBudget ?? outputLimit, outputLimit));
+  if (!Number.isFinite(requested) || requested < 1)
+    throw new AgentApiError('生成 Token 预算必须是正数。', 'validation');
+  return {
+    provider: new URL(config.baseUrl).hostname,
+    model,
+    thinking,
+    thinkingSource,
+    effort:
+      typeof parameters.reasoning_effort === 'string'
+        ? parameters.reasoning_effort
+        : thinking === 'off'
+          ? 'none'
+          : cap.defaultEffort
+            ? `${cap.defaultEffort} (provider-default)`
+            : 'provider-default (unknown)',
+    maxTokens: Math.max(1, Math.floor(Math.min(requested, 32768, cap.maxOutputTokens ?? 32768))),
+  };
+}
 interface RequestContext {
   startedAt: number;
   agentId: string;
@@ -32,6 +84,7 @@ export class ChatCompletionsClient {
   constructor(
     private readonly fetcher: typeof fetch = fetch,
     private readonly tracker?: RequestTracker,
+    readonly registry = new ModelRegistry(fetcher),
   ) {}
   async complete(
     config: ConnectionConfig,
@@ -46,10 +99,12 @@ export class ChatCompletionsClient {
       thinking?: 'provider-default' | 'on' | 'off';
       outputBudget?: number;
       attempts?: { used: number };
+      generationBudget?: number;
+      stream?: boolean;
     } = {},
   ): Promise<CompletionResult> {
     if (!config.apiKey) throw new AgentApiError('Agent API 未配置 Key。', 'authentication');
-    const registry = new ModelRegistry(this.fetcher),
+    const registry = this.registry,
       cap = registry.capabilities(config.baseUrl, model);
     const effectiveThinking = options.thinking ?? config.thinking ?? 'provider-default';
     const reasoning = registry.reasoningParameters(
@@ -65,7 +120,7 @@ export class ChatCompletionsClient {
     };
     const budget = options.attempts ?? { used: 0 },
       key = config.baseUrl + '\n' + model;
-    const cached = this.compatibility.get(key);
+    const cached = isDeepSeek(config.baseUrl) ? undefined : this.compatibility.get(key);
     let format: 'schema' | 'tool' | 'object' | 'text' =
       cached?.format ??
       (schema && cap.strictSchema === 'supported'
@@ -75,21 +130,36 @@ export class ChatCompletionsClient {
             reasoning.enable_thinking !== false
           ? 'text'
           : 'object');
-    let stream = cached?.stream !== false,
+    let stream = options.stream ?? cached?.stream !== false,
       formatFallback = false;
     let timing: AgentRequestTiming | undefined, release: (() => void) | undefined;
+    const retries = isDeepSeek(config.baseUrl)
+      ? 0
+      : Math.min(2, Math.max(0, config.compatibilityRetries ?? 0));
+    const effective = requestPolicy(
+      config,
+      model,
+      effectiveThinking,
+      reasoning,
+      cap,
+      network.purpose,
+      options.outputBudget,
+      options.generationBudget,
+    );
     for (
       let compatibilityAttempt = 0;
-      compatibilityAttempt <= 2 && budget.used < 4;
+      compatibilityAttempt <= retries && budget.used < 3;
       compatibilityAttempt++
     ) {
       if (externalSignal?.aborted) throw new AgentApiError('模型请求已取消。', 'cancelled');
       budget.used++;
+      timing = undefined;
       const controller = new AbortController(),
         cancel = () => controller.abort(externalSignal?.reason);
       externalSignal?.addEventListener('abort', cancel, { once: true });
       if (externalSignal?.aborted) cancel();
       let timedOut = false;
+      let usageRecorded = false;
       const timeout = setTimeout(() => {
         timedOut = true;
         controller.abort();
@@ -101,10 +171,7 @@ export class ChatCompletionsClient {
             compatibilityAttempt ? 'compatibility' : network.kind,
             controller.signal,
           );
-        const reasoningBudget = cap.thinkingOn === 'supported' && effectiveThinking !== 'off';
-        const maxTokens = reasoningBudget
-          ? Math.max(8192, options.outputBudget ?? 900)
-          : (options.outputBudget ?? 1200);
+        const maxTokens = effective.maxTokens;
         const body = JSON.stringify({
           model,
           messages: [
@@ -113,9 +180,12 @@ export class ChatCompletionsClient {
               ? [
                   {
                     role: 'system',
-                    content: '当前决策仅允许此 JSON Schema：' + JSON.stringify(schema),
+                    content: '只返回 JSON，当前决策仅允许此 JSON Schema：' + JSON.stringify(schema),
                   },
                 ]
+              : []),
+            ...(format === 'object' && !schema
+              ? [{ role: 'system', content: 'Return only valid JSON.' }]
               : []),
           ],
           stream,
@@ -159,6 +229,10 @@ export class ChatCompletionsClient {
           Buffer.byteLength(body),
           network.startedAt,
         );
+        if (timing) {
+          timing.effective = effective;
+          timing.priceCny = config.modelPricesCny?.[model];
+        }
         const pending = this.fetcher(providerEndpoints(config.baseUrl).chat, {
           method: 'POST',
           redirect: 'error',
@@ -182,6 +256,10 @@ export class ChatCompletionsClient {
           timing,
           config.idleTimeoutMs ?? 120000,
           () => options.onPhase?.('receiving'),
+          (usage) => {
+            usageRecorded = true;
+            this.tracker?.usage(usage, timing);
+          },
         );
         controller.signal.throwIfAborted();
         if (timing) {
@@ -199,7 +277,7 @@ export class ChatCompletionsClient {
               'Provider 拒绝所选推理设置；未改动 Thinking 或 Effort，请调整配置。',
               'validation',
             );
-          if (compatibilityAttempt >= 2) throw httpError(response.status);
+          if (compatibilityAttempt >= retries) throw httpError(response.status);
           if (result.unsupported?.format && format !== 'text') {
             format =
               format === 'schema' && schema && cap.toolCalling === 'supported'
@@ -210,11 +288,12 @@ export class ChatCompletionsClient {
             formatFallback = true;
           } else if (result.unsupported?.stream && stream) stream = false;
           else throw httpError(response.status);
-          this.compatibility.set(key, { format, reasoning: true, stream });
+          if (options.stream === undefined)
+            this.compatibility.set(key, { format, reasoning: true, stream });
           continue;
         }
-        this.tracker?.usage(result.usage, timing);
-        this.compatibility.set(key, { format, reasoning: true, stream });
+        if (options.stream === undefined)
+          this.compatibility.set(key, { format, reasoning: true, stream });
         return { content: result.content, reasoningFallback: false, formatFallback };
       } catch (error) {
         const failure = timedOut
@@ -234,6 +313,7 @@ export class ChatCompletionsClient {
         else this.tracker?.failure();
         throw failure;
       } finally {
+        if (!usageRecorded && timing) this.tracker?.usage(undefined, timing);
         clearTimeout(timeout);
         externalSignal?.removeEventListener('abort', cancel);
         release?.();
@@ -265,8 +345,7 @@ export class ChatCompletionsClient {
         purpose: request.purpose,
       };
     let issue = '';
-    for (let repair = 0; repair < 2 && attempts.used < 4; repair++) {
-      network.kind = repair ? 'repair' : 'initial';
+    {
       const result = await this.complete(
         config,
         modelConfig.model ?? config.defaultModel,
@@ -307,28 +386,51 @@ export class ChatCompletionsClient {
       }
       if (value !== undefined) issue = decisionIssues(parsed.error);
       this.tracker?.rejected(request.agentId, issue);
-      messages.push({
-        role: 'user',
-        content: '只修复 JSON 格式或字段：' + issue + '。不要改变目标和授权，不生成 Action。',
-      });
     }
     this.tracker?.failure();
-    throw new AgentApiError('格式修复失败，未提交任何决定：' + issue, 'validation');
+    throw new AgentApiError(
+      'JSON / Schema 校验失败，未提交任何决定：' + issue + '。未自动再次调用；请手动重试。',
+      'validation',
+    );
   }
-  async test(config: ConnectionConfig, signal?: AbortSignal) {
+  async test(
+    config: ConnectionConfig,
+    signal?: AbortSignal,
+    mode: 'connection' | 'configuration' = 'connection',
+  ) {
+    const cheap = mode === 'connection';
+    const cap = this.registry.capabilities(config.baseUrl, config.defaultModel);
+    const testConfig = cheap
+      ? {
+          ...config,
+          reasoningEffort: 'provider-default' as const,
+          thinking:
+            cap.thinkingOff === 'supported' ? ('off' as const) : ('provider-default' as const),
+        }
+      : config;
     const result = await this.complete(
-      config,
+      testConfig,
       config.defaultModel,
-      config.reasoningEffort,
+      testConfig.reasoningEffort,
       [
         { role: 'system', content: 'Reply only JSON: {"ok":true}' },
         { role: 'user', content: 'API connectivity test. Reply JSON.' },
       ],
       signal,
+      undefined,
+      {
+        startedAt: Date.now(),
+        agentId: 'admiral:test',
+        kind: 'test',
+        purpose: cheap ? 'connection-test' : 'configuration-test',
+      },
+      cheap ? { generationBudget: 64, stream: false } : {},
     );
     try {
       if (JSON.parse(result.content).ok !== true) throw Error();
     } catch {
+      this.tracker?.rejected('admiral:test', 'API 已连接，但未返回有效测试 JSON。');
+      this.tracker?.failure();
       throw new AgentApiError('API 已连接，但未返回有效测试 JSON。');
     }
     return {
@@ -336,7 +438,9 @@ export class ChatCompletionsClient {
       reason:
         'API 可用 · ' +
         config.defaultModel +
-        ' · Thinking/Effort 沿用配置' +
+        (cheap
+          ? ' · 低成本连接测试：64 Token 上限；未验证真实 Thinking/Effort 配置'
+          : ' · 真实配置验证：Thinking/Effort 沿用配置') +
         (result.formatFallback ? ' · 输出协议使用文本 JSON 兼容模式' : ''),
     };
   }

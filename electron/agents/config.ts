@@ -30,6 +30,20 @@ const fields = {
   thinking: z.enum(['provider-default', 'on', 'off']).default('provider-default'),
   connectionTimeoutMs: z.number().int().min(1000).max(120000).default(30000),
   idleTimeoutMs: z.number().int().min(1000).max(600000).default(120000),
+  thinkingBudget: z.number().int().min(256).max(32768).default(4096),
+  compatibilityRetries: z.number().int().min(0).max(2).default(0),
+  modelPricesCny: z
+    .record(
+      z.string().min(1).max(120),
+      z
+        .object({
+          input: z.number().finite().nonnegative().max(100000),
+          cacheHit: z.number().finite().nonnegative().max(100000),
+          output: z.number().finite().nonnegative().max(100000),
+        })
+        .strict(),
+    )
+    .default({}),
 };
 export const apiInputSchema = z
   .object({
@@ -49,6 +63,9 @@ export interface ConnectionConfig {
   thinking?: AgentApiSettings['thinking'];
   connectionTimeoutMs?: number;
   idleTimeoutMs?: number;
+  thinkingBudget?: number;
+  compatibilityRetries?: number;
+  modelPricesCny?: AgentApiSettings['modelPricesCny'];
 }
 export class AgentConfigStore {
   private config: z.infer<typeof storedSchema> = {
@@ -59,6 +76,9 @@ export class AgentConfigStore {
     thinking: 'provider-default',
     connectionTimeoutMs: 30000,
     idleTimeoutMs: 120000,
+    thinkingBudget: 4096,
+    compatibilityRetries: 0,
+    modelPricesCny: {},
     encryptedKey: null,
   };
   private key = '';
@@ -91,6 +111,9 @@ export class AgentConfigStore {
       thinking: this.config.thinking,
       connectionTimeoutMs: this.config.connectionTimeoutMs,
       idleTimeoutMs: this.config.idleTimeoutMs,
+      thinkingBudget: this.config.thinkingBudget,
+      compatibilityRetries: this.config.compatibilityRetries,
+      modelPricesCny: this.config.modelPricesCny,
       hasKey: !!this.key,
       encryptionAvailable: this.vault.isEncryptionAvailable(),
     };
@@ -105,6 +128,9 @@ export class AgentConfigStore {
       thinking: draft.thinking,
       connectionTimeoutMs: draft.connectionTimeoutMs,
       idleTimeoutMs: draft.idleTimeoutMs,
+      thinkingBudget: draft.thinkingBudget,
+      compatibilityRetries: draft.compatibilityRetries,
+      modelPricesCny: draft.modelPricesCny,
       apiKey:
         'clearKey' in draft && draft.clearKey
           ? ''
@@ -127,6 +153,9 @@ export class AgentConfigStore {
       thinking: draft.thinking,
       connectionTimeoutMs: draft.connectionTimeoutMs,
       idleTimeoutMs: draft.idleTimeoutMs,
+      thinkingBudget: draft.thinkingBudget,
+      compatibilityRetries: draft.compatibilityRetries,
+      modelPricesCny: draft.modelPricesCny,
       encryptedKey: key ? this.vault.encryptString(key).toString('base64') : null,
     };
     writeFileSync(this.path + '.tmp', JSON.stringify(next), { encoding: 'utf8', mode: 0o600 });

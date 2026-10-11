@@ -1,4 +1,9 @@
 import type { ReasoningEffort, ThinkingMode } from './types';
+export interface ModelPriceCny {
+  input: number;
+  cacheHit: number;
+  output: number;
+}
 /** IPC read model. No key, ciphertext, filesystem path or provider response is returned. */
 export interface AgentApiSettings {
   baseUrl: string;
@@ -7,6 +12,9 @@ export interface AgentApiSettings {
   thinking?: ThinkingMode;
   connectionTimeoutMs?: number;
   idleTimeoutMs?: number;
+  thinkingBudget?: number;
+  compatibilityRetries?: number;
+  modelPricesCny?: Record<string, ModelPriceCny>;
   hasKey: boolean;
   encryptionAvailable: boolean;
 }
@@ -17,6 +25,9 @@ export interface AgentApiInput {
   thinking?: ThinkingMode;
   connectionTimeoutMs?: number;
   idleTimeoutMs?: number;
+  thinkingBudget?: number;
+  compatibilityRetries?: number;
+  modelPricesCny?: Record<string, ModelPriceCny>;
   apiKey?: string;
   clearKey?: boolean;
 }
@@ -35,6 +46,10 @@ export interface AgentRuntimeStats {
   tokens: number | null;
   windowRequests: number;
   byAgent: Record<string, number>;
+  costCny?: number | null;
+  knownCostCny?: number;
+  unknownCostRequests?: number;
+  byAgentCostCny?: Record<string, number | null>;
 }
 export type AgentFailureKind =
   | 'cancelled'
@@ -77,6 +92,18 @@ export interface AgentRequestTiming {
   inputTokens?: number | null;
   outputTokens?: number | null;
   reasoningTokens?: number | null;
+  cacheHitTokens?: number | null;
+  cacheMissTokens?: number | null;
+  costCny?: number | null;
+  priceCny?: ModelPriceCny;
+  effective?: {
+    provider: string;
+    model: string;
+    thinking: 'on' | 'off' | 'unknown';
+    thinkingSource: ThinkingMode;
+    effort: string;
+    maxTokens: number;
+  };
   endedAt: number | null;
   validationMs: number;
   reason: string | null;
@@ -91,7 +118,11 @@ export interface ModelCapabilities {
   jsonObject: CapabilityStatus;
   toolCalling: CapabilityStatus;
   streaming: CapabilityStatus;
-  evidence: 'official-documentation' | 'unknown';
+  evidence: 'official-documentation' | 'model-directory' | 'unknown';
+  effortLevels?: string[];
+  defaultEffort?: string;
+  defaultThinking?: 'on' | 'off';
+  maxOutputTokens?: number;
 }
 export interface ModelInfo {
   id: string;

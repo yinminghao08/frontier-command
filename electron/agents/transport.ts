@@ -94,7 +94,11 @@ function protect(value: string, key: string) {
   if (value.includes(key))
     throw new AgentApiError('Provider 响应包含凭据，已拒绝并保护记录。', 'credentials');
 }
-function parse(text: string, key: string): z.infer<typeof envelopeSchema> {
+function parse(
+  text: string,
+  key: string,
+  onUsage?: (value: unknown) => void,
+): z.infer<typeof envelopeSchema> {
   protect(text, key);
   let value: unknown;
   try {
@@ -103,6 +107,8 @@ function parse(text: string, key: string): z.infer<typeof envelopeSchema> {
     throw new AgentApiError('API 响应不是有效 JSON。', 'protocol');
   }
   protect(JSON.stringify(value), key);
+  if (value && typeof value === 'object' && 'usage' in value && value.usage != null)
+    onUsage?.(value.usage);
   const result = envelopeSchema.safeParse(value);
   if (!result.success)
     throw new AgentApiError('API 响应结构无效，无法读取 choices/message/content。', 'protocol');
@@ -125,6 +131,7 @@ export async function readCompletion(
   timing?: AgentRequestTiming,
   idleTimeoutMs = 120000,
   onBody?: () => void,
+  onUsage?: (value: unknown) => void,
 ) {
   const reader = response.body?.getReader();
   const advertisedStream = /text\/event-stream/i.test(response.headers.get('content-type') ?? '');
@@ -155,8 +162,9 @@ export async function readCompletion(
       done = true;
       return;
     }
-    const chunk = parse(data, key);
-    if (chunk.usage != null) usage = chunk.usage;
+    const chunk = parse(data, key, (value) => {
+      usage = value;
+    });
     if (!chunk.choices) throw new AgentApiError('API 流响应缺少 choices。', 'protocol');
     if (timing) timing.choiceCount = chunk.choices.length;
     const choice = chunk.choices.find((c, index) => (c.index ?? index) === 0);
@@ -178,7 +186,8 @@ export async function readCompletion(
     protect(content, key);
     if (choice.finish_reason) finishReason = safeFinish(choice.finish_reason);
     if (timing) timing.finishReason = finishReason;
-    finish(finishReason);
+    // A length event is followed by a separate usage chunk on many providers.
+    // Drain that chunk before rejecting the incomplete decision.
   };
   const drain = () => {
     let boundary: number;
@@ -241,6 +250,12 @@ export async function readCompletion(
       if (trailingCR) buffer += '\n';
     }
     if (!response.ok) {
+      try {
+        const value: unknown = JSON.parse(buffer);
+        if (value && typeof value === 'object' && 'usage' in value) usage = value.usage;
+      } catch {
+        /* HTTP errors need not be JSON. */
+      }
       const unsupported =
         [400, 422].includes(response.status) &&
         /unsupported|unknown|unrecognized|not supported|not permitted|not allowed|extra|does not support|无效|不支持/i.test(
@@ -255,18 +270,20 @@ export async function readCompletion(
           stream: unsupported && /\bstream(?:ing)?\b/i.test(buffer),
         },
         content: '',
-        usage: undefined,
+        usage,
       };
     }
     if (streamed) {
       drain();
       if (buffer.trim()) consume(buffer);
+      finish(finishReason);
       if (!done && finishReason !== 'stop' && finishReason !== 'tool_calls')
         throw new AgentApiError('API 回复流中途断开，未收到完整结束标记。', 'disconnected');
       if (!sawChoice) throw new AgentApiError('API 流响应缺少有效 choices。', 'protocol');
     } else {
-      const envelope = parse(buffer, key);
-      usage = envelope.usage;
+      const envelope = parse(buffer, key, (value) => {
+        usage = value;
+      });
       if (timing) timing.choiceCount = envelope.choices?.length ?? 0;
       const choice = envelope.choices?.[0];
       if (!choice?.message)
@@ -298,6 +315,7 @@ export async function readCompletion(
     if (signal.aborted || error instanceof AgentApiError) throw error;
     throw new AgentApiError('API 响应读取中断，请检查网络后重试。', 'disconnected');
   } finally {
+    onUsage?.(usage);
     if (reader) {
       void reader.cancel().catch(() => {});
       reader.releaseLock();

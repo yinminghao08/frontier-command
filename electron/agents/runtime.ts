@@ -18,6 +18,9 @@ export class RequestTracker {
   private byAgent: Record<string, number> = {};
   private timings: AgentRequestTiming[] = [];
   private nextTimingId = 1;
+  private knownCostCny = 0;
+  private unknownCostRequests = 0;
+  private readonly agentCosts: Record<string, { known: number; unknown: number }> = {};
   track(agentId: string, kind: string, requestBytes: number, decisionStartedAt: number) {
     const timing: AgentRequestTiming = {
       id: this.nextTimingId++,
@@ -92,6 +95,12 @@ export class RequestTracker {
       tokens: this.counts.unknownUsage ? null : this.counts.tokens,
       windowRequests: this.recent.length,
       byAgent: { ...this.byAgent },
+      costCny: this.unknownCostRequests ? null : this.knownCostCny,
+      knownCostCny: this.knownCostCny,
+      unknownCostRequests: this.unknownCostRequests,
+      byAgentCostCny: Object.fromEntries(
+        Object.entries(this.agentCosts).map(([id, cost]) => [id, cost.unknown ? null : cost.known]),
+      ),
     };
   }
   usage(value: unknown, timing?: AgentRequestTiming) {
@@ -99,6 +108,9 @@ export class RequestTracker {
       .object({
         prompt_tokens: z.number().int().nonnegative().optional(),
         completion_tokens: z.number().int().nonnegative().optional(),
+        prompt_cache_hit_tokens: z.number().int().nonnegative().optional(),
+        prompt_cache_miss_tokens: z.number().int().nonnegative().optional(),
+        total_tokens: z.number().int().nonnegative().optional(),
         completion_tokens_details: z
           .object({ reasoning_tokens: z.number().int().nonnegative().optional() })
           .optional(),
@@ -110,10 +122,46 @@ export class RequestTracker {
       timing.reasoningTokens = metadata.success
         ? (metadata.data.completion_tokens_details?.reasoning_tokens ?? null)
         : null;
+      timing.cacheHitTokens = metadata.success
+        ? (metadata.data.prompt_cache_hit_tokens ?? null)
+        : null;
+      timing.cacheMissTokens = metadata.success
+        ? (metadata.data.prompt_cache_miss_tokens ?? null)
+        : null;
     }
-    const parsed = z.object({ total_tokens: z.number().int().min(0) }).safeParse(value);
-    if (parsed.success) this.counts.tokens += parsed.data.total_tokens;
+    const m = metadata.success ? metadata.data : undefined;
+    const total =
+      m?.total_tokens ??
+      (m?.prompt_tokens !== undefined && m.completion_tokens !== undefined
+        ? m.prompt_tokens + m.completion_tokens
+        : undefined);
+    if (total !== undefined) this.counts.tokens += total;
     else this.counts.unknownUsage++;
+    const price = timing?.priceCny;
+    let cost: number | null = null;
+    if (price && m?.prompt_tokens !== undefined && m.completion_tokens !== undefined) {
+      const hit =
+        m.prompt_cache_hit_tokens ??
+        (m.prompt_cache_miss_tokens !== undefined
+          ? m.prompt_tokens - m.prompt_cache_miss_tokens
+          : price.input === price.cacheHit
+            ? 0
+            : null);
+      const miss = hit === null ? null : (m.prompt_cache_miss_tokens ?? m.prompt_tokens - hit);
+      if (hit !== null && miss !== null && hit >= 0 && miss >= 0 && hit + miss === m.prompt_tokens)
+        // Reasoning tokens are already included in completion_tokens.
+        cost =
+          (hit * price.cacheHit + miss * price.input + m.completion_tokens * price.output) /
+          1000000;
+    }
+    if (timing) timing.costCny = cost;
+    if (cost === null) this.unknownCostRequests++;
+    else this.knownCostCny += cost;
+    if (timing) {
+      const account = (this.agentCosts[timing.agentId] ??= { known: 0, unknown: 0 });
+      if (cost === null) account.unknown++;
+      else account.known += cost;
+    }
   }
   failure() {
     this.counts.failures++;

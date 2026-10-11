@@ -1,4 +1,3 @@
-import { ModelRegistry } from './agents/model-registry';
 import { app, BrowserWindow, ipcMain, protocol, net, safeStorage } from 'electron';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -341,7 +340,7 @@ app.whenReady().then(async () => {
     const parsed = input === undefined ? undefined : apiInputSchema.safeParse(input);
     if (parsed && !parsed.success)
       return { ok: false, models: [], directory: 'unknown', reason: '模型目录参数无效。' };
-    return new ModelRegistry().fetchModels(
+    return agentClient.registry.fetchModels(
       agentConfig.connection(parsed?.success ? parsed.data : undefined),
     );
   });
@@ -351,14 +350,26 @@ app.whenReady().then(async () => {
     if (!parsed.success)
       return { ok: false, reason: 'API 设置格式无效，请检查地址、模型与推理档位。' };
     try {
+      agentClient.registry.reasoningParameters(
+        parsed.data.baseUrl,
+        parsed.data.defaultModel,
+        parsed.data.thinking,
+        parsed.data.reasoningEffort,
+      );
       agentConfig.update(parsed.data);
       startAgentService();
       if (!saveBlocked) engine.cognition.configurationChanged();
       save();
       send();
       return { ok: true, reason: 'Agent API 设置已保存，Key 使用系统加密。' };
-    } catch {
-      return { ok: false, reason: 'API 设置无法安全保存，请检查系统加密与磁盘。' };
+    } catch (error) {
+      return {
+        ok: false,
+        reason:
+          error instanceof AgentApiError
+            ? error.message
+            : 'API 设置无法安全保存，请检查系统加密与磁盘。',
+      };
     }
   });
   ipcMain.handle('agent:cancel-test', (event, requestId: unknown) => {
@@ -368,30 +379,39 @@ app.whenReady().then(async () => {
     apiTests.get(parsed.data)?.abort();
     return { ok: true, reason: 'API 连接测试已取消。' };
   });
-  ipcMain.handle('agent:test-api', async (event, input: unknown, requestId: unknown) => {
-    trusted(event);
-    const id = requestId === undefined ? crypto.randomUUID() : requestId;
-    const parsedId = z.string().uuid().safeParse(id);
-    if (!parsedId.success || apiTests.has(parsedId.data))
-      return { ok: false, reason: 'API 测试标识无效或正在使用。' };
-    const parsed = input === undefined ? undefined : apiInputSchema.safeParse(input);
-    if (parsed && !parsed.success) return { ok: false, reason: 'API 测试参数无效。' };
-    const controller = new AbortController();
-    apiTests.set(parsedId.data, controller);
-    try {
-      return await agentClient.test(
-        agentConfig.connection(parsed?.success ? parsed.data : undefined),
-        controller.signal,
-      );
-    } catch (error) {
-      return {
-        ok: false,
-        reason: error instanceof AgentApiError ? error.message : 'API 测试失败，请检查配置。',
-      };
-    } finally {
-      if (apiTests.get(parsedId.data) === controller) apiTests.delete(parsedId.data);
-    }
-  });
+  ipcMain.handle(
+    'agent:test-api',
+    async (event, input: unknown, requestId: unknown, mode: unknown) => {
+      trusted(event);
+      const id = requestId === undefined ? crypto.randomUUID() : requestId;
+      const parsedId = z.string().uuid().safeParse(id);
+      if (!parsedId.success || apiTests.has(parsedId.data))
+        return { ok: false, reason: 'API 测试标识无效或正在使用。' };
+      const parsed = input === undefined ? undefined : apiInputSchema.safeParse(input);
+      if (parsed && !parsed.success) return { ok: false, reason: 'API 测试参数无效。' };
+      const parsedMode = z
+        .enum(['connection', 'configuration'])
+        .default('connection')
+        .safeParse(mode);
+      if (!parsedMode.success) return { ok: false, reason: 'API 测试模式无效。' };
+      const controller = new AbortController();
+      apiTests.set(parsedId.data, controller);
+      try {
+        return await agentClient.test(
+          agentConfig.connection(parsed?.success ? parsed.data : undefined),
+          controller.signal,
+          parsedMode.data,
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          reason: error instanceof AgentApiError ? error.message : 'API 测试失败，请检查配置。',
+        };
+      } finally {
+        if (apiTests.get(parsedId.data) === controller) apiTests.delete(parsedId.data);
+      }
+    },
+  );
   window.on('close', () => {
     cancelApiTests();
     agentService?.dispose();

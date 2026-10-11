@@ -30,7 +30,11 @@ declare global {
       agentSettings(): Promise<AgentApiSettings>;
       agentRuntime(): Promise<import('./engine/agent-api').AgentRuntimeStats>;
       configureAgentApi(settings: AgentApiInput): Promise<AgentApiResult>;
-      testAgentApi(settings?: AgentApiInput, requestId?: string): Promise<AgentApiResult>;
+      testAgentApi(
+        settings?: AgentApiInput,
+        requestId?: string,
+        mode?: 'connection' | 'configuration',
+      ): Promise<AgentApiResult>;
       cancelAgentApiTest(requestId: string): Promise<AgentApiResult>;
     };
   }

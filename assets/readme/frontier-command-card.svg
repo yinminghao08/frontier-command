@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="card-title card-description">
+  <title id="card-title">Frontier Command — 星际边疆</title>
+  <desc id="card-description">LCARS Classic command card illustrating Dawn Starbase, a possible materials-haul route, a confirmed wormhole, and an Orion pirate interception. Agent decisions become validated actions in a deterministic game world.</desc>
+  <defs>
+    <pattern id="sector-grid" width="42" height="42" patternUnits="userSpaceOnUse">
+      <path d="M42 0H0V42" fill="none" stroke="#63587C" stroke-width="0.8" opacity="0.28"/>
+    </pattern>
+    <marker id="travel-arrow" markerWidth="9" markerHeight="9" refX="6.5" refY="3.2" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0L7 3.2L0 6.4" fill="none" stroke="#77C8F5" stroke-width="1.5"/>
+    </marker>
+    <marker id="pirate-arrow" markerWidth="9" markerHeight="9" refX="6.5" refY="3.2" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0L7 3.2L0 6.4" fill="none" stroke="#CBD53A" stroke-width="1.5"/>
+    </marker>
+    <clipPath id="map-clip"><rect x="686" y="111" width="468" height="236" rx="12"/></clipPath>
+  </defs>
+
+  <rect width="1200" height="440" rx="24" fill="#050407"/>
+  <!-- Authentic Classic-inspired LCARS rail and round elbow. No scripts or external fonts. -->
+  <path d="M27 203V143C27 84 75 36 134 36H178V65H134C91 65 56 100 56 143V203Z" fill="#EB943A"/>
+  <path d="M27 237H56V346C56 375 76 387 107 387H176V412H107C60 412 27 390 27 346Z" fill="#8899FF"/>
+  <rect x="27" y="211" width="29" height="18" rx="2" fill="#000000"/>
+  <rect x="184" y="36" width="712" height="29" rx="4" fill="#D29B7F"/>
+  <rect x="904" y="36" width="132" height="29" rx="4" fill="#BAA4E5"/>
+  <rect x="1044" y="36" width="116" height="29" rx="4" fill="#EDB378"/>
+  <rect x="185" y="387" width="628" height="25" rx="3" fill="#8899FF"/>
+  <rect x="821" y="387" width="167" height="25" rx="3" fill="#C47D69"/>
+  <rect x="996" y="387" width="164" height="25" rx="3" fill="#EB943A"/>
+  <text x="49" y="332" fill="#050407" transform="rotate(-90 49 332)" font-family="Arial, sans-serif" font-size="17" font-weight="bold" letter-spacing="2.4">LCARS / 26</text>
+
+  <g id="identity">
+    <text x="151" y="107" fill="#BAA4E5" font-family="Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="3">SINGLE-PLAYER AGENT MMO ECOSYSTEM</text>
+    <text x="146" y="193" fill="#FCC19F" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="800" letter-spacing="-2.2">FRONTIER</text>
+    <text x="146" y="272" fill="#FCC19F" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="800" letter-spacing="-2.2">COMMAND</text>
+    <rect x="150" y="289" width="460" height="3" fill="#C47D69"/>
+    <text x="150" y="326" fill="#E0C4E9" font-family="'Noto Sans CJK SC','Microsoft YaHei','PingFang SC',sans-serif" font-size="22">星际边疆  ·  有自己主意的 Agent 员工</text>
+    <text x="151" y="363" fill="#A998BE" font-family="Arial, sans-serif" font-size="18" letter-spacing="1.0">THE WORLD RUNS. AGENTS DECIDE.</text>
+  </g>
+
+  <g id="map-and-proof">
+    <rect x="684" y="107" width="474" height="244" rx="15" fill="#10101A" stroke="#705C83" stroke-width="2"/>
+    <g clip-path="url(#map-clip)">
+      <rect x="686" y="111" width="468" height="236" fill="url(#sector-grid)"/>
+      <path d="M730 322Q821 250 928 240Q980 227 1019 173" stroke="#78C9E5" stroke-width="4" stroke-dasharray="9 9" stroke-linecap="round" fill="none" marker-end="url(#travel-arrow)"/>
+      <path d="M1062 301Q1047 244 990 230" stroke="#CBD53A" stroke-width="3" stroke-dasharray="5 10" stroke-linecap="round" fill="none" marker-end="url(#pirate-arrow)"/>
+      <path d="M779 294Q832 288 876 278" stroke="#55B9FF" stroke-width="2" fill="none" opacity=".46"/>
+      <circle cx="775" cy="291" r="45" fill="none" stroke="#55B9FF" stroke-width="1.4" opacity=".35"/>
+      <circle cx="775" cy="291" r="24" fill="none" stroke="#55B9FF" stroke-width="1" opacity=".5"/>
+      <circle cx="775" cy="291" r="9" fill="#FFB347"/>
+      <circle cx="775" cy="291" r="17" fill="none" stroke="#FFB347" stroke-width="2"/>
+      <g transform="translate(923 239)">
+        <circle r="19" fill="none" stroke="#A775FF" stroke-width="4"/>
+        <ellipse rx="13" ry="20" fill="none" stroke="#A775FF" stroke-width="2" transform="rotate(34)"/>
+        <circle r="5" fill="#D9C5FF"/>
+      </g>
+      <circle cx="1016" cy="170" r="8" fill="#78C9E5"/>
+      <path d="M1016 149L1037 170L1016 191L995 170Z" fill="none" stroke="#78C9E5" stroke-width="2"/>
+      <path d="M1057 297L1079 319L1057 341L1035 319Z" fill="#CBD53A" opacity=".12" stroke="#CBD53A" stroke-width="2.5"/>
+      <path d="M1048 322L1065 315M1055 309L1065 329" stroke="#CBD53A" stroke-width="2.2"/>
+    </g>
+    <text x="704" y="137" fill="#BAA4E5" font-family="Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="1.6">FRONTIER ROUTE · CONCEPT SCHEMATIC</text>
+    <text x="704" y="219" fill="#FFC57F" font-family="Arial, sans-serif" font-size="20" font-weight="700">DAWN</text>
+    <text x="704" y="239" fill="#C0A6C3" font-family="Arial, sans-serif" font-size="14">STARBASE</text>
+    <text x="1065" y="180" text-anchor="start" fill="#B3E6FF" font-family="Arial, sans-serif" font-size="18" font-weight="700">HELIOS</text>
+    <text x="1065" y="200" text-anchor="start" fill="#9EB2C7" font-family="Arial, sans-serif" font-size="14">MINE</text>
+    <text x="942" y="279" fill="#D3C0FF" font-family="Arial, sans-serif" font-size="16">WORMHOLE</text>
+    <text x="1083" y="315" fill="#DDE884" font-family="Arial, sans-serif" font-size="17" font-weight="700">ORION</text>
+  </g>
+
+  <g id="status">
+    <rect x="687" y="363" width="10" height="10" rx="2" fill="#55B9FF"/>
+    <text x="707" y="374" fill="#9E95B4" font-family="Arial, sans-serif" font-size="16" letter-spacing=".7">OBSERVE</text>
+    <rect x="801" y="363" width="10" height="10" rx="2" fill="#BAA4E5"/>
+    <text x="821" y="374" fill="#9E95B4" font-family="Arial, sans-serif" font-size="16" letter-spacing=".7">DECIDE</text>
+    <rect x="904" y="363" width="10" height="10" rx="2" fill="#FCC19F"/>
+    <text x="924" y="374" fill="#9E95B4" font-family="Arial, sans-serif" font-size="16" letter-spacing=".7">VALIDATE</text>
+    <rect x="1029" y="363" width="10" height="10" rx="2" fill="#CBD53A"/>
+    <text x="1049" y="374" fill="#9E95B4" font-family="Arial, sans-serif" font-size="16" letter-spacing=".7">EXECUTE</text>
+  </g>
+  <text x="150" y="428" fill="#81738F" font-family="Arial, sans-serif" font-size="11" letter-spacing="2">FRONTIER AGENT RUNTIME  /  V16  /  LCARS CLASSIC</text>
+</svg>

@@ -15,6 +15,7 @@ import {
   startOrionConstruction,
 } from '../src/engine/orion/economy';
 import { ORION_BUILDS, ORION_RULES } from '../src/engine/definitions/orion';
+import { facilityCapabilities } from '../src/engine/definitions/facilities';
 import { parseSave } from '../src/engine/saves';
 import { dist } from '../src/engine/navigation';
 import { updateSiteIntel } from '../src/engine/tracking';
@@ -82,7 +83,7 @@ describe('seeded persistent Orion ecology', () => {
     expect(e.state.orion.logistics[0].work).toBeGreaterThan(0);
   });
   it.each([42, 1701, 236807])(
-    'natural unescorted freight produces an encounter within 120 minutes on seed %s',
+    'natural unescorted freight produces a ship piracy incident within 180 minutes on seed %s',
     (seed) => {
       const e = new SimulationEngine(createWorld(seed));
       expect(
@@ -100,19 +101,21 @@ describe('seeded persistent Orion ecology', () => {
           'meridian',
         ).ok,
       ).toBe(true);
-      run(e, 120);
+      until(e, () => e.state.piracyIncidents.some((i) => i.shipId === 'meridian'), 180);
       expect(
         Object.values(e.state.orion.intelligence)
           .flat()
           .some((r) => r.id === 'meridian'),
       ).toBe(true);
       expect(
-        e.state.orion.operations.some((op) => op.targetId === 'meridian' || op.targetId === 'mine'),
+        e.state.orion.operations.some((op) => op.targetId === 'meridian' && op.incidentId),
       ).toBe(true);
-      expect(
-        e.state.piracyIncidents.some((i) => i.shipId === 'meridian') ||
-          e.state.locations.find((l) => l.id === 'mine')!.attackedAt > 0,
-      ).toBe(true);
+      expect(e.state.piracyIncidents.some((i) => i.shipId === 'meridian')).toBe(true);
+      const ship = e.state.ships.find((s) => s.id === 'meridian')!;
+      const mine = e.state.locations.find((l) => l.id === 'mine')!;
+      expect(ship.current?.carried).toBe(120);
+      expect(cargoUsed(ship)).toBeGreaterThan(0);
+      expect(dist(ship, mine)).toBeGreaterThan(facilityCapabilities(mine).range);
       expect(() => parseSave(e.state)).not.toThrow();
     },
   );

@@ -17,8 +17,11 @@ const report = pointSchema
     cargoEstimate: nn,
     value: nn,
     defense: nn,
+    defenseRange: nn.optional(),
     classId: classId.nullable(),
-    escorts: z.array(pointSchema.extend({ id, strength: nn }).strict()).max(512),
+    escorts: z
+      .array(pointSchema.extend({ id, strength: nn, defenseRange: nn.optional() }).strict())
+      .max(512),
   })
   .strict();
 export const piracyIncidentSchema = z

@@ -61,16 +61,17 @@ export function observeOrion(e: SimulationEngine) {
     const observations: OrionReport[] = visible.map((t) => {
       const old = (intelligence[s.id] ?? []).find((r) => r.id === t.id);
       const elapsed = old ? w.time - old.seenAt : 0;
-      const escorts = visible
-        .filter((v) => v.id !== t.id && dist(v, t) < 180)
+      const escorts: OrionReport['escorts'] = visible
+        .filter((v) => v.id !== t.id && dist(v, t) <= R.escortRange)
         .map((v) => ({ id: v.id, strength: combatStrength(v), x: v.x, y: v.y }));
       for (const l of visibleFacilities)
-        if (dist(l, t) < facilityCapabilities(l).range + 40)
+        if (dist(l, t) < facilityCapabilities(l).range)
           escorts.push({
             id: l.id,
             strength: (l.hull + l.shield) * (0.5 + facilityCapabilities(l).damage / 36),
             x: l.x,
             y: l.y,
+            defenseRange: facilityCapabilities(l).range,
           });
       const estimate = Math.floor(cargoUsed(t) / 10) * 10;
       return {
@@ -113,9 +114,10 @@ export function observeOrion(e: SimulationEngine) {
         cargoEstimate: estimate,
         value: estimate * 5,
         defense: (l.hull + l.shield) * (0.5 + d.damage / 36),
+        defenseRange: d.range,
         classId: null,
         escorts: visible
-          .filter((v) => dist(v, l) < 180)
+          .filter((v) => dist(v, l) <= R.escortRange)
           .map((v) => ({ id: v.id, strength: combatStrength(v), x: v.x, y: v.y })),
       });
     }

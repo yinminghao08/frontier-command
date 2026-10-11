@@ -697,8 +697,10 @@ export interface OrionReport extends Point {
   cargoEstimate: number;
   value: number;
   defense: number;
+  /** Observed facility fire-control range; absent in older saves. */
+  defenseRange?: number;
   classId: ShipClassId | null;
-  escorts: { id: string; strength: number; x: number; y: number }[];
+  escorts: { id: string; strength: number; x: number; y: number; defenseRange?: number }[];
 }
 export type OrionPhase =
   | 'assemble'

@@ -1,7 +1,7 @@
-import type { Enemy, Location, OrionOperation, Ship } from '../types';
+import type { Enemy, Location, OrionOperation, OrionReport, Point, Ship } from '../types';
 import type { SimulationEngine } from '../engine';
 import { capabilities, cargoUsed } from '../capabilities';
-import { dist, move } from '../navigation';
+import { dist, move, segmentDistance } from '../navigation';
 import { canDetectShip, advanceEvasion } from '../tracking';
 import { regenerate } from '../combat';
 import { ORION_RULES as R } from '../definitions/orion';
@@ -35,6 +35,9 @@ const available = (e: SimulationEngine, s: Enemy) =>
   !assigned(e, s.id) &&
   s.intent !== 'retreat' &&
   s.intent !== 'docked' &&
+  s.hull >= capabilities(s).hull * 0.45 &&
+  s.engines >= 30 &&
+  s.core >= capabilities(s).core * 0.2 &&
   !s.counterTracking.evading &&
   (s.loot === 0 || (!operatingHomeExists(e) && cargoUsed(s) < capabilities(s).cargo)) &&
   !e.state.orion.jobs.some((j) => j.status === 'active' && j.builderId === s.id) &&
@@ -45,6 +48,154 @@ const changePhase = (e: SimulationEngine, op: OrionOperation, phase: OrionOperat
   op.phaseAt = e.state.time;
   op.work = 0;
 };
+/** Only reports physically received by these ships participate in a decision. */
+function receivedReports(e: SimulationEngine, members: Enemy[]) {
+  const reports = new Map<string, OrionReport>();
+  for (const r of members.flatMap((s) => localReports(e, s))) {
+    const old = reports.get(r.id);
+    const risk = (r: OrionReport) => r.defense + r.escorts.reduce((n, s) => n + s.strength, 0);
+    if (!old || r.seenAt > old.seenAt || (r.seenAt === old.seenAt && risk(r) > risk(old)))
+      reports.set(r.id, r);
+  }
+  return [...reports.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+function scoreTargets(e: SimulationEngine, members: Enemy[], operation?: OrionOperation) {
+  if (!members.length) return [];
+  const w = e.state,
+    reports = receivedReports(e, members),
+    leader = members[0],
+    capacity = members.reduce((n, s) => n + capabilities(s).cargo - cargoUsed(s), 0),
+    power = members.reduce((n, s) => n + combatStrength(s), 0),
+    speed = Math.min(...members.map((s) => capabilities(s).warp)),
+    home = retreatBase(e, leader);
+  return (
+    reports
+      .filter(
+        (r) =>
+          w.time - r.seenAt <= R.tacticalTTL &&
+          r.cargoEstimate >= R.minimumCargo &&
+          !w.orion.robbedTargets[r.id] &&
+          !w.orion.operations.some(
+            (op) => op !== operation && op.status === 'active' && op.targetId === r.id,
+          ),
+      )
+      .map((r) => {
+        const at = predictedPosition(r, w.time);
+        const cover = new Map(r.escorts.map((s) => [s.id, s.strength]));
+        // A remembered facility protects only its observed fire-control circle. Old escort
+        // records without a range remain conservative until a new observation replaces them.
+        for (const s of r.escorts)
+          if (s.defenseRange !== undefined && dist(s, at) >= s.defenseRange) cover.delete(s.id);
+        for (const facility of reports)
+          if (
+            facility.id !== r.id &&
+            facility.kind === 'facility' &&
+            facility.defenseRange !== undefined &&
+            w.time - facility.seenAt <= R.tacticalTTL &&
+            dist(facility, at) < facility.defenseRange
+          )
+            cover.set(facility.id, facility.defense);
+        const escort = [...cover.values()].reduce((n, strength) => n + strength, 0),
+          defense = r.defense + escort;
+        const facilityCover = [...cover.keys()].some(
+          (id) =>
+            reports.some((r) => r.id === id && r.kind === 'facility') ||
+            r.escorts.some((s) => s.id === id && s.defenseRange !== undefined),
+        );
+        const loot =
+          Math.min(r.cargoEstimate * R.boardingFraction, capacity) *
+          (r.value / Math.max(1, r.cargoEstimate));
+        const travel = Math.max(...members.map((s) => dist(s, at))) / speed,
+          returnCost = home ? dist(at, home) / capabilities(leader).warp : 60;
+        const score =
+          loot * (1 - (w.time - r.seenAt) / R.reportTTL) -
+          defense * 0.18 -
+          travel * 5 -
+          returnCost * 0.6 -
+          Math.max(0, defense - power) * 0.8;
+        return {
+          r,
+          score,
+          safe:
+            // Stalk a protected load; do not open a demand that cannot be collected
+            // without entering the facility circle our approach deliberately avoids.
+            (r.kind === 'facility' || !facilityCover) &&
+            escort < power * R.escortRiskRatio &&
+            defense < power * (r.kind === 'facility' ? R.facilityRiskRatio : R.shipRiskRatio),
+        };
+      })
+      .filter((c) => c.safe && c.score > R.minimumScore)
+      // Freight is the business; a facility raid is a fallback for a genuinely weak site.
+      .sort(
+        (a, b) =>
+          Number(a.r.kind === 'facility') - Number(b.r.kind === 'facility') ||
+          b.score - a.score ||
+          a.r.id.localeCompare(b.r.id),
+      )
+  );
+}
+/** Walk around received facility circles, rather than cutting through a defended site
+ * while stalking freight. This changes destinations, never speed or physical movement. */
+function approach(e: SimulationEngine, s: Enemy, goal: Point, dt: number, raidId?: string) {
+  const facilities = localReports(e, s)
+    .filter((r) => r.kind === 'facility' && r.id !== raidId && r.defenseRange !== undefined)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const outside = (p: Point) => facilities.every((r) => dist(r, p) >= r.defenseRange! + 2);
+  const clear = (a: Point, b: Point) =>
+    outside(b) &&
+    facilities.every(
+      (r) => segmentDistance(r, a, b) >= Math.min(r.defenseRange! + 2, dist(r, a)) - 1e-8,
+    );
+  let destination = { x: goal.x, y: goal.y };
+  if (!clear(s, goal)) {
+    const nodes: Point[] = [
+      { x: s.x, y: s.y },
+      { x: goal.x, y: goal.y },
+    ];
+    for (const r of facilities)
+      for (let i = 0; i < 16; i++) {
+        const radius = r.defenseRange! + R.watchBuffer + 2,
+          angle = (i * Math.PI) / 8;
+        const p = { x: r.x + Math.cos(angle) * radius, y: r.y + Math.sin(angle) * radius };
+        if (outside(p)) nodes.push(p);
+      }
+    const lengths = nodes.map(() => Infinity),
+      previous = nodes.map(() => -1),
+      visited = new Set<number>();
+    lengths[0] = 0;
+    for (let count = 0; count < nodes.length; count++) {
+      let at = -1;
+      for (let i = 0; i < nodes.length; i++)
+        if (!visited.has(i) && (at < 0 || lengths[i] < lengths[at])) at = i;
+      if (at < 0 || !Number.isFinite(lengths[at])) break;
+      visited.add(at);
+      if (at === 1) break;
+      for (let i = 1; i < nodes.length; i++) {
+        if (visited.has(i) || !clear(nodes[at], nodes[i])) continue;
+        const length = lengths[at] + dist(nodes[at], nodes[i]);
+        if (length < lengths[i] - 1e-8) {
+          lengths[i] = length;
+          previous[i] = at;
+        }
+      }
+    }
+    let end = Number.isFinite(lengths[1]) ? 1 : -1;
+    if (end < 0)
+      for (let i = 2; i < nodes.length; i++)
+        if (
+          Number.isFinite(lengths[i]) &&
+          (end < 0 || dist(nodes[i], goal) < dist(nodes[end], goal))
+        )
+          end = i;
+    if (end < 0) destination = { x: s.x, y: s.y };
+    else {
+      while (previous[end] > 0) end = previous[end];
+      destination = nodes[end];
+    }
+  }
+  s.destination = destination;
+  move(s, destination, dt);
+}
 export function withdrawOperation(e: SimulationEngine, op: OrionOperation, reason: string) {
   if (op.phase === 'withdraw' || op.phase === 'resupply') return;
   op.reason = reason;
@@ -87,33 +238,27 @@ export function planOrion(e: SimulationEngine) {
       ['assemble', 'deploy', 'ambush'].includes(op.phase),
   )) {
     const members = fleet(e).filter((s) => op.members.some((m) => m.shipId === s.id));
-    const power = members.reduce((n, s) => n + combatStrength(s), 0);
-    const opportunity = members
-      .flatMap((s) => localReports(e, s))
-      .filter(
-        (r) =>
-          r.kind === 'ship' &&
-          r.cargoEstimate >= 20 &&
-          w.time - r.seenAt < R.tacticalTTL &&
-          r.defense < op.report.defense &&
-          r.escorts.reduce((n, x) => n + x.strength, 0) < power * 0.65 &&
-          !w.orion.robbedTargets[r.id] &&
-          !w.orion.operations.some(
-            (other) => other !== op && other.status === 'active' && other.targetId === r.id,
-          ),
-      )
-      .sort((a, b) => b.value - a.value || b.seenAt - a.seenAt || a.id.localeCompare(b.id))[0];
+    if (
+      op.incidentId ||
+      op.taken > 0 ||
+      members.some((s) => s.lastHostileTargetId === op.targetId && s.lastHostileAt >= op.created)
+    )
+      continue;
+    const opportunity = scoreTargets(e, members, op).find((c) => c.r.kind === 'ship')?.r;
     if (opportunity) {
       op.targetId = opportunity.id;
       op.report = structuredClone(opportunity);
       op.motion = { x: opportunity.x, y: opportunity.y, observedAt: opportunity.seenAt };
       op.intercept = predictedPosition(opportunity, w.time, 5);
+      op.initialCargo = opportunity.cargoEstimate;
+      op.limit = 0;
+      op.transferWork = 0;
       changePhase(e, op, 'deploy');
       for (const s of members) s.targetId = op.targetId;
     }
   }
   for (const leader of fleet(e)
-    .filter((s) => available(e, s) && !w.orion.provisioning.some((p) => p.shipId === s.id))
+    .filter((s) => available(e, s) && s.role !== 'scout')
     .sort(
       (a, b) =>
         ['raider', 'interceptor', 'corsair', 'smuggler', 'scout'].indexOf(a.role) -
@@ -126,46 +271,17 @@ export function planOrion(e: SimulationEngine) {
           s.id !== leader.id &&
           ['raider', 'interceptor', 'corsair'].includes(s.role) &&
           available(e, s) &&
-          dist(s, leader) < 320,
+          dist(s, leader) < Math.min(320, capabilities(s).warp * R.tacticalTTL),
       )
       .sort((a, b) => dist(a, leader) - dist(b, leader) || a.id.localeCompare(b.id));
     const fighters = [leader, ...nearby].slice(0, 5);
     const capacity = fighters.reduce((n, s) => n + capabilities(s).cargo - cargoUsed(s), 0);
-    const power = fighters.reduce((n, s) => n + combatStrength(s), 0);
-    const candidates = localReports(e, leader)
-      .filter(
-        (r) =>
-          w.time - r.seenAt <= R.tacticalTTL &&
-          r.cargoEstimate >= 20 &&
-          !w.orion.robbedTargets[r.id] &&
-          !w.orion.operations.some((op) => op.status === 'active' && op.targetId === r.id),
-      )
-      .map((r) => {
-        const escort = r.escorts.reduce((n, s) => n + s.strength, 0),
-          defense = r.defense + escort;
-        const loot =
-          Math.min(r.cargoEstimate * R.boardingFraction, capacity) *
-          (r.value / Math.max(1, r.cargoEstimate));
-        const travel = dist(leader, r) / Math.min(...fighters.map((s) => capabilities(s).warp));
-        const home = retreatBase(e, leader),
-          returnCost = home ? dist(r, home) / capabilities(leader).warp : 60;
-        const score =
-          loot * (1 - (w.time - r.seenAt) / R.reportTTL) -
-          defense * 0.18 -
-          travel * 5 -
-          returnCost * 0.6 -
-          Math.max(0, defense - power) * 0.8;
-        return { r, score, safe: escort < power * 0.65 && defense < power * 1.55 };
-      })
-      .filter((c) => c.safe && c.score > 30)
-      .sort((a, b) => b.score - a.score || a.r.id.localeCompare(b.r.id));
+    const candidates = scoreTargets(e, fighters);
     const best = candidates[0];
     if (!best) continue;
     const r = best.r,
-      rendezvous = {
-        x: fighters.reduce((n, s) => n + s.x, 0) / fighters.length,
-        y: fighters.reduce((n, s) => n + s.y, 0) / fighters.length,
-      };
+      // Averaging positions on opposite sides of a facility can put the rally inside it.
+      rendezvous = { x: leader.x, y: leader.y };
     const lead =
       dist(rendezvous, r) / Math.max(1, Math.max(...fighters.map((s) => capabilities(s).warp)));
     const members: OrionOperation['members'] = fighters.map((s, i) => ({
@@ -247,8 +363,10 @@ function hostileCover(e: SimulationEngine, op: OrionOperation, members: Enemy[])
         members.some((s) =>
           'classId' in t ? canDetectShip(s, t, e.state.time) : dist(s, t) < capabilities(s).sensors,
         ) &&
-        dist(t, predictedPosition(op.report, e.state.time)) <
-          ('classId' in t ? 320 : facilityCapabilities(t).range + 40),
+        ('classId' in t
+          ? dist(t, predictedPosition(op.report, e.state.time)) <= R.escortRange
+          : dist(t, predictedPosition(op.report, e.state.time)) < facilityCapabilities(t).range ||
+            members.some((s) => dist(s, t) < facilityCapabilities(t).range)),
     )
     .sort((a, b) => unitStrength(b) - unitStrength(a) || a.id.localeCompare(b.id));
 }
@@ -335,7 +453,7 @@ function advanceOperation(
         s.engines < 30 ||
         s.core < capabilities(s).core * 0.2,
     ) ||
-    cover.reduce((n, s) => n + unitStrength(s), 0) > power * 0.85
+    cover.reduce((n, s) => n + unitStrength(s), 0) > power * R.escortRiskRatio
   ) {
     withdrawOperation(e, op, '实际观测到不可承担的战斗风险');
     return;
@@ -350,8 +468,7 @@ function advanceOperation(
   }
   if (op.phase === 'assemble') {
     for (const s of members) {
-      s.destination = op.rendezvous;
-      move(s, op.rendezvous, dt);
+      approach(e, s, op.rendezvous, dt, op.report.kind === 'facility' ? op.targetId : undefined);
     }
     if (members.length === all.length && members.every((s) => dist(s, op.rendezvous) < 45))
       changePhase(e, op, 'deploy');
@@ -359,7 +476,12 @@ function advanceOperation(
   }
   const at = target ? { x: target.x, y: target.y } : predictedPosition(op.report, e.state.time);
   if (op.phase === 'deploy' || op.phase === 'ambush') {
-    if (target && members.some((s) => dist(s, target) < 150)) {
+    if (
+      target &&
+      members.some((s) => dist(s, target) < 150) &&
+      (!('classId' in target) ||
+        !cover.some((t) => !('classId' in t) && dist(t, target) < facilityCapabilities(t).range))
+    ) {
       const free = members.reduce((n, s) => n + capabilities(s).cargo - cargoUsed(s), 0);
       op.initialCargo = op.report.cargoEstimate;
       op.limit = Math.min(op.report.cargoEstimate * R.boardingFraction, free);
@@ -385,14 +507,14 @@ function advanceOperation(
       goal.x += Math.cos(bearing + Math.PI / 2) * side * 35;
       goal.y += Math.sin(bearing + Math.PI / 2) * side * 35;
       s.intent = 'ambush';
-      s.destination = goal;
-      move(s, goal, dt);
+      approach(e, s, goal, dt, op.report.kind === 'facility' ? op.targetId : undefined);
     }
     if (op.phase === 'deploy') changePhase(e, op, 'ambush');
     return;
   }
   if (!target) {
-    for (const s of members) move(s, at, dt);
+    for (const s of members)
+      approach(e, s, at, dt, op.report.kind === 'facility' ? op.targetId : undefined);
     op.work = 0;
     const incident = e.state.piracyIncidents.find((i) => i.id === op.incidentId);
     if (incident) incident.boardingWork = 0;
@@ -402,7 +524,7 @@ function advanceOperation(
   if (op.phase === 'extort' && incident) {
     for (const s of members) {
       s.intent = 'extort';
-      move(s, target, dt);
+      approach(e, s, target, dt);
     }
     if (incident.response === 'comply') {
       incident.stage = 'transferring';
@@ -451,7 +573,7 @@ function advanceOperation(
       e.fire(s, cover[0], 'warning');
       continue;
     }
-    move(s, target, dt);
+    approach(e, s, target, dt, op.report.kind === 'facility' ? op.targetId : undefined);
     const hullMax = 'classId' in target ? capabilities(target).hull : target.maxHull;
     if (!vulnerable && target.hull > hullMax * 0.4)
       e.fire(
@@ -550,7 +672,57 @@ export function patrolOrion(e: SimulationEngine, s: Enemy, dt: number) {
       !shared && home && dist(s, home) > R.communicationRange
         ? { x: home.x, y: home.y }
         : predictedPosition(useful, e.state.time, 1);
-    move(s, s.destination, dt);
+    approach(e, s, s.destination, dt);
+    return;
+  }
+  const site = localReports(e, s)
+    .filter(
+      (r) =>
+        r.kind === 'facility' && r.cargoEstimate >= R.minimumCargo && r.defenseRange !== undefined,
+    )
+    .sort(
+      (a, b) => b.value / (1 + b.defense) - a.value / (1 + a.defense) || a.id.localeCompare(b.id),
+    )[0];
+  if (site && s.role !== 'smuggler') {
+    const p = (o.patrols[s.id] ??= { anchor: { x: site.x, y: site.y }, leg: 0 });
+    if (dist(p.anchor, site) > 1) {
+      p.anchor = { x: site.x, y: site.y };
+      p.leg = 0;
+    }
+    const received = localReports(e, s);
+    // A moving arrival is evidence of traffic, not knowledge of its cargo order or next leg.
+    const traffic = received
+      .filter(
+        (r) =>
+          r.kind === 'ship' &&
+          e.state.time - r.seenAt <= R.tacticalTTL &&
+          Math.hypot(r.velocity.x, r.velocity.y) > 0.1 &&
+          dist(r, site) <= capabilities(s).sensors + site.defenseRange!,
+      )
+      .sort((a, b) => dist(a, site) - dist(b, site) || a.id.localeCompare(b.id))[0];
+    const radius = site.defenseRange! + R.watchBuffer + 2;
+    let angle = traffic
+      ? Math.atan2(traffic.y - site.y, traffic.x - site.x)
+      : ((p.leg % 8) * Math.PI) / 4;
+    let lookout = { x: site.x + Math.cos(angle) * radius, y: site.y + Math.sin(angle) * radius };
+    for (let leg = 0; leg < 8; leg++) {
+      if (
+        received.every(
+          (r) =>
+            r.kind !== 'facility' ||
+            r.defenseRange === undefined ||
+            dist(r, lookout) >= r.defenseRange + 2,
+        )
+      )
+        break;
+      p.leg = (p.leg + 1) % 8;
+      angle = (p.leg * Math.PI) / 4;
+      lookout = { x: site.x + Math.cos(angle) * radius, y: site.y + Math.sin(angle) * radius };
+    }
+    s.intent = 'observe';
+    s.targetId = site.id;
+    approach(e, s, lookout, dt);
+    if (!traffic && dist(s, lookout) < 10) p.leg = (p.leg + 1) % 8;
     return;
   }
   const home = retreatBase(e, s);

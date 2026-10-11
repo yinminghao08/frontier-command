@@ -44,7 +44,7 @@ async function size(page: Page, width: number, height: number) {
 }
 async function screenshot(page: Page, name: string) {
   await page.waitForTimeout(220);
-  await page.screenshot({ path: 'test-results/lcars-' + name + '.png', animations: 'disabled' });
+  await page.screenshot({ path: '.test-data/test-results/lcars-' + name + '.png', animations: 'disabled' });
 }
 test('Classic geometry, eight Starbase modules, directives and Inspector at six sizes', async () => {
   test.setTimeout(120000);

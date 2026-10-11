@@ -1,10 +1,11 @@
+import './test-data.mjs';
 import { _electron as electron } from '@playwright/test';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 // Visible native windows, isolated user data, real UI and offline bundled fonts.
-const output = resolve('docs/verification/v9');
+const output = resolve('.test-data/verification/v9');
 mkdirSync(output, { recursive: true });
 const results = [];
 for (const scale of [1.25, 1.5, 2]) {

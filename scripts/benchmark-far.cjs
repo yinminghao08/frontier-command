@@ -8,6 +8,8 @@ const { performance } = require('node:perf_hooks');
 const ts = require('typescript');
 const root = path.resolve(__dirname, '..'),
   baseline = path.resolve(process.argv[2] || path.join(root, '.test-data/far-baseline'));
+fs.mkdirSync(path.join(root, '.test-data/tmp'), { recursive: true });
+process.env.TMPDIR = process.env.TMP = process.env.TEMP = path.join(root, '.test-data/tmp');
 require.extensions['.ts'] = (module, file) =>
   module._compile(
     ts.transpileModule(fs.readFileSync(file, 'utf8'), {
@@ -229,7 +231,7 @@ async function scenario(source, kind) {
     judgment: Buffer.byteLength(JSON.stringify(schemas('judgment'))),
     intent: Buffer.byteLength(JSON.stringify(schemas('intent'))),
   };
-  const out = path.join(root, 'docs/verification/v16/far-performance.json');
+  const out = path.join(root, '.test-data/verification/v16/far-performance.json');
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));

@@ -268,7 +268,7 @@ test('all map entity silhouettes and Chinese Inspector domains render including 
     .click();
   await expect(p.getByRole('dialog', { name: 'AGENTS 工作面板' })).toContainText('Talia');
   await expect(p.getByRole('button', { name: '查看 Agent Mira' })).toBeVisible();
-  await p.screenshot({ path: 'test-results/v9-personnel-and-inspectors.png' });
+  await p.screenshot({ path: '.test-data/test-results/v9-personnel-and-inspectors.png' });
   expect(errors).toEqual([]);
 });
 for (const scale of [1.25, 1.5, 2])
@@ -303,5 +303,5 @@ for (const scale of [1.25, 1.5, 2])
     expect(geometry.nowrap).toBe('normal');
     expect(geometry.textScroll).toBeLessThanOrEqual(geometry.textWidth);
     expect(geometry.textWidth).toBeLessThan(geometry.barWidth);
-    await p.screenshot({ path: `test-results/v9-long-title-${scale * 100}.png` });
+    await p.screenshot({ path: `.test-data/test-results/v9-long-title-${scale * 100}.png` });
   });

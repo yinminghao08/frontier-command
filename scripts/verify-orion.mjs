@@ -86,7 +86,7 @@ for (const seed of [42, 1701, 236807])
       mineHull: w.locations.find((l) => l.id === 'mine').hull,
     });
   }
-const output = resolve('docs/verification/v14');
+const output = resolve('.test-data/verification/v14');
 mkdirSync(output, { recursive: true });
 writeFileSync(resolve(output, 'natural-worlds.json'), JSON.stringify(results, null, 2) + '\n');
 for (const r of results)

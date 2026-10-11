@@ -6,16 +6,14 @@
   font-weight: 400;
   font-display: swap;
   src:
-    url('../../../assets/lcars-26/assets/Antonio-Regular.woff2') format('woff2'),
-    url('../../../assets/lcars-26/assets/Antonio-Regular.woff') format('woff');
+    url('../../../assets/lcars-26/assets/Antonio-Regular.woff2') format('woff2');
 }
 @font-face {
   font-family: Antonio;
   font-weight: 700;
   font-display: swap;
   src:
-    url('../../../assets/lcars-26/assets/Antonio-Bold.woff2') format('woff2'),
-    url('../../../assets/lcars-26/assets/Antonio-Bold.woff') format('woff');
+    url('../../../assets/lcars-26/assets/Antonio-Bold.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Alibaba PuHuiTi';

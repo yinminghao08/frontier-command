@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const { createAgentDemoWorld, AGENT_DEMO_NAME } = require('../dist-electron/src/engine/demo.js');
 const { SaveStore } = require('../dist-electron/electron/persistence.js');
 // Only this repository's generated demo data is touched, never the player's userData.
-const directory = fileURLToPath(new URL('../demo/user-data/', import.meta.url));
+const directory = fileURLToPath(new URL('../.test-data/demo/user-data/', import.meta.url));
 mkdirSync(directory, { recursive: true });
 const world = createAgentDemoWorld();
 const store = new SaveStore(directory);

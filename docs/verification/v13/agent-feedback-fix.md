@@ -19,8 +19,8 @@
 
 ## 截图
 
-- [短判断反馈](short-task-feedback.png)
-- [无限额调用统计](unlimited-call-stats.png)
-- [缺弹只报告一次](ammo-alert-once.png)
+- 短判断反馈（历史产物，仅本地保留：`short-task-feedback.png`）
+- 无限额调用统计（历史产物，仅本地保留：`unlimited-call-stats.png`）
+- 缺弹只报告一次（历史产物，仅本地保留：`ammo-alert-once.png`）
 
 重新启动应用后加载新的主进程代码。仓库运行方式为 npm start 或 npm run dev；历史打包目录不会随 npm run build 更新。

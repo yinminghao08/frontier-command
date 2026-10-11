@@ -10,14 +10,17 @@
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/create-icon.mjs && tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
     "start": "npm run build && electron .",
-    "test": "vitest run",
+    "test": "node --import ./scripts/test-data.mjs node_modules/vitest/vitest.mjs run",
     "demo:save": "npm run build && node scripts/create-agent-demo.mjs",
     "format": "prettier --write src electron scripts tests *.json *.ts index.html",
     "test:e2e": "npm run build && playwright test",
     "test:package": "node scripts/smoke-package.mjs",
     "package": "npm run build && electron-builder --win --dir",
     "package:zip": "node scripts/package-zip.mjs",
-    "test:release": "node scripts/verify-release.mjs"
+    "test:release": "node scripts/verify-release.mjs",
+    "hooks:install": "node scripts/install-hooks.mjs",
+    "git:check": "node scripts/git-guard.mjs tracked",
+    "fonts:source": "node scripts/restore-font-source.mjs"
   },
   "dependencies": {
     "@fontsource/antonio": "^5.2.0",
@@ -48,8 +51,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "build/icon.png",
-      "package.json",
-      "docs/**/*"
+      "package.json"
     ],
     "asar": true,
     "npmRebuild": false,
@@ -60,11 +62,12 @@
     },
     "extraFiles": [
       {
-        "from": "docs",
-        "to": "docs",
-        "filter": [
-          "**/*"
-        ]
+        "from": "docs/ANTONIO-OFL.txt",
+        "to": "licenses/Antonio-OFL.txt"
+      },
+      {
+        "from": "fonts/NOTICE.md",
+        "to": "licenses/Font-Notices.md"
       },
       {
         "from": "README.md",

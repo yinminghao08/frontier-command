@@ -20,16 +20,16 @@
 
 规则测试另验证 Battle Agent 实际 ATTACK 造成伤害、摧毁真实敌舰，随后获得 XP/记忆/聊天结果；运输中途保存恢复后继续与原世界完全一致。未知虫洞和隐藏敌方资产不会进入 observation 或自动规划。
 
-![AGENTS 名册](agents-roster.png)
+AGENTS 名册（历史产物，仅本地保留：`agents-roster.png`）
 
-![私聊影响真实指令](agent-private-chat.png)
+私聊影响真实指令（历史产物，仅本地保留：`agent-private-chat.png`）
 
-![培养毕业与舰船分配](agent-training-detail.png)
+培养毕业与舰船分配（历史产物，仅本地保留：`agent-training-detail.png`）
 
-![Demo 群聊与已接受的护航](demo-command-chat.png)
+Demo 群聊与已接受的护航（历史产物，仅本地保留：`demo-command-chat.png`）
 
-![Demo 实际交付与护航完成](demo-delivery-completed.png)
+Demo 实际交付与护航完成（历史产物，仅本地保留：`demo-delivery-completed.png`）
 
-![1024 窗口及 200% 文字通讯](chat-1024-text-200.png)
+1024 窗口及 200% 文字通讯（历史产物，仅本地保留：`chat-1024-text-200.png`）
 
-[Demo 使用说明](../../../demo/README.md) · [独立世界 JSON](../../../demo/agent-demo-v11.json) · [Agent 架构](../../architecture.md)
+[Demo 使用说明](../../../demo/README.md) · 独立世界 JSON（历史产物，仅本地保留：`../../../demo/agent-demo-v11.json`） · [Agent 架构](../../architecture.md)

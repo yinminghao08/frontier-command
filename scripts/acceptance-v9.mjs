@@ -1,3 +1,4 @@
+import './test-data.mjs';
 import { _electron as electron, expect } from '@playwright/test';
 import { createRequire } from 'node:module';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ const { createWorld } = require('../dist-electron/src/engine/data.js');
 const { SaveStore } = require('../dist-electron/electron/persistence.js');
 const seed = Number(process.argv[2] ?? 236807),
   directory = mkdtempSync(join(tmpdir(), 'frontier-v10-acceptance-'));
-const output = resolve('docs/verification/v10');
+const output = resolve('.test-data/verification/v10');
 mkdirSync(output, { recursive: true });
 new SaveStore(directory).write(createWorld(seed));
 const app = await electron.launch({

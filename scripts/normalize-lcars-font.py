@@ -84,7 +84,7 @@ def bounds(font, outlines, radius_x=0, radius_y=0):
 
 def author(style, weight):
     source = TTFont(SOURCE, recalcTimestamp=False)
-    reference = TTFont(ROOT / f"src/assets/lcars-26/assets/Antonio-{style}.woff")
+    reference = TTFont(ROOT / f"src/assets/lcars-26/assets/Antonio-{style}.woff2")
     units = source["head"].unitsPerEm
     ratio = units / reference["head"].unitsPerEm
     cap = reference["OS/2"].sCapHeight * ratio
@@ -175,7 +175,8 @@ def author(style, weight):
 
 
 if __name__ == "__main__":
+    (ROOT / ".test-data/fonts").mkdir(parents=True, exist_ok=True)
     metrics = [author("Regular", 400), author("Bold", 700)]
-    (ROOT / "fonts/optical-metrics.json").write_text(
+    (ROOT / ".test-data/fonts/optical-metrics.json").write_text(
         json.dumps(metrics, indent=2) + "\n", encoding="utf-8"
     )

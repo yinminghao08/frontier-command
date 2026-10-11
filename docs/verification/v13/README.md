@@ -8,13 +8,13 @@
 
 | 检查               | 结果与证据                                                                             |
 | ------------------ | -------------------------------------------------------------------------------------- |
-| 最终全量单元       | 21 个文件、296 项通过；[机器结果](unit-last-run.json)                                  |
-| 最终生产构建       | TypeScript、Vite 和 Electron 编译通过；[构建记录](build-last-run.txt)                  |
-| 完整 Electron 回归 | 55 项已覆盖；首跑 53/55，最终相关复验 14/14，无跳过或重试；[汇总](checks-summary.json) |
+| 最终全量单元       | 21 个文件、296 项通过；机器结果（历史产物，仅本地保留：`unit-last-run.json`）                                  |
+| 最终生产构建       | TypeScript、Vite 和 Electron 编译通过；构建记录（历史产物，仅本地保留：`build-last-run.txt`）                  |
+| 完整 Electron 回归 | 55 项已覆盖；首跑 53/55，最终相关复验 14/14，无跳过或重试；汇总（历史产物，仅本地保留：`checks-summary.json`） |
 
 首次 Electron 回归的一项自动保存测试遇到临时文件读写失败，引擎保护性暂停；相同隔离场景单独重跑通过。另一项布局测试在紧凑窗口未先打开 MENU 导航，导致定位超时；修正测试操作后重验四组窗口/文字尺寸。保留失败事实，不将首跑描述为无失败。
 
-最终复验使用最后一次生产构建，覆盖 v13 五项验收、Agent 四项回归、Admiral 聊天三项回归及暂停/保存两项回归，14 项全部通过，无跳过、失败或重试，用时 6 分 17 秒。[最终机器结果](electron-final-related.json)。首跑失败上下文保留为 [保存错误](first-run-save-error.md) 和 [布局测试错误](first-run-layout-error.md)。
+最终复验使用最后一次生产构建，覆盖 v13 五项验收、Agent 四项回归、Admiral 聊天三项回归及暂停/保存两项回归，14 项全部通过，无跳过、失败或重试，用时 6 分 17 秒。最终机器结果（历史产物，仅本地保留：`electron-final-related.json`）。首跑失败上下文保留为 [保存错误](first-run-save-error.md) 和 [布局测试错误](first-run-layout-error.md)。
 
 所有 Electron 测试使用隔离 userData；迁移输入来自仓库 `tests/fixtures/v12/in-progress.json`。本地 HTTP provider 只存在于测试中，用于重复指定接受、拒绝、维修反提议等分支。未调用玩家真实外部模型，也未读取玩家 API Key 或生产 APPDATA。
 
@@ -29,11 +29,11 @@
 
 ## 实际界面与演示
 
-![维修与奖励反提议](request-negotiation.png)
+维修与奖励反提议（历史产物，仅本地保留：`request-negotiation.png`）
 
-![真实系统报告](system-reports.png)
+真实系统报告（历史产物，仅本地保留：`system-reports.png`）
 
-![人格、心理和关系](personality-relationship.png)
+人格、心理和关系（历史产物，仅本地保留：`personality-relationship.png`）
 
 1024×768 / 1366×900，文字 100% / 200% 的请求、报告和心理状态截图分别使用 `requests-*`、`reports-*`、`agents-*` 文件名。其他原有功能的本轮截图独立放在 `regression-v9/`、`regression-v10/` 和 `mine-accidents/`，历史版本记录不覆盖。
 
